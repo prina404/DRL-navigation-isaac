@@ -7,15 +7,13 @@ import time
 import math
 import argparse
 from isaaclab.app import AppLauncher
-
 # # add argparse arguments
 # parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
 
 # # append AppLauncher cli args
 # AppLauncher.add_app_launcher_args(parser)
 #args_cli = parser.parse_args()
-
-app_launcher = AppLauncher()#args_cli)
+app_launcher = AppLauncher(enable_cameras=True)#args_cli)
 simulation_app = app_launcher.app
 
 import torch
@@ -154,7 +152,7 @@ def load_interiorAgent_env(cfg: DictConfig, namespace: str) -> None:
             prim = define_prim(SCENE_PRIM, "Xform")
         prim.GetReferences().AddReference(asset_path)
         x = UsdGeom.XformCommonAPI(get_prim_at_path(SCENE_PRIM))
-        x.SetTranslate((0.0, 0.0, 1.05))  
+        x.SetTranslate((0.0, 0.0, 0.05))  
 
         num_disabled = _disable_rigid_bodies(SCENE_PRIM)
         if num_disabled > 0:
@@ -203,10 +201,6 @@ def run_simulator(cfg: DictConfig):
     lidar_annotators = sm.add_rtx_lidar()
     cameras = sm.add_camera(cfg.freq)
 
-    # Keyboard control
-    system_input = carb.input.acquire_input_interface()
-    system_input.subscribe_to_keyboard_events(
-        omni.appwindow.get_default_app_window().get_keyboard(), go2_ctrl.sub_keyboard_event)
     
     # Run simulation
     sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)

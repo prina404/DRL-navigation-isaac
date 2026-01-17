@@ -24,7 +24,7 @@ class Go2SimCfg(InteractiveSceneCfg):
         prim_path="/World/ground",
         spawn=sim_utils.GroundPlaneCfg(color=(0.1, 0.1, 0.1), size=(300.0, 300.0)),
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0, 0, 1)
+            pos=(0, 0, 0)
         )
     )
     
@@ -154,7 +154,7 @@ class Go2RSLEnvCfg(ManagerBasedRLEnvCfg):
 
     def __post_init__(self):
         # viewer settings
-        self.viewer.eye = [-4.0, 0.0, 5.0]
+        self.viewer.eye = [-4.0, 0.0, 2.0]
         self.viewer.lookat = [0.0, 0.0, 0.0]
 
         # step settings
