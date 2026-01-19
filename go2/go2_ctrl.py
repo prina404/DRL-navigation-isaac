@@ -38,7 +38,7 @@ def base_vel_cmd(env: ManagerBasedEnv) -> torch.Tensor:
     _ensure_cmd_tensor(env)
     return base_vel_cmd_input
 
-def get_rsl_flat_policy(cfg) -> tuple[RslRlVecEnvWrapper, Callable]:
+def get_rsl_flat_policy(cfg) -> Callable:
     cfg.observations.policy.height_scan = None
     env = gym.make("Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=cfg)
     env = RslRlVecEnvWrapper(env)
@@ -51,7 +51,9 @@ def get_rsl_flat_policy(cfg) -> tuple[RslRlVecEnvWrapper, Callable]:
     ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=None, device=agent_cfg["device"])
     ppo_runner.load(ckpt_path)
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
-    return env, policy
+    env.close() # close dummy env needed to load rsl_policy
+    del env
+    return policy
 
 def get_rsl_rough_policy(cfg):
     env = gym.make("Isaac-Velocity-Rough-Unitree-Go2-v0", cfg=cfg)

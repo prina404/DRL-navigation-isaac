@@ -35,31 +35,31 @@ class SensorManager:
             lidar_annotators.append(annotator)
         return lidar_annotators
     
-    # TODO: set realistic aperture and focal length based on Go2 camera specs
-    def add_camera(self, freq, resolution=(640, 480)):
-        """Create a single TiledCamera that captures all env cameras in one batch."""
-        self._camera_resolution = resolution
-        tiled_camera: TiledCameraCfg = TiledCameraCfg(
-            prim_path="/World/envs/env_.*/Go2/base/front_cam",
-            width=resolution[0],
-            height=resolution[1],
-            offset=TiledCameraCfg.OffsetCfg(  
-                pos=(0.4, 0.0, 0.0),  # Your desired offset  
-                convention="world"       # Coordinate frame convention  
-            ),  
-            data_types=["rgb"],
-            spawn=PinholeCameraCfg(
-                focal_length=1.5,
-                horizontal_aperture=4,
-                clipping_range=(0.1, 1000.0)
-            )
-        )
-        self.tiled_camera = TiledCamera(tiled_camera)
-        return self.tiled_camera
+    # # TODO: set realistic aperture and focal length based on Go2 camera specs
+    # def add_camera(self, freq, resolution=(640, 480)):
+    #     """Create a single TiledCamera that captures all env cameras in one batch."""
+    #     self._camera_resolution = resolution
+    #     tiled_camera: TiledCameraCfg = TiledCameraCfg(
+    #         prim_path="/World/envs/env_.*/Go2/base/front_cam",
+    #         width=resolution[0],
+    #         height=resolution[1],
+    #         offset=TiledCameraCfg.OffsetCfg(  
+    #             pos=(0.4, 0.0, 0.0),  # Your desired offset  
+    #             convention="world"       # Coordinate frame convention  
+    #         ),  
+    #         data_types=["rgb"],
+    #         spawn=PinholeCameraCfg(
+    #             focal_length=1.5,
+    #             horizontal_aperture=4,
+    #             clipping_range=(0.1, 1000.0)
+    #         )
+    #     )
+    #     self.tiled_camera = TiledCamera(tiled_camera)
+    #     return self.tiled_camera
 
-    def get_camera_frames(self) -> torch.Tensor:
-        """Return a tensor of shape (num_envs, H, W, C) containing all camera frames."""
-        if self.tiled_camera is None:
-            raise RuntimeError("Tiled camera not initialized. Call add_camera() first.")
+    # def get_camera_frames(self) -> torch.Tensor:
+    #     """Return a tensor of shape (num_envs, H, W, C) containing all camera frames."""
+    #     if self.tiled_camera is None:
+    #         raise RuntimeError("Tiled camera not initialized. Call add_camera() first.")
 
-        return self.tiled_camera.data.output["rgb"]
+    #     return self.tiled_camera.data.output["rgb"]

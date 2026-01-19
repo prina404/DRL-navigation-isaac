@@ -33,7 +33,7 @@ unitree_go2_flat_cfg = {
     'neptune_project': 'isaaclab',
     'wandb_project': 'isaaclab',
     'resume': False,
-    'load_run': 'unitree_go2',
+    'load_run': 'unitree_go2_mpc',
     'load_checkpoint': 'flat_model_6800.pt'
 }
 
@@ -72,6 +72,6 @@ unitree_go2_rough_cfg = {
         'neptune_project': 'orbit', 
         'wandb_project': 'orbit', 
         'resume': False, 
-        'load_run': 'unitree_go2', 
+        'load_run': 'unitree_go2_mpc', 
         'load_checkpoint': 'rough_model_7850.pt'
 }
