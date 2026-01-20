@@ -27,6 +27,7 @@ from isaaclab_tasks.utils import get_checkpoint_path
 import go2.go2_ctrl as go2_ctrl
 from lab.scene_loaders import load_interiorAgent_env
 from rsl_rl.runners import OnPolicyRunner
+from lab.encoder_model import ViTEncoder
 
 from lab.go2_nav_cfg import go2_policy_cfg
 
@@ -44,20 +45,29 @@ def run_simulator(cfg: DictConfig):
 
     # Go2 Env setup
     go2_env_cfg = Go2EnvCfg()
+    go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc # inject mpc policy
     go2_env_cfg.scene.num_envs = cfg.num_envs
     go2_env_cfg.decimation = math.ceil(1.0 / go2_env_cfg.sim.dt / cfg.freq)
     go2_env_cfg.sim.render_interval = go2_env_cfg.decimation
-    #env = gym.make("Isaac-Go2-MPC-v0", cfg=go2_env_cfg)
+    
+    # Create the whole scene
+    env = gym.make("Isaac-Go2-MPC-v0", cfg=go2_env_cfg)
     env = RslRLVecEnvWrapper(env)
+    
+    # Navigation Policy setup
+    vit = ViTEncoder().to(go2_policy_cfg["device"])
     agent_cfg = go2_policy_cfg
-    ckpt_path = get_checkpoint_path(log_path=os.path.abspath("ckpts"), 
-                                    run_dir=agent_cfg["load_run"], 
-                                    checkpoint=agent_cfg["load_checkpoint"])
+    agent_cfg["num_envs"] = cfg.num_envs
+    agent_cfg["policy"]["encoder"] = vit
+    # ckpt_path = get_checkpoint_path(log_path=os.path.abspath("ckpts"), 
+    #                                 run_dir=agent_cfg["load_run"], 
+    #                                 checkpoint=agent_cfg["load_checkpoint"])
     ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=None, device=agent_cfg["device"])
-    ppo_runner.load(ckpt_path)
-    load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
-    # load_infinigen_env(cfg, env.unwrapped.scene.env_ns)
+    #ppo_runner.load(ckpt_path)
 
+
+    #load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
+    policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
     # Sensor setup
     sm = go2_sensors.SensorManager(cfg.num_envs)
     lidar_annotators = sm.add_rtx_lidar()
