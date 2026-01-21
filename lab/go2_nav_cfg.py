@@ -1,15 +1,16 @@
+
 go2_policy_cfg = {
     # Training loop parameters
     "num_steps_per_env": 24,
     "save_interval": 50,
     "max_iterations": 1000,
     "device": "cuda:0",
-    # Observation routing 
-    "obs_groups": {  
-        "policy": ["rgb"], 
-        "critic": ["rgb"],  
-    },  
-    
+    "empirical_normalization": False,
+    # Observation routing
+    "obs_groups": {
+        "policy": ["policy"],
+        "critic": ["policy"],
+    },
     # Policy architecture
     "policy": {
         "class_name": "NavPolicyAC",
@@ -21,7 +22,6 @@ go2_policy_cfg = {
         "encoder": None,
         "freeze_encoder": True,
     },
-    
     # PPO algorithm parameters
     "algorithm": {
         "class_name": "PPO",
@@ -31,13 +31,13 @@ go2_policy_cfg = {
         "entropy_coef": 0.01,
         "num_learning_epochs": 5,
         "num_mini_batches": 4,
-        "learning_rate": 1.e-3,
+        "learning_rate": 1.0e-3,
         "schedule": "adaptive",
         "gamma": 0.99,
         "lam": 0.95,
         "desired_kl": 0.01,
         "max_grad_norm": 1.0,
     },
-    'load_run': 'unitree_go2',
-    'load_checkpoint': ''
+    "load_run": "unitree_go2",
+    "load_checkpoint": "",
 }

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import transformers
-
+from loguru import logger   
 
 class ViTEncoder(nn.Module):
     def __init__(self):
@@ -12,6 +12,7 @@ class ViTEncoder(nn.Module):
         )
         self.register_buffer("mean", torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1))
         self.register_buffer("std", torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1))
+        logger.info("ViT Encoder initialized")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = F.interpolate(x, size=(224, 224), mode="bilinear", align_corners=False)

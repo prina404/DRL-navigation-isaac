@@ -32,15 +32,12 @@ class NavPolicyAC(ActorCritic):
             for p in self.encoder.parameters():
                 p.requires_grad_(False)
 
-    def _encode(self, obs: TensorDict) -> torch.Tensor:
-        # Extract RGB tensor from TensorDict  
-        rgb_obs = obs["rgb"]  # Shape: [N, H, W, 3]  
-        
+    def _encode(self, img: torch.Tensor) -> torch.Tensor:        
         # Your encoder expects [N, C, H, W], so transpose if needed  
-        if rgb_obs.shape[-1] == 3:  # H, W, C format  
-            rgb_obs = rgb_obs.permute(0, 3, 1, 2)  # Convert to N, C, H, W  
+        if img.shape[-1] == 3:  # H, W, C format  
+            img = img.permute(0, 3, 1, 2)  # Convert to N, C, H, W  
         
-        emb = self.encoder(rgb_obs)  
+        emb = self.encoder(img)  
         if emb.ndim > 2:  
             emb = emb.flatten(1)  
         return emb

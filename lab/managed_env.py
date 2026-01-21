@@ -1,6 +1,7 @@
 from typing import Callable
-from IsaacLab.source.isaaclab.isaaclab.envs.manager_based_env_cfg import ManagerBasedEnvCfg
-from go2 import go2_ctrl
+
+from loguru import logger
+import go2.go2_ctrl as go2_ctrl
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 from isaaclab.utils import configclass
@@ -8,13 +9,15 @@ from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.sensors import RayCasterCfg, patterns, ContactSensorCfg
 import isaaclab.sim as sim_utils
 import isaaclab.envs.mdp as mdp
-from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.envs import ManagerBasedRLEnvCfg, ManagerBasedRLEnv
 from isaaclab.sensors.camera import TiledCameraCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import ActionTerm, SceneEntityCfg, ActionTermCfg
 import torch
+
+from isaaclab_tasks.manager_based.classic.ant.ant_env_cfg import RewardsCfg
 
 @configclass
 class Go2SimCfg(InteractiveSceneCfg):
@@ -72,14 +75,31 @@ class Go2SimCfg(InteractiveSceneCfg):
     )
 
 
-def _get_rgb(env: sim_utils.ManagerBasedRLEnvWrapper) -> torch.Tensor:
+def _get_rgb(env: ManagerBasedRLEnv) -> torch.Tensor:
+    cam = env.scene["camera"]  # <-- IMPORTANT: access by name, not env.scene.camera
+
+    rgb = cam.data.output.get("policy", None)
+    if rgb is None:
+        # ObservationManager probes shapes during construction; return a correctly-shaped placeholder.
+        # TiledCamera outputs per-env batch, so shape is [num_envs, H, W, 3]
+        return torch.zeros(
+            (env.num_envs, cam.cfg.height, cam.cfg.width, 3),
+            device=env.device,
+            dtype=torch.float32,
+        )
     # Return a [N, H, W, 3] tensor of RGB images in [0, 1] range
-    return env.scene.camera.data.output["rgb"] / 255.0
+    return rgb.to(dtype=torch.float32)/ 255.0
 
 @configclass
-class ObservationsCfg(ObsGroup):
-    rgb = ObsTerm(func=_get_rgb)
+class ObservationsCfg:
+    @configclass
+    class PolicyCfg(ObsGroup):
+        """Observations for policy group."""
+        policy = ObsTerm(func=_get_rgb)
 
+        def __post_init__(self) -> None:
+            self.concatenate_terms = True
+    policy = PolicyCfg()
 
 class Go2MPCPolicyAction(ActionTerm):
     def __init__(self, cfg, env):
@@ -108,20 +128,17 @@ class Go2MPCPolicyAction(ActionTerm):
         self._cmd[:] = actions
 
     def _build_low_level_obs(self) -> torch.Tensor:
-        base_lin_vel = mdp.base_lin_vel(self.env, asset_cfg=self._robot_cfg)
-        base_ang_vel = mdp.base_ang_vel(self.env, asset_cfg=self._robot_cfg)
-        projected_gravity = mdp.projected_gravity(self.env, asset_cfg=self._robot_cfg)
+        base_lin_vel = mdp.base_lin_vel(self._env, asset_cfg=self._robot_cfg)
+        base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
+        projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        # write cmd so go2_ctrl.base_vel_cmd reads it
-        go2_ctrl._ensure_cmd_tensor(self.env)
-        go2_ctrl.base_vel_cmd_input[:] = self._cmd
-        base_vel_cmd = go2_ctrl.base_vel_cmd(self.env)
+        base_vel_cmd = self._cmd 
 
-        joint_pos = mdp.joint_pos_rel(self.env, asset_cfg=self._robot_cfg)
-        joint_vel = mdp.joint_vel_rel(self.env, asset_cfg=self._robot_cfg)
+        joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
+        joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
 
         if self._last_joint_action is None:
-            self._last_joint_action = torch.zeros_like(joint_pos)
+            self._last_joint_action = torch.zeros_like(joint_pos) 
 
         return torch.cat(
             [base_lin_vel, base_ang_vel, projected_gravity, base_vel_cmd, joint_pos, joint_vel, self._last_joint_action],
@@ -132,13 +149,22 @@ class Go2MPCPolicyAction(ActionTerm):
         # Run low-level policy every sim step by default
         with torch.no_grad():
             mpc_obs = self._build_low_level_obs()
-            mpc_action = self.mpc(mpc_obs)
-            self._last_joint_action = mpc_action
+            mpc_action = self.mpc(mpc_obs) + 0.1
+            self._last_joint_action = mpc_action 
 
-        robot = self.env.scene[self.cfg.asset_name]
+        robot = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos
-        q_des = q0 + mpc_action
+        q_des = q0 + mpc_action * 0.25
         robot.set_joint_position_target(q_des)
+
+@configclass
+class RewardsCfg:
+    pass
+
+@configclass
+class TerminationsCfg:
+    """Termination terms for the MDP."""
+    pass
 
 
 @configclass
@@ -151,7 +177,14 @@ class ActionsCfg:
 @configclass
 class Go2EnvCfg(ManagerBasedRLEnvCfg):
     
-    scene = Go2SimCfg()
+    scene = Go2SimCfg(num_envs=1, env_spacing=12.0)
     
     actions = ActionsCfg()
     observations = ObservationsCfg()
+    rewards = RewardsCfg()
+    terminations = TerminationsCfg()
+
+    def __post_init__(self) -> None:
+        self.sim.dt = 0.005
+        self.episode_length_s = 20.0
+        logger.info("Go2 EnvCfg initialized")

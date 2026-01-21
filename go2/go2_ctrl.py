@@ -1,14 +1,14 @@
 import os
 from typing import Callable
+import omni.usd
 import torch
-import carb
 import gymnasium as gym
 from isaaclab.envs import ManagerBasedEnv
 from go2.go2_ctrl_cfg import unitree_go2_flat_cfg, unitree_go2_rough_cfg
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, RslRlOnPolicyRunnerCfg
 from isaaclab_tasks.utils import get_checkpoint_path
 from rsl_rl.runners import OnPolicyRunner
-
+from loguru import logger
 base_vel_cmd_input = None
 
 
@@ -30,6 +30,7 @@ def _ensure_cmd_tensor(env: ManagerBasedEnv) -> None:
         or base_vel_cmd_input.shape != (num_envs, 3)
         or base_vel_cmd_input.device != env.device
     ):
+        print("Initializing base_vel_cmd_input tensor, shape:", (num_envs), "device:", env.device,  "cmd:", base_vel_cmd_input )
         init_base_vel_cmd(num_envs, device=env.device)
 
 
@@ -39,6 +40,7 @@ def base_vel_cmd(env: ManagerBasedEnv) -> torch.Tensor:
     return base_vel_cmd_input
 
 def get_rsl_flat_policy(cfg) -> Callable:
+    logger.info("Loading MPC policy for Go2")
     cfg.observations.policy.height_scan = None
     env = gym.make("Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=cfg)
     env = RslRlVecEnvWrapper(env)
@@ -51,8 +53,11 @@ def get_rsl_flat_policy(cfg) -> Callable:
     ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=None, device=agent_cfg["device"])
     ppo_runner.load(ckpt_path)
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
+    env.reset()
     env.close() # close dummy env needed to load rsl_policy
     del env
+    omni.usd.get_context().new_stage()
+    logger.info("MPC policy loaded successfully")
     return policy
 
 def get_rsl_rough_policy(cfg):
