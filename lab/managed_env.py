@@ -1,7 +1,7 @@
 from typing import Callable
 
 from loguru import logger
-import go2.go2_ctrl as go2_ctrl
+from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 from isaaclab.utils import configclass
@@ -16,8 +16,8 @@ from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import ActionTerm, SceneEntityCfg, ActionTermCfg
 import torch
+from utils.gridmap import generate_ogm_on_reset
 
-from isaaclab_tasks.manager_based.classic.ant.ant_env_cfg import RewardsCfg
 
 @configclass
 class Go2SimCfg(InteractiveSceneCfg):
@@ -88,18 +88,22 @@ def _get_rgb(env: ManagerBasedRLEnv) -> torch.Tensor:
             dtype=torch.float32,
         )
     # Return a [N, H, W, 3] tensor of RGB images in [0, 1] range
-    return rgb.to(dtype=torch.float32)/ 255.0
+    return rgb.to(dtype=torch.float32) / 255.0
+
 
 @configclass
 class ObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
+
         policy = ObsTerm(func=_get_rgb)
 
         def __post_init__(self) -> None:
             self.concatenate_terms = True
+
     policy = PolicyCfg()
+
 
 class Go2MPCPolicyAction(ActionTerm):
     def __init__(self, cfg, env):
@@ -108,7 +112,7 @@ class Go2MPCPolicyAction(ActionTerm):
         self._cmd = torch.zeros((self.num_envs, 3), device=self.device)
         self._last_joint_action = None
 
-        self.mpc: Callable = getattr(cfg, "mpc_policy", None) # type: ignore
+        self.mpc: Callable = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
             raise ValueError("MPC policy must be provided in the environment config.")
 
@@ -132,16 +136,24 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self._cmd 
+        base_vel_cmd = self._cmd + 0.5
 
         joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
 
         if self._last_joint_action is None:
-            self._last_joint_action = torch.zeros_like(joint_pos) 
+            self._last_joint_action = torch.zeros_like(joint_pos)
 
         return torch.cat(
-            [base_lin_vel, base_ang_vel, projected_gravity, base_vel_cmd, joint_pos, joint_vel, self._last_joint_action],
+            [
+                base_lin_vel,
+                base_ang_vel,
+                projected_gravity,
+                base_vel_cmd,
+                joint_pos,
+                joint_vel,
+                self._last_joint_action,
+            ],
             dim=-1,
         )
 
@@ -150,21 +162,12 @@ class Go2MPCPolicyAction(ActionTerm):
         with torch.no_grad():
             mpc_obs = self._build_low_level_obs()
             mpc_action = self.mpc(mpc_obs) + 0.1
-            self._last_joint_action = mpc_action 
+            self._last_joint_action = mpc_action
 
         robot = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos
         q_des = q0 + mpc_action * 0.25
         robot.set_joint_position_target(q_des)
-
-@configclass
-class RewardsCfg:
-    pass
-
-@configclass
-class TerminationsCfg:
-    """Termination terms for the MDP."""
-    pass
 
 
 @configclass
@@ -174,17 +177,44 @@ class ActionsCfg:
         asset_name="unitree_go2",
     )
 
+
+@configclass
+class RewardsCfg:
+    pass
+
+
+@configclass
+class TerminationsCfg:
+    """Termination terms for the MDP."""
+
+    pass
+
+
+@configclass
+class EventsCfg:
+    create_occupancy_gridmap = EventTermCfg(
+        func=generate_ogm_on_reset,
+        mode="interval",  # No need to specify other params, env & env_ids are passed by default
+        interval_range_s=(3.0, 3.0),
+        params={
+            "map_resolution": 0.05,
+        }
+    )
+
+
 @configclass
 class Go2EnvCfg(ManagerBasedRLEnvCfg):
-    
+
     scene = Go2SimCfg(num_envs=1, env_spacing=12.0)
-    
+
     actions = ActionsCfg()
     observations = ObservationsCfg()
     rewards = RewardsCfg()
     terminations = TerminationsCfg()
+    events = EventsCfg()
 
     def __post_init__(self) -> None:
         self.sim.dt = 0.005
         self.episode_length_s = 20.0
+
         logger.info("Go2 EnvCfg initialized")

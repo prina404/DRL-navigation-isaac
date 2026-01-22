@@ -4,6 +4,7 @@ from isaacsim.core.utils.prims import define_prim, get_prim_at_path
 from pxr import Usd, UsdGeom, UsdPhysics, Sdf
 import omni.replicator.core as rep
 from omegaconf import DictConfig
+from loguru import logger
 
 def _disable_rigid_bodies(root_prim_path: str) -> int:
     # Disable all rigid bodies under a prim path.
@@ -147,6 +148,19 @@ def load_interiorAgent_env(cfg: DictConfig, namespace: str) -> None:
             print(
                 f"[physics] Marked {num_kin} root Xforms as kinematic under {SCENE_PRIM} for categories={kinematic_categories}"
             )
+
+        bbox = UsdGeom.BBoxCache(
+            Usd.TimeCode.Default(),
+            includedPurposes=[UsdGeom.Tokens.default_, UsdGeom.Tokens.proxy, UsdGeom.Tokens.render],
+            useExtentsHint=True,
+        )
+        world_bound = bbox.ComputeWorldBound(prim)
+        world_range = world_bound.ComputeAlignedRange()
+
+        wmin = world_range.GetMin()  # Gf.Vec3d
+        wmax = world_range.GetMax()
+
+        logger.info(f"env_{i} bounds: min=({wmin[0]}, {wmin[1]}), max=({wmax[0]}, {wmax[1]})")
 
 
 def load_infinigen_env(cfg: DictConfig, namespace: str) -> None:

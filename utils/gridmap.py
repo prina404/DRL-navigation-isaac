@@ -119,12 +119,12 @@ def generate_ogm_on_reset(
             "bounds_world": (min_world, max_world),
             "resolution": map_resolution,
         }
-        ## debug: save OGM as image
-        from PIL import Image
+        # ## debug: save OGM as image
+        # from PIL import Image
 
-        img = Image.fromarray(buf_t.cpu().numpy().reshape(dims[1], dims[0]))
-        img.save(f"env_{i}_omap.png")
-        logger.info(f"Occupancy map for env {i} saved as env_{i}_omap.png")
+        # img = Image.fromarray(buf_t.cpu().numpy().reshape(dims[1], dims[0]))
+        # img.save(f"env_{i}_omap.png")
+        # logger.info(f"Occupancy map for env {i} saved as env_{i}_omap.png")
 
         # save also dummy a* path for testing
         start_coords = np.array([30, 60], dtype=np.int32)
@@ -134,15 +134,13 @@ def generate_ogm_on_reset(
 
     setattr(env.scene, "occupancy_maps", occupancy_maps)
 
-# Inspired by Peter Corke's Robotics Toolbox
-# https://github.com/petercorke/robotics-toolbox-python/blob/master/roboticstoolbox/mobile/OccGrid.py
 def _inflate_img(img: np.ndarray, radius: float, resolution: float) -> np.ndarray:
     binary_img = (img == 0)  # occupied cells
-    r = round(radius / resolution)
-    Y, X = np.meshgrid(np.arange(-r, r + 1), np.arange(-r, r + 1))
-    SE = X**2 + Y**2 <= r**2
-    SE = SE.astype(int)
-    bin = sp.binary_dilation(binary_img, SE).astype(np.bool_)
+    # r = round(radius / resolution)
+    # Y, X = np.meshgrid(np.arange(-r, r + 1), np.arange(-r, r + 1))
+    # SE = X**2 + Y**2 <= r**2
+    # SE = SE.astype(int)
+    # bin = sp.binary_dilation(binary_img, SE).astype(np.bool_)
     distances = sp.distance_transform_edt(~binary_img)
     scale = 5.0
     costmap = np.clip(np.max(distances) - (distances * scale), 0, 255).astype(np.float32)
@@ -162,9 +160,9 @@ def _compute_global_plan(
     costmap[costmap >= 255] = float("inf")
     a_star_path = pyastar2d.astar_path(costmap, start_coords, goal_coords, allow_diagonal=False) 
     # debug: visualize costmap and path (in color)
-    from PIL import Image
-    costmap_img = Image.fromarray(costmap.astype(np.uint8)).convert("RGB")
-    for coord in a_star_path:
-        costmap_img.putpixel((coord[1], coord[0]), (255, 0, 0))
-    costmap_img.save("costmap_with_path.png")
+    # from PIL import Image
+    # costmap_img = Image.fromarray(costmap.astype(np.uint8)).convert("RGB")
+    # for coord in a_star_path:
+    #     costmap_img.putpixel((coord[1], coord[0]), (255, 0, 0))
+    # costmap_img.save("costmap_with_path.png")
     return a_star_path
