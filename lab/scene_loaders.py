@@ -30,7 +30,13 @@ def _disable_rigid_bodies(root_prim_path: str) -> int:
         if attr.Get() is not False:
             attr.Set(False)
             disabled += 1
+    for prim in Usd.PrimRange(root):
+        if not prim.IsValid():
+            continue
 
+        meshCollisionAPI = UsdPhysics.MeshCollisionAPI.Apply(prim)
+        meshCollisionAPI.GetApproximationAttr().Set(UsdPhysics.Tokens.meshSimplification)
+        
     return disabled
 
 
@@ -143,24 +149,12 @@ def load_interiorAgent_env(cfg: DictConfig, namespace: str) -> None:
                 f"[physics-fix] Disabled {num_disabled} rigid bodies under {SCENE_PRIM} (treating env as static)"
             )
 
-        num_kin = _make_root_xforms_kinematic(SCENE_PRIM, categories=kinematic_categories)
-        if num_kin > 0:
-            print(
-                f"[physics] Marked {num_kin} root Xforms as kinematic under {SCENE_PRIM} for categories={kinematic_categories}"
-            )
+        # num_kin = _make_root_xforms_kinematic(SCENE_PRIM, categories=kinematic_categories)
+        # if num_kin > 0:
+        #     print(
+        #         f"[physics] Marked {num_kin} root Xforms as kinematic under {SCENE_PRIM} for categories={kinematic_categories}"
+        #     )
 
-        bbox = UsdGeom.BBoxCache(
-            Usd.TimeCode.Default(),
-            includedPurposes=[UsdGeom.Tokens.default_, UsdGeom.Tokens.proxy, UsdGeom.Tokens.render],
-            useExtentsHint=True,
-        )
-        world_bound = bbox.ComputeWorldBound(prim)
-        world_range = world_bound.ComputeAlignedRange()
-
-        wmin = world_range.GetMin()  # Gf.Vec3d
-        wmax = world_range.GetMax()
-
-        logger.info(f"env_{i} bounds: min=({wmin[0]}, {wmin[1]}), max=({wmax[0]}, {wmax[1]})")
 
 
 def load_infinigen_env(cfg: DictConfig, namespace: str) -> None:
