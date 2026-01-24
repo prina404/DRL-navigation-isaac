@@ -48,7 +48,7 @@ from loguru import logger
 
 from lab.go2_nav_cfg import go2_policy_cfg
 
-FILE_PATH = os.path.join(os.path.dirname(__file__), "cfg")
+FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
 
 @hydra.main(config_path=FILE_PATH, config_name="sim", version_base=None)
