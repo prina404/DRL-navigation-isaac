@@ -159,7 +159,7 @@ class Go2MPCEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the Go2 environment."""
 
     # scene settings
-    scene = Go2MPCCfg(num_envs=1, env_spacing=12.0)
+    scene = Go2MPCCfg(num_envs=1, env_spacing=15.0)
 
     # basic settings
     observations = ObservationsCfg()

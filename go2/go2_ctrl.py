@@ -8,6 +8,7 @@ from go2.go2_ctrl_cfg import unitree_go2_flat_cfg, unitree_go2_rough_cfg
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, RslRlOnPolicyRunnerCfg
 from isaaclab_tasks.utils import get_checkpoint_path
 from rsl_rl.runners import OnPolicyRunner
+from rsl_rl.modules import ActorCritic
 from loguru import logger
 base_vel_cmd_input = None
 
@@ -73,3 +74,21 @@ def get_rsl_rough_policy(cfg):
     ppo_runner.load(ckpt_path)
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
     return env, policy
+
+def get_mpc_policy():
+    cfg = unitree_go2_flat_cfg['policy']
+    ckpt_path = get_checkpoint_path(log_path=os.path.abspath("ckpts"), 
+                                run_dir=unitree_go2_flat_cfg["load_run"], 
+                                checkpoint=unitree_go2_flat_cfg["load_checkpoint"])
+
+    policy = ActorCritic(
+        cfg.pop('actor_input_dims'),
+        cfg.pop('critic_input_dims'),
+        cfg.pop('n_actions'),
+        **cfg
+    )
+    state_dict = torch.load(ckpt_path, weights_only=False)
+    policy.load_state_dict(state_dict['model_state_dict'])
+
+    policy = policy.to(unitree_go2_flat_cfg['device'])
+    return policy.act_inference # return only the actor network

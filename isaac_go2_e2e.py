@@ -1,13 +1,7 @@
-import os
-from cv2 import log
-import hydra
-from omegaconf import DictConfig
-import torch
-import time
-import math
-from isaaclab.app import AppLauncher
 import argparse
 import sys
+
+from isaaclab.app import AppLauncher
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
@@ -15,34 +9,44 @@ AppLauncher.add_app_launcher_args(parser)
 
 # # append AppLauncher cli args
 args_cli, hydra_argv = parser.parse_known_args()
-args_cli.kit_args = "--enable isaacsim.asset.gen.omap"
+args_cli.kit_args = (
+    (args_cli.kit_args or "")
+    + " --enable isaacsim.sensors.rtx"
+    + " --enable omni.isaac.sensor"
+    + " --enable omni.replicator.isaac"
+    + " --enable omni.replicator.core"
+    + " --enable isaacsim.asset.gen.omap"
+    + " --enable omni.kit.profiler.tracy"
+)
+args_cli.profiler_backend = ["tracy"]
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-import torch
-
-from go2.go2_env import Go2MPCEnvCfg, camera_follow
-from lab.managed_env import Go2EnvCfg
-import go2.go2_sensors as go2_sensors
+import os
+import time
 
 import gymnasium as gym
+import hydra
+import rsl_rl.runners.on_policy_runner as runner_module
+import torch
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-import isaaclab_tasks
-from isaaclab_tasks.utils import get_checkpoint_path
-import go2.go2_ctrl as go2_ctrl
-from lab.scene_loaders import load_interiorAgent_env
+from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
+
+import go2.go2_ctrl as go2_ctrl
+import go2.go2_sensors as go2_sensors
+from go2.go2_env import Go2MPCEnvCfg
 from lab.encoder_model import ViTEncoder
+from lab.managed_env import Go2EnvCfg
 from lab.policy_model import NavPolicyAC
+from lab.scene_loaders import load_interiorAgent_env
 
-import rsl_rl.runners.on_policy_runner
-
-runner_module = sys.modules["rsl_rl.runners.on_policy_runner"]
 runner_module.NavPolicyAC = NavPolicyAC
 
-from lab.go2_nav_cfg import go2_policy_cfg
 from loguru import logger
+
+from lab.go2_nav_cfg import go2_policy_cfg
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "cfg")
 
@@ -53,21 +57,20 @@ def run_simulator(cfg: DictConfig):
     # Go2 MPC setup
     go2_mpc_cfg = Go2MPCEnvCfg()
     go2_mpc_cfg.scene.num_envs = cfg.num_envs
-    mpc = go2_ctrl.get_rsl_flat_policy(go2_mpc_cfg)
+    mpc = go2_ctrl.get_mpc_policy()
 
     # Go2 Env setup
     go2_env_cfg = Go2EnvCfg()
     go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc  # inject mpc policy
     go2_env_cfg.scene.num_envs = cfg.num_envs
-    go2_env_cfg.decimation = math.ceil(1.0 / go2_env_cfg.sim.dt / cfg.freq)
-    go2_env_cfg.sim.render_interval = go2_env_cfg.decimation
+    go2_env_cfg.decimation = 1
+    go2_env_cfg.renderer_interval = go2_env_cfg.decimation
 
     # Create the whole scene
     logger.info("Creating gym environment...")
     env = gym.make("Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=go2_env_cfg)
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
-
     env.unwrapped.scene.environment_prim_name = cfg.env_name
     load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
     logger.info("Interior agent environment loaded")
@@ -80,18 +83,25 @@ def run_simulator(cfg: DictConfig):
     # ckpt_path = get_checkpoint_path(log_path=os.path.abspath("ckpts"),
     #                                 run_dir=agent_cfg["load_run"],
     #                                 checkpoint=agent_cfg["load_checkpoint"])
-    ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=None, device=agent_cfg["device"])
+    ppo_runner = OnPolicyRunner(
+        env, agent_cfg, log_dir=None, device=agent_cfg["device"]
+    )
     # ppo_runner.load(ckpt_path)
 
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
     # Sensor setup
-    sm = go2_sensors.SensorManager(cfg.num_envs)
-    lidar_annotators = sm.add_rtx_lidar()
+    # sm = go2_sensors.SensorManager(cfg.num_envs)
+    # lidar_annotators = sm.add_rtx_lidar()
 
     # Run simulation
     sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)
     obs, _ = env.reset()
     paused = False
+    step_count = 0
+    policy_time_acc = 0.0
+    env_step_time_acc = 0.0
+
+
     logger.info("Starting simulation loop...")
     while simulation_app.is_running():
         start_time = time.time()
@@ -101,12 +111,23 @@ def run_simulator(cfg: DictConfig):
             continue
         with torch.no_grad():
             # control joints
+            policy_start = time.time()
             actions = policy(obs)
+            policy_time_acc += time.time() - policy_start
             # step the environment
+            env_step_start = time.time()
             obs, _, _, _ = env.step(actions)
+            env_step_time_acc += time.time() - env_step_start
 
-            if cfg.camera_follow:
-                camera_follow(env)
+        step_count += 1
+        if step_count % 50 == 0:
+            avg_policy_ms = (policy_time_acc / 50) * 1000.0
+            avg_env_step_ms = (env_step_time_acc / 50) * 1000.0
+            print(
+                f"[timing] avg policy={avg_policy_ms:.3f} ms | avg env.step={avg_env_step_ms:.3f} ms"
+            )
+            policy_time_acc = 0.0
+            env_step_time_acc = 0.0
 
         elapsed_time = time.time() - start_time
         if elapsed_time < sim_step_dt:

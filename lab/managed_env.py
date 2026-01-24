@@ -1,21 +1,24 @@
 from typing import Callable
 
-from loguru import logger
-from isaaclab.managers.manager_term_cfg import EventTermCfg
-from isaaclab.scene import InteractiveSceneCfg
-from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
-from isaaclab.utils import configclass
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.sensors import RayCasterCfg, patterns, ContactSensorCfg
-import isaaclab.sim as sim_utils
 import isaaclab.envs.mdp as mdp
-from isaaclab.envs import ManagerBasedRLEnvCfg, ManagerBasedRLEnv
-from isaaclab.sensors.camera import TiledCameraCfg
-from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
+import isaaclab.sim as sim_utils
+import torch
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
+from isaaclab.managers import ActionTerm, ActionTermCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
-from isaaclab.managers import ActionTerm, SceneEntityCfg, ActionTermCfg
-import torch
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers.manager_term_cfg import EventTermCfg
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors.camera import TiledCameraCfg
+from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
+from isaaclab.utils import configclass
+from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
+from loguru import logger
+from rsl_rl.modules import ActorCritic
+
 from utils.gridmap import generate_ogm_on_reset
 
 
@@ -44,7 +47,9 @@ class Go2SimCfg(InteractiveSceneCfg):
     # )
 
     # Go2 Robot
-    unitree_go2: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Go2")
+    unitree_go2: ArticulationCfg = UNITREE_GO2_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/Go2"
+    )
     # Go2 foot contact sensor
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Go2/.*_foot", history_length=3, track_air_time=True
@@ -112,7 +117,7 @@ class Go2MPCPolicyAction(ActionTerm):
         self._cmd = torch.zeros((self.num_envs, 3), device=self.device)
         self._last_joint_action = None
 
-        self.mpc: Callable = getattr(cfg, "mpc_policy", None)  # type: ignore
+        self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
             raise ValueError("MPC policy must be provided in the environment config.")
 
@@ -161,7 +166,7 @@ class Go2MPCPolicyAction(ActionTerm):
         # Run low-level policy every sim step by default
         with torch.no_grad():
             mpc_obs = self._build_low_level_obs()
-            mpc_action = self.mpc(mpc_obs) + 0.1
+            mpc_action = self.mpc(mpc_obs)
             self._last_joint_action = mpc_action
 
         robot = self._env.scene[self.cfg.asset_name]
@@ -198,23 +203,25 @@ class EventsCfg:
         interval_range_s=(3.0, 3.0),
         params={
             "map_resolution": 0.05,
-        }
+        },
     )
 
 
 @configclass
 class Go2EnvCfg(ManagerBasedRLEnvCfg):
 
-    scene = Go2SimCfg(num_envs=1, env_spacing=12.0)
+    scene = Go2SimCfg(num_envs=1, env_spacing=15.0)
 
     actions = ActionsCfg()
     observations = ObservationsCfg()
     rewards = RewardsCfg()
     terminations = TerminationsCfg()
-    events = EventsCfg()
+    # events = EventsCfg()
 
     def __post_init__(self) -> None:
         self.sim.dt = 0.005
+        self.sim.device = "cuda:0"
+        self.sim.use_fabric = True
         self.episode_length_s = 20.0
 
         logger.info("Go2 EnvCfg initialized")
