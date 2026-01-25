@@ -81,12 +81,28 @@ def get_mpc_policy():
                                 run_dir=unitree_go2_flat_cfg["load_run"], 
                                 checkpoint=unitree_go2_flat_cfg["load_checkpoint"])
 
+    # policy = ActorCritic( # TODO: add IsaacLab version check because ActorCritic API changed
+    #     cfg.pop('actor_input_dims'),
+    #     cfg.pop('critic_input_dims'),
+    #     cfg.pop('n_actions'),
+    #     **cfg
+    # )
+    obs_dict = {
+        "default": torch.zeros((1, cfg.pop('actor_input_dims'))),
+    }
+    cfg.pop('critic_input_dims') # discard unusable variable 
+    obs_groups = {
+        "policy": ["default"],
+        "critic": ["default"],
+    }
     policy = ActorCritic(
-        cfg.pop('actor_input_dims'),
-        cfg.pop('critic_input_dims'),
+        obs_dict,
+        obs_groups,
         cfg.pop('n_actions'),
         **cfg
     )
+
+
     state_dict = torch.load(ckpt_path, weights_only=False)
     policy.load_state_dict(state_dict['model_state_dict'])
 

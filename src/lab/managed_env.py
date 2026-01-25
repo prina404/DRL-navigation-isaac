@@ -3,6 +3,7 @@ from typing import Callable
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 import torch
+import torch.nn as nn
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
 from isaaclab.managers import ActionTerm, ActionTermCfg
@@ -11,7 +12,8 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg
+from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab.sensors.camera import TiledCameraCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.utils import configclass
@@ -19,6 +21,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 from loguru import logger
 from rsl_rl.modules import ActorCritic
 
+from lab.vision_encoder import ViTEncoder
 from utils.gridmap import generate_ogm_on_reset
 
 
@@ -70,24 +73,27 @@ class Go2SimCfg(InteractiveSceneCfg):
     )
 
 
+class VisionEncoder:
+    def __init__(
+        self, encoder: nn.Module, device: torch.device, normalize: bool = True
+    ):
+        self.encoder = encoder.to(device)
+        self.normalize = normalize
 
-def _get_rgb(env: ManagerBasedRLEnv) -> torch.Tensor:
-    cam = env.scene["camera"]
+    @torch.no_grad()
+    def __call__(self, env: RslRlVecEnvWrapper) -> torch.Tensor:
+        cam = env.scene["camera"]
+        rgb = cam.data.output["rgb"]  # (N, H, W, C)
+        rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT
+        if self.normalize:
+            rgb = rgb.to(dtype=torch.float32) / 255.0
 
-    rgb = cam.data.output.get("policy", None)
-    if rgb is None:
-        # ObservationManager probes shapes during construction; return a correctly-shaped placeholder.
-        # TiledCamera outputs per-env batch, so shape is [num_envs, H, W, 3]
-        return torch.zeros(
-            (env.num_envs, cam.cfg.height, cam.cfg.width, 3),
-            device=env.device,
-            dtype=torch.float32,
-        )
-    # Return a [N, H, W, 3] tensor of RGB images in [0, 1] range
-    return rgb.to(dtype=torch.float32) / 255.0
+        embedding = self.encoder(rgb)
+        return embedding
+
 
 def _get_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
-    pass
+    return torch.zeros((env.num_envs, 50), device=env.device, dtype=torch.float32)
 
 
 @configclass
@@ -96,13 +102,21 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
 
-        rgb = ObsTerm(func=_get_rgb)
-        #lidar_points = ObsTerm(func=_get_lidar)
+        vision = ObsTerm(
+            func=VisionEncoder(
+                encoder=ViTEncoder(),
+                device="cuda:0",
+                normalize=True,
+            ),
+        )
+        lidar_points = ObsTerm(func=_get_lidar)
 
         def __post_init__(self) -> None:
             self.concatenate_terms = True
 
     policy = PolicyCfg()
+    critic = PolicyCfg()
+
 
 
 class Go2MPCPolicyAction(ActionTerm):
@@ -161,6 +175,7 @@ class Go2MPCPolicyAction(ActionTerm):
         # Run low-level policy every sim step by default
         with torch.no_grad():
             mpc_obs = self._build_low_level_obs()
+            mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
             mpc_action = self.mpc(mpc_obs)
             self._last_joint_action = mpc_action
 

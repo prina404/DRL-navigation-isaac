@@ -4,6 +4,6 @@
 ```bash
 $ pip install -e .
 $ pip install 'isaacsim[all,extscache]==5.1.0' --extra-index-url https://pypi.nvidia.com
-$ git clone --branch v2.2.1 git@github.com:isaac-sim/IsaacLab.git
+$ git clone --branch v2.3.1 git@github.com:isaac-sim/IsaacLab.git
 $ cd IsaacLab && ./isaaclab.sh -i
 ```

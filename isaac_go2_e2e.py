@@ -37,12 +37,12 @@ from rsl_rl.runners import OnPolicyRunner
 import go2.go2_ctrl as go2_ctrl
 import go2.go2_sensors as go2_sensors
 from go2.go2_env import Go2MPCEnvCfg
-from lab.encoder_model import ViTEncoder
+from lab.vision_encoder import ViTEncoder
 from lab.managed_env import Go2EnvCfg
-from lab.policy_model import NavPolicyAC
 from lab.scene_loaders import load_interiorAgent_env
 
-runner_module.NavPolicyAC = NavPolicyAC
+# from lab.policy_model import NavPolicyAC
+# runner_module.NavPolicyAC = NavPolicyAC
 
 from loguru import logger
 
@@ -82,10 +82,9 @@ def run_simulator(cfg: DictConfig):
     logger.info("Interior agent environment loaded")
 
     # Navigation Policy setup
-    vit = ViTEncoder().to(go2_policy_cfg["device"])
     agent_cfg = go2_policy_cfg
     agent_cfg["num_envs"] = cfg.num_envs
-    agent_cfg["policy"]["encoder"] = vit
+    # agent_cfg["policy"]["obs"] = env.get_observations()
     # ckpt_path = get_checkpoint_path(log_path=os.path.abspath("ckpts"),
     #                                 run_dir=agent_cfg["load_run"],
     #                                 checkpoint=agent_cfg["load_checkpoint"])

@@ -13,14 +13,11 @@ go2_policy_cfg = {
     },
     # Policy architecture
     "policy": {
-        "class_name": "NavPolicyAC",
-        "init_noise_std": 1.0,
+        "class_name": "ActorCritic",
         "actor_hidden_dims": [512, 256, 128],
         "critic_hidden_dims": [512, 256, 128],
         "activation": "elu",
-        "encoder_out_dim": 768,
-        "encoder": None,
-        "freeze_encoder": True,
+        "init_noise_std": 1.0,
     },
     # PPO algorithm parameters
     "algorithm": {
@@ -38,6 +35,6 @@ go2_policy_cfg = {
         "desired_kl": 0.01,
         "max_grad_norm": 1.0,
     },
-    "load_run": "unitree_go2",
+    "load_run": "unitree_go2_nav",
     "load_checkpoint": "",
 }
