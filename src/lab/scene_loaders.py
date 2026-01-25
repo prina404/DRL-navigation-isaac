@@ -18,9 +18,7 @@ def _disable_rigid_bodies(root_prim_path: str) -> int:
 
     disabled = 0
     for prim in Usd.PrimRange(root):
-        if not prim.IsValid():
-            continue
-        if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
+        if not prim.IsValid() or not prim.HasAPI(UsdPhysics.RigidBodyAPI):
             continue
 
         rb = UsdPhysics.RigidBodyAPI(prim)
@@ -35,7 +33,7 @@ def _disable_rigid_bodies(root_prim_path: str) -> int:
             continue
 
         meshCollisionAPI = UsdPhysics.MeshCollisionAPI.Apply(prim)
-        meshCollisionAPI.GetApproximationAttr().Set(UsdPhysics.Tokens.meshSimplification)
+        meshCollisionAPI.GetApproximationAttr().Set(UsdPhysics.Tokens.convexHull)
         
     return disabled
 
