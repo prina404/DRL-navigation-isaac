@@ -71,6 +71,12 @@ def run_simulator(cfg: DictConfig):
     env = gym.make("Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=go2_env_cfg)
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
+    
+    # Sensor setup
+    go2_sensors.SensorManager(cfg.num_envs).add_rtx_lidar()
+    logger.info("RTX Lidar sensors added to the environment")
+
+    
     env.unwrapped.scene.environment_prim_name = cfg.env_name
     load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
     logger.info("Interior agent environment loaded")
@@ -89,9 +95,6 @@ def run_simulator(cfg: DictConfig):
     # ppo_runner.load(ckpt_path)
 
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
-    # Sensor setup
-    # sm = go2_sensors.SensorManager(cfg.num_envs)
-    # lidar_annotators = sm.add_rtx_lidar()
 
     # Run simulation
     sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)
@@ -128,11 +131,13 @@ def run_simulator(cfg: DictConfig):
             )
             policy_time_acc = 0.0
             env_step_time_acc = 0.0
-
-        elapsed_time = time.time() - start_time
-        if elapsed_time < sim_step_dt:
-            sleep_duration = sim_step_dt - elapsed_time
-            time.sleep(sleep_duration)
+        
+        if step_count % 500 == 0:
+            env.reset()
+        # elapsed_time = time.time() - start_time
+        # if elapsed_time < sim_step_dt:
+        #     sleep_duration = sim_step_dt - elapsed_time
+        #     time.sleep(sleep_duration)
 
 
 if __name__ == "__main__":

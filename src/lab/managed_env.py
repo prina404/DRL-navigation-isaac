@@ -69,19 +69,10 @@ class Go2SimCfg(InteractiveSceneCfg):
         ),
     )
 
-    # Go2 height scanner
-    height_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Go2/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20)),
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"],
-    )
 
 
 def _get_rgb(env: ManagerBasedRLEnv) -> torch.Tensor:
-    cam = env.scene["camera"]  # <-- IMPORTANT: access by name, not env.scene.camera
+    cam = env.scene["camera"]
 
     rgb = cam.data.output.get("policy", None)
     if rgb is None:
@@ -95,6 +86,9 @@ def _get_rgb(env: ManagerBasedRLEnv) -> torch.Tensor:
     # Return a [N, H, W, 3] tensor of RGB images in [0, 1] range
     return rgb.to(dtype=torch.float32) / 255.0
 
+def _get_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
+    pass
+
 
 @configclass
 class ObservationsCfg:
@@ -102,7 +96,8 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
 
-        policy = ObsTerm(func=_get_rgb)
+        rgb = ObsTerm(func=_get_rgb)
+        #lidar_points = ObsTerm(func=_get_lidar)
 
         def __post_init__(self) -> None:
             self.concatenate_terms = True
