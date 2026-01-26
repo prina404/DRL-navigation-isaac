@@ -39,7 +39,8 @@ import go2.go2_sensors as go2_sensors
 from go2.go2_env import Go2MPCEnvCfg
 from lab.vision_encoder import ViTEncoder
 from lab.managed_env import Go2EnvCfg
-from lab.scene_loaders import load_interiorAgent_env
+import lab.scene_loaders as scene_loaders
+import lab.go2_articulation_cfg as go2_articulation_cfg
 
 # from lab.policy_model import NavPolicyAC
 # runner_module.NavPolicyAC = NavPolicyAC
@@ -63,22 +64,24 @@ def run_simulator(cfg: DictConfig):
     go2_env_cfg = Go2EnvCfg()
     go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc  # inject mpc policy
     go2_env_cfg.scene.num_envs = cfg.num_envs
-    go2_env_cfg.decimation = 1
-    go2_env_cfg.renderer_interval = go2_env_cfg.decimation
+    go2_env_cfg.decimation = 16
+    go2_env_cfg.sim.render_interval = go2_env_cfg.decimation
+
 
     # Create the whole scene
     logger.info("Creating gym environment...")
     env = gym.make("Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=go2_env_cfg)
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
-    
+
+
     # Sensor setup
-    go2_sensors.SensorManager(cfg.num_envs).add_rtx_lidar()
-    logger.info("RTX Lidar sensors added to the environment")
+    # go2_sensors.SensorManager(cfg.num_envs).add_rtx_lidar()
+    # logger.info("RTX Lidar sensors added to the environment")
 
     
     env.unwrapped.scene.environment_prim_name = cfg.env_name
-    load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
+    #scene_loaders.load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
     logger.info("Interior agent environment loaded")
 
     # Navigation Policy setup
@@ -98,6 +101,10 @@ def run_simulator(cfg: DictConfig):
     # Run simulation
     sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)
     obs, _ = env.reset()
+
+    # Disable all collisions except foot collisions
+    # go2_articulation_cfg.enable_foot_collisions(env)
+    # exit(0)
     paused = False
     step_count = 0
     policy_time_acc = 0.0

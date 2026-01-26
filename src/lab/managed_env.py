@@ -3,6 +3,7 @@ from typing import Callable
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 import torch
+import time
 import torch.nn as nn
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
@@ -10,14 +11,17 @@ from isaaclab.managers import ActionTerm, ActionTermCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.sim.schemas import CollisionPropertiesCfg
 from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab.sensors.camera import TiledCameraCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
+
 from isaaclab.utils import configclass
-from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
+#from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
+from lab.go2_articulation_cfg import UNITREE_GO2_CFG
 from loguru import logger
 from rsl_rl.modules import ActorCritic
 
@@ -35,11 +39,11 @@ class Go2SimCfg(InteractiveSceneCfg):
     )
 
     # lights
-    # Lights
-    light = AssetBaseCfg(
-        prim_path="/World/Light",
-        spawn=sim_utils.DistantLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
-    )
+    # # Lights
+    # light = AssetBaseCfg(
+    #     prim_path="/World/Light",
+    #     spawn=sim_utils.DistantLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
+    # )
     sky_light = AssetBaseCfg(
         prim_path="/World/DomeLight",
         spawn=sim_utils.DomeLightCfg(color=(0.9, 0.9, 0.9), intensity=500.0),
@@ -49,17 +53,19 @@ class Go2SimCfg(InteractiveSceneCfg):
     #     spawn=sim_utils.DomeLightCfg(color=(0.9, 0.9, 0.9), intensity=500.0),
     # )
 
+    # Define collision disable config
+
     # Go2 Robot
     unitree_go2: ArticulationCfg = UNITREE_GO2_CFG.replace(
-        prim_path="{ENV_REGEX_NS}/Go2"
+        prim_path="{ENV_REGEX_NS}/Go2",
     )
     # Go2 foot contact sensor
-    contact_forces = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Go2/.*_foot", history_length=3, track_air_time=True
-    )
+    # contact_forces = ContactSensorCfg(
+    #     prim_path="{ENV_REGEX_NS}/Go2/.*_foot", history_length=3, track_air_time=True
+    # )
 
     camera = TiledCameraCfg(
-        prim_path="/World/envs/env_.*/Go2/base/front_cam",
+        prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
         width=320,
         height=240,
         offset=TiledCameraCfg.OffsetCfg(
@@ -68,7 +74,7 @@ class Go2SimCfg(InteractiveSceneCfg):
         ),
         data_types=["rgb"],
         spawn=PinholeCameraCfg(
-            focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 1000.0)
+            focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)
         ),
     )
 
@@ -87,10 +93,11 @@ class VisionEncoder:
         rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT
         if self.normalize:
             rgb = rgb.to(dtype=torch.float32) / 255.0
-
         embedding = self.encoder(rgb)
         return embedding
 
+def _get_dummy_embedding(env: ManagerBasedRLEnv) -> torch.Tensor:
+    return torch.zeros((env.num_envs, 768), device=env.device, dtype=torch.float32)
 
 def _get_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 50), device=env.device, dtype=torch.float32)
@@ -108,6 +115,7 @@ class ObservationsCfg:
                 device="cuda:0",
                 normalize=True,
             ),
+            #func=_get_dummy_embedding,
         )
         lidar_points = ObsTerm(func=_get_lidar)
 

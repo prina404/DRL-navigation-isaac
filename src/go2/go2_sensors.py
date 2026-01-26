@@ -42,8 +42,8 @@ class SensorManager:
             self.lidar_render_products.append(rp)
 
         # Debug-draw all env LiDARs
-            dd_writer = rep.writers.get("RtxLidarDebugDrawPointCloudBuffer")
-            dd_writer.attach(rp)
+            # dd_writer = rep.writers.get("RtxLidarDebugDrawPointCloudBuffer")
+            # dd_writer.attach(rp)
 
         return self.lidar_sensors
     
