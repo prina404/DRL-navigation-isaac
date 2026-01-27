@@ -11,7 +11,7 @@ from isaaclab.managers import ActionTerm, ActionTermCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.sim.schemas import CollisionPropertiesCfg
+from isaaclab.sim.schemas import CollisionPropertiesCfg, RigidBodyPropertiesCfg
 from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
@@ -27,6 +27,7 @@ from rsl_rl.modules import ActorCritic
 
 from lab.vision_encoder import ViTEncoder
 from utils.gridmap import generate_ogm_on_reset
+from cfg.CFG import SCENE_USD_PATH
 
 
 @configclass
@@ -66,7 +67,7 @@ class Go2SimCfg(InteractiveSceneCfg):
 
     camera = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-        width=320,
+        width =320,
         height=240,
         offset=TiledCameraCfg.OffsetCfg(
             pos=(0.4, 0.0, 0.0),  # Your desired offset
@@ -76,6 +77,16 @@ class Go2SimCfg(InteractiveSceneCfg):
         spawn=PinholeCameraCfg(
             focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)
         ),
+    )
+
+    # TODO: check if it is possible to preprocess the USD to reduce physx errors during collision baking
+    environment = AssetBaseCfg(                     
+        prim_path = "{ENV_REGEX_NS}/environment",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=str(SCENE_USD_PATH),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            collision_props=CollisionPropertiesCfg(collision_enabled=True),
+        )
     )
 
 
@@ -133,10 +144,12 @@ class Go2MPCPolicyAction(ActionTerm):
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
         self._cmd = torch.zeros((self.num_envs, 3), device=self.device)
         self._last_joint_action = None
+        self._decimation = 1  # Run MPC every 4*dt seconds
 
         self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
             raise ValueError("MPC policy must be provided in the environment config.")
+        self.physics_step_counter = 0
 
     @property
     def action_dim(self) -> int:
@@ -181,11 +194,14 @@ class Go2MPCPolicyAction(ActionTerm):
 
     def apply_actions(self):
         # Run low-level policy every sim step by default
-        with torch.no_grad():
-            mpc_obs = self._build_low_level_obs()
-            mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
-            mpc_action = self.mpc(mpc_obs)
-            self._last_joint_action = mpc_action
+        if self.physics_step_counter % self._decimation == 0 or self._last_joint_action is None:
+            with torch.no_grad():
+                mpc_obs = self._build_low_level_obs()
+                mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
+                self._last_joint_action = self.mpc(mpc_obs)
+            
+        self.physics_step_counter += 1
+        mpc_action = self._last_joint_action
 
         robot = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos

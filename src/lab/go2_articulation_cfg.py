@@ -5,7 +5,6 @@ from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 from isaaclab.sim.schemas import CollisionPropertiesCfg, modify_collision_properties
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-from pxr import Usd, UsdPhysics, Sdf, PhysxSchema
 from cfg.CFG import ASSET_DIR
 import omni
 
@@ -13,7 +12,7 @@ no_collision = CollisionPropertiesCfg(collision_enabled=False)
 
 UNITREE_GO2_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"{ASSET_DIR}/go2_only_foot_colliders.usd",
+        usd_path=f"{ASSET_DIR}/go2_simplified_collisions_lidar.usd",
         activate_contact_sensors=False,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             rigid_body_enabled=True,

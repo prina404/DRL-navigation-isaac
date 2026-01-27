@@ -6,5 +6,6 @@ dependencies = [
     "pyastar2d",
     "loguru",
     "tensordict",
+    "timm",
 ]
 

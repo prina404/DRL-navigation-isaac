@@ -12,13 +12,10 @@ args_cli, hydra_argv = parser.parse_known_args()
 args_cli.kit_args = (
     (args_cli.kit_args or "")
     + " --enable isaacsim.sensors.rtx"
-    + " --enable omni.isaac.sensor"
-    + " --enable omni.replicator.isaac"
-    + " --enable omni.replicator.core"
     + " --enable isaacsim.asset.gen.omap"
-    + " --enable omni.kit.profiler.tracy"
+#    + " --enable omni.kit.profiler.tracy"
 )
-args_cli.profiler_backend = ["tracy"]
+#args_cli.profiler_backend = ["tracy"]
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -39,11 +36,7 @@ import go2.go2_sensors as go2_sensors
 from go2.go2_env import Go2MPCEnvCfg
 from lab.vision_encoder import ViTEncoder
 from lab.managed_env import Go2EnvCfg
-import lab.scene_loaders as scene_loaders
 import lab.go2_articulation_cfg as go2_articulation_cfg
-
-# from lab.policy_model import NavPolicyAC
-# runner_module.NavPolicyAC = NavPolicyAC
 
 from loguru import logger
 
@@ -80,10 +73,6 @@ def run_simulator(cfg: DictConfig):
     # logger.info("RTX Lidar sensors added to the environment")
 
     
-    env.unwrapped.scene.environment_prim_name = cfg.env_name
-    #scene_loaders.load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
-    logger.info("Interior agent environment loaded")
-
     # Navigation Policy setup
     agent_cfg = go2_policy_cfg
     agent_cfg["num_envs"] = cfg.num_envs
@@ -99,21 +88,21 @@ def run_simulator(cfg: DictConfig):
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
 
     # Run simulation
-    sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)
     obs, _ = env.reset()
 
-    # Disable all collisions except foot collisions
-    # go2_articulation_cfg.enable_foot_collisions(env)
-    # exit(0)
+    sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)
+
     paused = False
     step_count = 0
+    wall_time_acc = 0.0
     policy_time_acc = 0.0
     env_step_time_acc = 0.0
+    cam_touch_time_acc = 0.0
 
 
     logger.info("Starting simulation loop...")
     while simulation_app.is_running():
-        start_time = time.time()
+        wall_start = time.time()
 
         if paused:
             time.sleep(0.01)
@@ -128,22 +117,37 @@ def run_simulator(cfg: DictConfig):
             obs, _, _, _ = env.step(actions)
             env_step_time_acc += time.time() - env_step_start
 
+            # If the stall is in the camera/RTX pipeline, it often shows up when we first
+            # touch the RGB output buffer.
+            cam_touch_start = time.time()
+            try:
+                cam = env.unwrapped.scene["camera"]
+                _ = cam.data.output.get("rgb", None)
+            except Exception:
+                pass
+            cam_touch_time_acc += time.time() - cam_touch_start
+
+        wall_time_acc += time.time() - wall_start
+
         step_count += 1
         if step_count % 50 == 0:
+            avg_wall_ms = (wall_time_acc / 50) * 1000.0
             avg_policy_ms = (policy_time_acc / 50) * 1000.0
             avg_env_step_ms = (env_step_time_acc / 50) * 1000.0
+            avg_cam_touch_ms = (cam_touch_time_acc / 50) * 1000.0
+            avg_other_ms = avg_wall_ms - (avg_policy_ms + avg_env_step_ms + avg_cam_touch_ms)
             print(
-                f"[timing] avg policy={avg_policy_ms:.3f} ms | avg env.step={avg_env_step_ms:.3f} ms"
+                f"[timing] dt={sim_step_dt:.4f}s | wall={avg_wall_ms:.3f} ms | "
+                f"policy={avg_policy_ms:.3f} ms | env.step={avg_env_step_ms:.3f} ms | "
+                f"cam_touch={avg_cam_touch_ms:.3f} ms | other={avg_other_ms:.3f} ms"
             )
+            wall_time_acc = 0.0
             policy_time_acc = 0.0
             env_step_time_acc = 0.0
+            cam_touch_time_acc = 0.0
         
         if step_count % 500 == 0:
             env.reset()
-        # elapsed_time = time.time() - start_time
-        # if elapsed_time < sim_step_dt:
-        #     sleep_duration = sim_step_dt - elapsed_time
-        #     time.sleep(sleep_duration)
 
 
 if __name__ == "__main__":
