@@ -146,9 +146,12 @@ def run_simulator(cfg: DictConfig):
             env_step_time_acc = 0.0
             cam_touch_time_acc = 0.0
         
-        if step_count % 500 == 0:
+        if step_count % 200 == 0:
             env.reset()
 
 
 if __name__ == "__main__":
-    run_simulator()
+    try:
+        run_simulator()
+    finally:
+        simulation_app.close()

@@ -100,7 +100,7 @@ class Go2SimCfg(InteractiveSceneCfg):
             horizontal_fov_range=(0, 360),
             horizontal_res=3.0,
         ),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=[
             "/World/ground",
             MultiMeshRayCasterCfg.RaycastTargetCfg(
@@ -116,7 +116,7 @@ class Go2SimCfg(InteractiveSceneCfg):
         prim_path = "{ENV_REGEX_NS}/environment",
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(SCENE_USD_PATH),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=False),  # Big impact on performance if True, but env is now static
             collision_props=CollisionPropertiesCfg(collision_enabled=True),
         )
     )
@@ -143,6 +143,7 @@ def _get_dummy_embedding(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 768), device=env.device, dtype=torch.float32)
 
 def _get_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
+    # TODO: implement lidar preprocessing
     return torch.zeros((env.num_envs, 50), device=env.device, dtype=torch.float32)
 
 
@@ -282,7 +283,7 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
     observations = ObservationsCfg()
     rewards = RewardsCfg()
     terminations = TerminationsCfg()
-    # events = EventsCfg()
+    #events = EventsCfg()
 
     def __post_init__(self) -> None:
         self.sim.dt = 0.005
