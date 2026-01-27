@@ -14,7 +14,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.sim.schemas import CollisionPropertiesCfg, RigidBodyPropertiesCfg
 from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg
+from isaaclab.sensors import RayCasterCfg, patterns, MultiMeshRayCasterCfg
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab.sensors.camera import TiledCameraCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
@@ -77,6 +77,38 @@ class Go2SimCfg(InteractiveSceneCfg):
         spawn=PinholeCameraCfg(
             focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)
         ),
+    )
+
+    # lidar = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Go2/radar",
+    #     update_period=0.02,
+    #     offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
+    #     ray_alignment="yaw",
+    #     pattern_cfg=patterns.LidarPatternCfg(channels=20, vertical_fov_range=(-30, 30), horizontal_fov_range=(0, 360), horizontal_res=3.0),
+    #     debug_vis=True,
+    #     mesh_prim_paths=["/{ENV_REGEX_NS}/environment"],
+    # )
+
+    lidar = MultiMeshRayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/radar",
+        update_period=0.02,
+        offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=20,
+            vertical_fov_range=(-30, 30),
+            horizontal_fov_range=(0, 360),
+            horizontal_res=3.0,
+        ),
+        debug_vis=True,
+        mesh_prim_paths=[
+            "/World/ground",
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/environment",
+                is_shared=True,     # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
+                track_mesh_transforms=False,
+            ),
+        ],
     )
 
     # TODO: check if it is possible to preprocess the USD to reduce physx errors during collision baking
@@ -144,7 +176,7 @@ class Go2MPCPolicyAction(ActionTerm):
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
         self._cmd = torch.zeros((self.num_envs, 3), device=self.device)
         self._last_joint_action = None
-        self._decimation = 1  # Run MPC every 4*dt seconds
+        self._decimation = 1  # Run MPC every 1*dt seconds
 
         self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
@@ -171,7 +203,7 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self._cmd + 0.5
+        base_vel_cmd = self._cmd + torch.tensor([1, 0, 0.1], device=self._cmd.device)
 
         joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
