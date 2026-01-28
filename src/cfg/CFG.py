@@ -1,5 +1,6 @@
 
 from pathlib import Path
+import torch
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 ASSET_DIR = ROOT_DIR / "asset"
@@ -9,3 +10,5 @@ INTERIOR_AGENT_DIR = ROOT_DIR.parent / "InteriorAgent"
 
 # TODO: fix hardcoded scene path
 SCENE_USD_PATH = INTERIOR_AGENT_DIR / "kujiale_0067/kujiale_0067_baked.usda"
+
+DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
