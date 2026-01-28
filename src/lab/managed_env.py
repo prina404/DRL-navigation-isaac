@@ -30,7 +30,7 @@ from loguru import logger
 from rsl_rl.modules import ActorCritic
 
 from lab.vision_encoder import ViTEncoder
-from utils.gridmap import generate_ogm_on_reset
+#from utils.gridmap import generate_ogm_on_reset
 from cfg.CFG import SCENE_USD_PATH
 
 
@@ -58,51 +58,42 @@ class Go2SimCfg(InteractiveSceneCfg):
         history_length=1,
         track_air_time = False,)
 
-    # camera = TiledCameraCfg(
-    #     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-    #     width =320,
-    #     height=240,
-    #     offset=TiledCameraCfg.OffsetCfg(
-    #         pos=(0.4, 0.0, 0.0),  # Your desired offset
-    #         convention="world",  # Coordinate frame convention
-    #     ),
-    #     data_types=["rgb"],
-    #     spawn=PinholeCameraCfg(
-    #         focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)
-    #     ),
-    # )
+    camera = TiledCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
+        width =320,
+        height=240,
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.4, 0.0, 0.0),  # Your desired offset
+            convention="world",  # Coordinate frame convention
+        ),
+        data_types=["rgb"],
+        spawn=PinholeCameraCfg(
+            focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)
+        ),
+    )
 
-    # lidar = RayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Go2/radar",
-    #     update_period=0.02,
-    #     offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
-    #     ray_alignment="yaw",
-    #     pattern_cfg=patterns.LidarPatternCfg(channels=20, vertical_fov_range=(-30, 30), horizontal_fov_range=(0, 360), horizontal_res=3.0),
-    #     debug_vis=True,
-    #     mesh_prim_paths=["/{ENV_REGEX_NS}/environment"],
-    # )
 
-    # lidar = MultiMeshRayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Go2/radar",
-    #     update_period=0.02,
-    #     offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
-    #     ray_alignment="yaw",
-    #     pattern_cfg=patterns.LidarPatternCfg(
-    #         channels=20,
-    #         vertical_fov_range=(-30, 30),
-    #         horizontal_fov_range=(0, 360),
-    #         horizontal_res=3.0,
-    #     ),
-    #     debug_vis=False,
-    #     mesh_prim_paths=[
-    #         "/World/ground",
-    #         MultiMeshRayCasterCfg.RaycastTargetCfg(
-    #             prim_expr="{ENV_REGEX_NS}/environment",
-    #             is_shared=True,     # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
-    #             track_mesh_transforms=False,
-    #         ),
-    #     ],
-    # )
+    lidar = MultiMeshRayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/radar",
+        update_period=0.02,
+        offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=20,
+            vertical_fov_range=(-30, 30),
+            horizontal_fov_range=(0, 360),
+            horizontal_res=3.0,
+        ),
+        debug_vis=False,
+        mesh_prim_paths=[
+            "/World/ground",
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/environment",
+                is_shared=True,     # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
+                track_mesh_transforms=False,
+            ),
+        ],
+    )
 
     # TODO: static env loading ok, check if setting a subset of kinematic objects is possible
     environment = AssetBaseCfg(                     
@@ -124,13 +115,13 @@ class VisionEncoder:
 
     @torch.no_grad()
     def __call__(self, env: RslRlVecEnvWrapper) -> torch.Tensor:
-        rgb = torch.zeros((env.num_envs, 3, 320, 240), device=env.device)
+        #rgb = torch.zeros((env.num_envs, 3, 320, 240), device=env.device)
 
-        # cam = env.scene["camera"]
-        # rgb = cam.data.output["rgb"]  # (N, H, W, C)
-        # rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT
-        # if self.normalize:
-        #     rgb = rgb.to(dtype=torch.float32) / 255.0
+        cam = env.scene["camera"]
+        rgb = cam.data.output["rgb"]  # (N, H, W, C)
+        rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT
+        if self.normalize:
+            rgb = rgb.to(dtype=torch.float32) / 255.0
         embedding = self.encoder(rgb)
         return embedding
 
@@ -268,7 +259,7 @@ def _cache_goal_on_reset(
     goal_w = pos0 + goal_dist_m * fwd_w
 
     env._goal_pos[env_ids] = goal_w[env_ids]
-    logger.info(f"Cached goal positions for env_ids={env_ids.tolist()}: {env._goal_pos[env_ids]}")
+    #logger.info(f"Cached goal positions for env_ids={env_ids.tolist()}: {env._goal_pos[env_ids]}")
 
 def _dist_to_goal_xy(env: ManagerBasedRLEnv) -> torch.Tensor:
     robot = env.scene['unitree_go2']
