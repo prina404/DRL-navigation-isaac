@@ -32,17 +32,15 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 # print(isaaclab_rl.__file__)
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
-import go2.go2_ctrl as go2_ctrl
-import go2.go2_sensors as go2_sensors
-from go2.go2_env import Go2MPCEnvCfg
+import go2.go2_mpc as go2_mpc
 from lab.vision_encoder import ViTEncoder
 from lab.managed_env import Go2EnvCfg
-import lab.go2_articulation_cfg as go2_articulation_cfg
+import go2.go2_articulation_cfg as go2_articulation_cfg
 
 from loguru import logger
 import traceback
 
-from lab.go2_nav_cfg import go2_policy_cfg
+from go2.go2_nav_cfg import go2_policy_cfg
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
@@ -51,9 +49,7 @@ FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 def run_simulator(cfg: DictConfig):
 
     # Go2 MPC setup
-    go2_mpc_cfg = Go2MPCEnvCfg()
-    go2_mpc_cfg.scene.num_envs = cfg.num_envs
-    mpc = go2_ctrl.get_mpc_policy()
+    mpc = go2_mpc.get_mpc_policy()
 
     # Go2 Env setup
     go2_env_cfg = Go2EnvCfg()

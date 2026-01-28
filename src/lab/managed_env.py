@@ -25,7 +25,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply
 
 #from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
-from lab.go2_articulation_cfg import UNITREE_GO2_CFG
+from go2.go2_articulation_cfg import UNITREE_GO2_CFG
 from loguru import logger
 from rsl_rl.modules import ActorCritic
 
@@ -190,7 +190,7 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self._cmd + torch.tensor([1, 0, 0.1], device=self._cmd.device)
+        base_vel_cmd = self._cmd #+ torch.tensor([1, 0, 0.1], device=self._cmd.device)
 
         joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
@@ -350,7 +350,7 @@ class EventsCfg:
             "pose_range": {
                 "x": (0.0, 0.0),
                 "y": (0.0, 0.0),
-                "z": (0.0, 0.0),
+                "z": (0.4, 0.4),
                 "roll": (0.0, 0.0),
                 "pitch": (0.0, 0.0),
                 "yaw": (0.0, 0.0),
