@@ -7,5 +7,6 @@ dependencies = [
     "loguru",
     "tensordict",
     "timm",
+    "torch-scatter"
 ]
 

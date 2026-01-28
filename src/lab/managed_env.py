@@ -3,7 +3,7 @@ import time
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 import torch
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg   
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import ActionTermCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -13,11 +13,11 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import (ContactSensorCfg, MultiMeshRayCasterCfg,
-                              RayCasterCfg, patterns)
+from isaaclab.sensors import ContactSensorCfg, MultiMeshRayCasterCfg, RayCasterCfg, patterns
 from isaaclab.sensors.camera import TiledCameraCfg
 from isaaclab.sim.schemas import CollisionPropertiesCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
+from isaaclab.sim.spawners import CuboidCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply
 from loguru import logger
@@ -25,8 +25,10 @@ from loguru import logger
 import lab.action_helpers as actions
 import lab.observation_helpers as observations
 import lab.reward_helpers as rewards
+
 # from utils.gridmap import generate_ogm_on_reset
 from cfg.CFG import SCENE_USD_PATH
+
 # from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 from go2.go2_articulation_cfg import UNITREE_GO2_CFG
 
@@ -74,14 +76,14 @@ class Go2SimCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
         ray_alignment="yaw",
         pattern_cfg=patterns.LidarPatternCfg(
-            channels=20,
-            vertical_fov_range=(-30, 30),
+            channels=10,
+            vertical_fov_range=(0, 30),
             horizontal_fov_range=(0, 360),
             horizontal_res=3.0,
         ),
-        debug_vis=False,
+        debug_vis=True,
         mesh_prim_paths=[
-            "/World/ground",
+            #"/World/ground",
             MultiMeshRayCasterCfg.RaycastTargetCfg(
                 prim_expr="{ENV_REGEX_NS}/environment",
                 is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
@@ -113,7 +115,7 @@ class ObservationsCfg:
             func=observations.VisionEncoder(),
             # func=observations.get_dummy_embedding,
         )
-        lidar_points = ObsTerm(func=observations.get_dummy_lidar)
+        lidar_points = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 25})
 
         def __post_init__(self) -> None:
             self.concatenate_terms = True
