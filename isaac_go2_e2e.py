@@ -13,9 +13,9 @@ args_cli.kit_args = (
     (args_cli.kit_args or "")
     + " --enable isaacsim.sensors.rtx"
     + " --enable isaacsim.asset.gen.omap"
-#    + " --enable omni.kit.profiler.tracy"
+    + " --enable omni.kit.profiler.tracy"
 )
-#args_cli.profiler_backend = ["tracy"]
+args_cli.profiler_backend = ["tracy"]
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -28,9 +28,10 @@ import hydra
 import rsl_rl.runners.on_policy_runner as runner_module
 import torch
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+# import isaaclab_rl
+# print(isaaclab_rl.__file__)
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
-
 import go2.go2_ctrl as go2_ctrl
 import go2.go2_sensors as go2_sensors
 from go2.go2_env import Go2MPCEnvCfg
@@ -110,7 +111,7 @@ def run_simulator(cfg: DictConfig):
             policy_time_acc += time.time() - policy_start
 
             env_step_start = time.time()
-            obs, reward, terminated, truncated, _ = env.step(actions)
+            obs, reward, terminated, truncated = env.step(actions)
             env_step_time_acc += time.time() - env_step_start
 
 
