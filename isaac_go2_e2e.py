@@ -39,6 +39,7 @@ from lab.managed_env import Go2EnvCfg
 import lab.go2_articulation_cfg as go2_articulation_cfg
 
 from loguru import logger
+import traceback
 
 from lab.go2_nav_cfg import go2_policy_cfg
 
@@ -68,9 +69,6 @@ def run_simulator(cfg: DictConfig):
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
 
-    # Sensor setup
-    # go2_sensors.SensorManager(cfg.num_envs).add_rtx_lidar()
-    # logger.info("RTX Lidar sensors added to the environment")
 
     
     # Navigation Policy setup
@@ -97,7 +95,6 @@ def run_simulator(cfg: DictConfig):
     wall_time_acc = 0.0
     policy_time_acc = 0.0
     env_step_time_acc = 0.0
-    cam_touch_time_acc = 0.0
 
 
     logger.info("Starting simulation loop...")
@@ -108,24 +105,14 @@ def run_simulator(cfg: DictConfig):
             time.sleep(0.01)
             continue
         with torch.no_grad():
-            # control joints
             policy_start = time.time()
             actions = policy(obs)
             policy_time_acc += time.time() - policy_start
-            # step the environment
+
             env_step_start = time.time()
-            obs, _, _, _ = env.step(actions)
+            obs, reward, terminated, truncated, _ = env.step(actions)
             env_step_time_acc += time.time() - env_step_start
 
-            # If the stall is in the camera/RTX pipeline, it often shows up when we first
-            # touch the RGB output buffer.
-            cam_touch_start = time.time()
-            try:
-                cam = env.unwrapped.scene["camera"]
-                _ = cam.data.output.get("rgb", None)
-            except Exception:
-                pass
-            cam_touch_time_acc += time.time() - cam_touch_start
 
         wall_time_acc += time.time() - wall_start
 
@@ -134,17 +121,14 @@ def run_simulator(cfg: DictConfig):
             avg_wall_ms = (wall_time_acc / 50) * 1000.0
             avg_policy_ms = (policy_time_acc / 50) * 1000.0
             avg_env_step_ms = (env_step_time_acc / 50) * 1000.0
-            avg_cam_touch_ms = (cam_touch_time_acc / 50) * 1000.0
-            avg_other_ms = avg_wall_ms - (avg_policy_ms + avg_env_step_ms + avg_cam_touch_ms)
             print(
                 f"[timing] dt={sim_step_dt:.4f}s | wall={avg_wall_ms:.3f} ms | "
                 f"policy={avg_policy_ms:.3f} ms | env.step={avg_env_step_ms:.3f} ms | "
-                f"cam_touch={avg_cam_touch_ms:.3f} ms | other={avg_other_ms:.3f} ms"
+                f"reward={reward.mean().item():.3f}"
             )
             wall_time_acc = 0.0
             policy_time_acc = 0.0
             env_step_time_acc = 0.0
-            cam_touch_time_acc = 0.0
         
         if step_count % 200 == 0:
             env.reset()
@@ -153,5 +137,8 @@ def run_simulator(cfg: DictConfig):
 if __name__ == "__main__":
     try:
         run_simulator()
+    
+    except Exception as e:
+        traceback.print_exc()
     finally:
         simulation_app.close()

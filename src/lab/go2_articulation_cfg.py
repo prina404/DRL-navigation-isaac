@@ -13,7 +13,7 @@ no_collision = CollisionPropertiesCfg(collision_enabled=False)
 UNITREE_GO2_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=f"{ASSET_DIR}/go2_simplified_collisions_lidar.usd",
-        activate_contact_sensors=False,
+        activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             rigid_body_enabled=True,
             disable_gravity=False,
