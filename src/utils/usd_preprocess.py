@@ -16,7 +16,7 @@ simulation_app = AppLauncher(
 # -------------------------------------------------
 # Imports AFTER SimulationApp
 # -------------------------------------------------
-from pxr import Usd, UsdPhysics, Sdf, UsdGeom
+from pxr import Usd, UsdPhysics, Sdf, UsdGeom, PhysxSchema
 
 
 # ----------------------------
@@ -28,6 +28,16 @@ def is_under_looks(prim: Usd.Prim) -> bool:
     p = prim.GetPath().pathString
     return "/Looks/" in p or p.endswith("/Looks")
 
+def is_invisible(prim: Usd.Prim) -> bool:
+    """Returns True if prim is invisible (including inherited)."""
+    if not prim or not prim.IsValid():
+        return False
+    if not prim.IsA(UsdGeom.Imageable):
+        return False
+    img = UsdGeom.Imageable(prim)
+    # ComputeVisibility accounts for ancestors too
+    vis = img.ComputeVisibility(Usd.TimeCode.Default())
+    return vis == UsdGeom.Tokens.invisible
 
 
 def set_kinematic(prim: Usd.Prim):
@@ -70,6 +80,8 @@ def preprocess_usd(
     # 1) Disable all rigid bodies + convex hull collisions
     # -------------------------------------------------
     disabled_rb = 0
+    deactivated_invisible = 0
+
 
     for prim in Usd.PrimRange(root):
         if not prim.IsValid() or is_under_looks(prim):
@@ -85,6 +97,11 @@ def preprocess_usd(
                 disabled_rb += 1
 
         if prim.GetTypeName() == "Mesh":
+            if is_invisible(prim):
+                prim.SetActive(False)
+                deactivated_invisible += 1
+                continue
+
             mc = UsdPhysics.MeshCollisionAPI.Apply(prim)
             mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexHull)
 
@@ -112,6 +129,7 @@ def preprocess_usd(
     print(f"  Disabled rigid bodies : {disabled_rb}")
     print(f"  Disabled nested RBs   : {disabled_nested_rb}")
     print(f"  Kinematic objects     : {kinematic_count}")
+    print(f"  Deactivated invisible meshes : {deactivated_invisible}")
     print(f"  Saved baked USD       : {dst_path}")
 
     return dst_path
