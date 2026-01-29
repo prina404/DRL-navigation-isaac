@@ -22,9 +22,10 @@ class VisionEncoder:
         cam = env.scene["camera"]
         rgb = cam.data.output["rgb"]  # (N, H, W, C)
         rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT
-        if self.normalize:
-            rgb = rgb.to(dtype=torch.float32) / 255.0
+        rgb = rgb.to(dtype=torch.float32) / 255.0
         embedding = self.encoder(rgb)
+        if self.normalize:
+            embedding = torch.tanh(embedding)
         return embedding
 
 
@@ -40,6 +41,11 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize = True) -> 
     ''' Returns a (B, num_obstacles) tensor of the closest obstacle distances
         NOTE: This fuction does not filter lidar data.
         If there are floor/body collisions right under the sensor, they will be included in the output.
+
+        Args:
+            env: RslRlVecEnvWrapper
+            num_obstacles: number of closest obstacles to return
+            normalize: whether to normalize distances to [-1, 1] based on max distance
     '''
 
 
@@ -54,7 +60,7 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize = True) -> 
 
     ## I voxelize the data, in a volume 5x5x1, centered on the robot
     VOXEL_SIZE = 0.25
-    VOLUME_DIMS = torch.tensor((10, 10, 1), device=env.device, dtype=torch.float32)  # x, y, z
+    VOLUME_DIMS = torch.tensor((5, 5, 1), device=env.device, dtype=torch.float32)  # x, y, z
     MAX_POINT_DIST = torch.norm(VOLUME_DIMS)
 
     origin = torch.tensor([
@@ -103,7 +109,6 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize = True) -> 
         res = torch.topk(out, k=num_obstacles, dim=1, largest=False).values  # (B, k)
 
     if normalize:
-        res = torch.clamp(res / MAX_POINT_DIST, 0.0, 1.0)
-    logger.info(f"Lidar out: {res}")
+        res = torch.clamp(res / MAX_POINT_DIST, 0.0, 1.0) * 2 - 1  # normalize to [-1, 1]
     return res
 

@@ -3,7 +3,7 @@ import time
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 import torch
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg   
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import ActionTermCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -39,7 +39,7 @@ class Go2SimCfg(InteractiveSceneCfg):
     ground = AssetBaseCfg(
         prim_path="/World/ground",
         spawn=sim_utils.GroundPlaneCfg(color=(0.1, 0.1, 0.1), size=(300.0, 300.0)),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0, 0, 0)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0, 0, -0.01)),
     )
 
     sky_light = AssetBaseCfg(
@@ -81,9 +81,9 @@ class Go2SimCfg(InteractiveSceneCfg):
             horizontal_fov_range=(0, 360),
             horizontal_res=3.0,
         ),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=[
-            #"/World/ground",
+            # "/World/ground",
             MultiMeshRayCasterCfg.RaycastTargetCfg(
                 prim_expr="{ENV_REGEX_NS}/environment",
                 is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
@@ -172,26 +172,24 @@ class TerminationsCfg:
     )
 
 
+## hardcoded params for early experiments
+X_SPAWN = -0.6
+Y_SPAWN = 0.8
+
+eps = 0.1
+
+
 @configclass
 class EventsCfg:
-    # create_occupancy_gridmap = EventTermCfg( ## TODO: omap extension is broken on instanced prims, find a workaround
-    #     func=generate_ogm_on_reset,
-    #     mode="interval",  # No need to specify other params, env & env_ids are passed by default
-    #     interval_range_s=(3.0, 3.0),
-    #     params={
-    #         "map_resolution": 0.05,
-    #     },
-    # )
-
     # Reset robot back to its original pose/joints on every episode reset
     reset_pos = EventTermCfg(
-        func=mdp.reset_root_state_uniform,
+        func=mdp.reset_root_state_uniform,  # TODO: replace with wrapper for asset.write_root_pose_to_sim and use random poses
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg(name="unitree_go2"),
             "pose_range": {
-                "x": (0.0, 0.0),
-                "y": (0.0, 0.0),
+                "x": (X_SPAWN - eps, X_SPAWN + eps),
+                "y": (Y_SPAWN - eps, Y_SPAWN + eps),
                 "z": (0.4, 0.4),
                 "roll": (0.0, 0.0),
                 "pitch": (0.0, 0.0),
@@ -239,6 +237,14 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.005
         self.sim.device = "cuda:0"
         self.sim.use_fabric = True
+        self.sim.render = sim_utils.RenderCfg(
+            rendering_mode="performance",
+            enable_translucency=True,
+            enable_reflections=True,
+            enable_shadows=True,
+            enable_ambient_occlusion=True,
+            dlss_mode="3",  # defaults to 1 in performance mode
+        )
         self.episode_length_s = 30.0
 
         logger.info("Go2 EnvCfg initialized")

@@ -19,4 +19,5 @@ class ViTEncoder(nn.Module):
         logger.info("ViT Encoder initialized")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # NOTE: model output is not normalized, consider adding normalization
         return self.vit(self.transforms(x))
