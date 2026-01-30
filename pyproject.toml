@@ -1,12 +1,21 @@
 [project]
 name = "isaac-navigation"
+authors = [
+    {name = "Matteo Princisgh", email = "princisgh@gmail.com"},
+    {name = "João Carvalho"}
+    ]
 version = "0.1.0"
 requires-python = "==3.11.*"
 dependencies = [
-    "pyastar2d",
+    #"pyastar2d", # pending PR for python 3.11 support
     "loguru",
     "tensordict",
     "timm",
-    "torch-scatter"
+    "opencv-python",
+    "matplotlib",
+    "scikit-image",
+    "networkx",
+    "torch==2.7.0",
+    "torch-scatter",
 ]
 
