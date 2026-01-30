@@ -5,10 +5,13 @@ from isaaclab.app import AppLauncher
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
+parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+
 AppLauncher.add_app_launcher_args(parser)
 
 # # append AppLauncher cli args
 args_cli, hydra_argv = parser.parse_known_args()
+args_cli.enable_cameras = True
 args_cli.kit_args = (
     (args_cli.kit_args or "")
     + " --enable isaacsim.sensors.rtx"
@@ -25,22 +28,19 @@ import time
 
 import gymnasium as gym
 import hydra
-import rsl_rl.runners.on_policy_runner as runner_module
 import torch
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-# import isaaclab_rl
-# print(isaaclab_rl.__file__)
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 import go2.go2_mpc as go2_mpc
-from lab.vision_encoder import ViTEncoder
 from lab.managed_env import Go2EnvCfg
-import go2.go2_articulation_cfg as go2_articulation_cfg
 
 from loguru import logger
 import traceback
 
 from go2.go2_nav_cfg import go2_policy_cfg
+from isaaclab.envs.ui import ViewportCameraController
+from isaaclab.envs import ViewerCfg
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
@@ -48,13 +48,14 @@ FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 @hydra.main(config_path=FILE_PATH, config_name="sim", version_base=None)
 def run_simulator(cfg: DictConfig):
 
+
     # Go2 MPC setup
     mpc = go2_mpc.get_mpc_policy()
 
     # Go2 Env setup
     go2_env_cfg = Go2EnvCfg()
     go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc  # inject mpc policy
-    go2_env_cfg.scene.num_envs = cfg.num_envs
+    go2_env_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
     go2_env_cfg.decimation = 16
     go2_env_cfg.sim.render_interval = go2_env_cfg.decimation
 
@@ -65,7 +66,8 @@ def run_simulator(cfg: DictConfig):
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
-
+    camera_controller = ViewportCameraController(env.unwrapped, cfg= ViewerCfg((3.5,-0.9, 2.1), (-0.6, 0.8, -0.4), origin_type='env'))
+    camera_controller.set_view_env_index(0)
 
     
     # Navigation Policy setup
@@ -127,8 +129,9 @@ def run_simulator(cfg: DictConfig):
             policy_time_acc = 0.0
             env_step_time_acc = 0.0
         
-        if step_count % 200 == 0:
+        if step_count % 150 == 0:
             env.reset()
+            logger.info("Environment reset")
 
 
 if __name__ == "__main__":
