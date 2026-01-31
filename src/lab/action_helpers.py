@@ -1,14 +1,17 @@
+import time
 import isaaclab.envs.mdp as mdp
 import torch
 from isaaclab.managers import ActionTerm, SceneEntityCfg
 from rsl_rl.modules import ActorCritic
+from loguru import logger
 
 
 class Go2MPCPolicyAction(ActionTerm):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
-        self._cmd = torch.zeros((self.num_envs, 3), device=self.device)
+        self.null_cmd = torch.zeros((self.num_envs, 3), device=self.device)
+        self._cmd = self.null_cmd
         self._last_joint_action = None
         self._decimation = 1  # Run MPC every 1*dt seconds
 
@@ -16,6 +19,7 @@ class Go2MPCPolicyAction(ActionTerm):
         if self.mpc is None:
             raise ValueError("MPC policy must be provided in the environment config.")
         self.physics_step_counter = 0
+
 
     @property
     def action_dim(self) -> int:
@@ -37,7 +41,7 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd =  self._cmd  
+        base_vel_cmd = self._cmd  
 
         joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)

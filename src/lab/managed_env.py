@@ -2,7 +2,6 @@ import time
 
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
-import torch
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import ActionTermCfg
@@ -15,11 +14,9 @@ from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg, MultiMeshRayCasterCfg, RayCasterCfg, patterns
 from isaaclab.sensors.camera import TiledCameraCfg
-from isaaclab.sim.schemas import CollisionPropertiesCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
-from isaaclab.sim.spawners import CuboidCfg
+from isaaclab.sim.schemas import CollisionPropertiesCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.math import quat_apply
 from loguru import logger
 
 import lab.action_helpers as actions
@@ -31,6 +28,7 @@ from cfg.CFG import SCENE_USD_PATH
 
 # from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 from go2.go2_articulation_cfg import UNITREE_GO2_CFG
+import torch
 
 
 @configclass
@@ -60,8 +58,8 @@ class Go2SimCfg(InteractiveSceneCfg):
 
     camera = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-        width=320,
-        height=240,
+        width=224,
+        height=224,
         offset=TiledCameraCfg.OffsetCfg(
             pos=(0.4, 0.0, 0.0),  # Your desired offset
             convention="world",  # Coordinate frame convention
@@ -83,7 +81,7 @@ class Go2SimCfg(InteractiveSceneCfg):
         ),
         debug_vis=False,
         mesh_prim_paths=[
-            # "/World/ground",
+            "/World/ground",
             MultiMeshRayCasterCfg.RaycastTargetCfg(
                 prim_expr="{ENV_REGEX_NS}/environment",
                 is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
@@ -105,11 +103,13 @@ class Go2SimCfg(InteractiveSceneCfg):
     )
 
 
+
 @configclass
 class ObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
+        prev_action = ObsTerm(func=mdp.last_action)
 
         vision = ObsTerm(
             func=observations.VisionEncoder(),
@@ -117,11 +117,14 @@ class ObservationsCfg:
         )
         lidar_points = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 25})
 
+        # TODO: add heading and PointGoal obs
+        
+
         def __post_init__(self) -> None:
             self.concatenate_terms = True
 
     policy = PolicyCfg()
-    critic = PolicyCfg()
+    critic = PolicyCfg()    # in case we want different obs for critic later
 
 
 @configclass
@@ -175,9 +178,7 @@ class TerminationsCfg:
 ## hardcoded params for early experiments
 X_SPAWN = -0.6
 Y_SPAWN = 0.8
-
 eps = 0.1
-
 
 @configclass
 class EventsCfg:
