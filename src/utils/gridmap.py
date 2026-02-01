@@ -1,46 +1,70 @@
+import argparse
+import os
+import sys
+import traceback
+from isaaclab.app import AppLauncher
+import yaml
+
+parser = argparse.ArgumentParser(description="")
+AppLauncher.add_app_launcher_args(parser)
+args, hydra_argv = parser.parse_known_args()
+args.headless = True
+args.kit_args = (
+    (args.kit_args or "")
+    + " --enable isaacsim.asset.gen.omap"
+    + " --headless"
+)
+
+simulation_app = AppLauncher(args).app
+sys.argv = [sys.argv[0]] + hydra_argv
+
 import time
-from loguru import logger
+from pathlib import Path
+
 import numpy as np
-from isaaclab.envs import ManagerBasedRLEnv
+from loguru import logger
+import scipy.ndimage as sp
+import torch
+
 import omni
 from isaacsim.asset.gen.omap.bindings import _omap
-from pxr import UsdGeom, Usd
-import torch
-import scipy.ndimage as sp
-import pyastar2d
+from carb import Float2, Float3
+from pxr import Usd, UsdGeom
+import omni.usd
+from isaacsim.core.api import World
+from isaacsim.core.utils.stage import add_reference_to_stage
+from isaacsim.core.prims import XFormPrim
 
-def _compute_env_bbox(
-    env: ManagerBasedRLEnv,
-    env_id=0,
+# try:
+
+# except ImportError:
+#     logger.error(
+#         "SimulationApp is not initialized. Ensure an instance of Isaac Sim is launched before importing module"
+#         f" {__file__.split('/')[-1]}."
+#     )
+#     exit(1)
+
+
+def compute_scene_bbox(
+    root_prim: Usd.Prim,
     padding_size=0.25,
-    z_offset=0.5,
-) -> tuple:
-    """Store once the scene BBOX in local env coordinates."""
-    if hasattr(env.scene, "bbox"):
-        return env.scene.bbox
-    
-    if not hasattr(env.scene, "environment_prim_name"):
-        raise ValueError("environment_prim_name not set in env.scene")
+) -> tuple[Float2, Float2]:
 
-    stage = omni.usd.get_context().get_stage()
-    env_origin = env.scene.env_origins[env_id]
-    ox, oy = float(env_origin[0]), float(env_origin[1])
-    env_prim_path = f"/World/envs/env_{env_id}"
-    env_prim = stage.GetPrimAtPath(env_prim_path)
     bbox = UsdGeom.BBoxCache(
         Usd.TimeCode.Default(),
         includedPurposes=[UsdGeom.Tokens.default_, UsdGeom.Tokens.proxy, UsdGeom.Tokens.render],
         useExtentsHint=False,
     )
-    wmin = [float("inf"), float("inf"), float("inf")]
-    wmax = [float("-inf"), float("-inf"), float("-inf")]
 
-    for prim in Usd.PrimRange(env_prim):
+    wmin = Float2(float("inf"), float("inf"))
+    wmax = Float2(float("-inf"), float("-inf"))
+
+    for prim in Usd.PrimRange(root_prim):
         if not prim.IsValid() or not prim.IsA(UsdGeom.Mesh):
             continue
 
         img = UsdGeom.Imageable(prim)
-        try:
+        try:    # skip invisible meshes
             if img.ComputeVisibility(Usd.TimeCode.Default()) == UsdGeom.Tokens.invisible:
                 continue
         except Exception:
@@ -50,119 +74,109 @@ def _compute_env_bbox(
             bound = bbox.ComputeWorldBound(prim)
             r = bound.ComputeAlignedRange()
             mn, mx = r.GetMin(), r.GetMax()
-            for i in range(3):
-                wmin[i] = min(wmin[i], float(mn[i]))
-                wmax[i] = max(wmax[i], float(mx[i]))
+
+            wmin.x = min(wmin.x, float(mn[0]))
+            wmax.x = max(wmax.x, float(mx[0]))
+            wmin.y = min(wmin.y, float(mn[1]))
+            wmax.y = max(wmax.y, float(mx[1]))
         except Exception:
             continue
 
-    min_local = (float(wmin[0] - ox) - padding_size, float(wmin[1] - oy) - padding_size, z_offset)
-    max_local = (float(wmax[0] - ox) + padding_size, float(wmax[1] - oy) + padding_size, z_offset)
-    setattr(env.scene, "bbox", (min_local, max_local))
-    logger.info(f"Computed env_{env_id} bbox min: {min_local}, max: {max_local} and cached in env.scene.bbox")
+    min_local = Float2(wmin.x - padding_size, wmin.y - padding_size)
+    max_local = Float2(wmax.x + padding_size, wmax.y + padding_size)
+
+    logger.info(f"Computed {root_prim.GetPath().pathString} bbox min: {min_local}, max: {max_local}")
     return min_local, max_local
 
 
-def _get_omap_generator(env: ManagerBasedRLEnv, resolution = 0.05) -> _omap.Generator:
-    """Create or get existing omap Generator instance."""
-    if hasattr(env.scene, "_omap_generator"):
-        return getattr(env.scene, "_omap_generator")
+def _get_omap_generator(
+    env_bb: tuple[Float2, Float2],
+    center_coord: Float2 = Float2(0, 0),
+    scan_height_range: tuple = (0.1, 0.4),  # Should be set to the height range occupied by the robot
+    resolution: float = 0.05,
+) -> _omap.Generator:
+
+    if scan_height_range[0] < 0.01:
+        raise ValueError("Lower bound of scan_height_range must be > 0 to ensure correct map generation.")
 
     physx = omni.physx.get_physx_interface()
     stage_id = omni.usd.get_context().get_stage_id()
 
     gen = _omap.Generator(physx, stage_id)
 
-    occ_val, free_val, unknown_val = 0, 255, 205
+    occ_val, free_val, unknown_val = 0, 255, 205  # ROS occupancy values
     gen.update_settings(resolution, occ_val, free_val, unknown_val)
 
-    setattr(env.scene, "_omap_generator", gen)
+    z_origin = scan_height_range[0]
+    origin_coord = Float3(center_coord.x, center_coord.y, z_origin)
+    min_bound = Float3(env_bb[0].x, env_bb[0].y, z_origin)
+    max_bound = Float3(env_bb[1].x, env_bb[1].y, scan_height_range[1] - z_origin)
+
+    # ensure map bounds correspond to the bbox even if origin is not (0.0, 0.0)
+    max_bound.x -= origin_coord.x
+    min_bound.x -= origin_coord.x
+    max_bound.y -= origin_coord.y
+    min_bound.y -= origin_coord.y
+
+    gen.set_transform(origin_coord, min_bound, max_bound)  # set mapping volume
     return gen
 
 
-def generate_ogm_on_reset(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor,
-    map_resolution: float = 0.05,
-) -> None:
-    """callback function to generate occupancy grid maps for specified env ids and store them in env.scene.occupancy_maps"""
-    gen = _get_omap_generator(env, map_resolution)
-    if not hasattr(env.scene, "occupancy_maps"):
-        setattr(env.scene, "occupancy_maps", [None] * env.num_envs)
-    occupancy_maps = getattr(env.scene, "occupancy_maps")
-    origin_coords = env.scene.env_origins  # [N, 3] tensor
+def create_occupancy_map(scene_prim: Usd.Prim, map_name: str, save_folder: str | Path) -> None:
+    
+    bbox = compute_scene_bbox(scene_prim, padding_size=0.25)
+    gen = _get_omap_generator(bbox, resolution=0.05)
 
-    min_point, max_point = _compute_env_bbox(env, env_id=0)
-    logger.info(f"Computed env bbox min: {min_point}, max: {max_point}")
-    for i in env_ids.cpu().tolist():
-        env_origin = origin_coords[i]
-        ox, oy = float(env_origin[0]), float(env_origin[1])
+    gen.generate2d()
+    dims = tuple(gen.get_dimensions())  # (W, H, C)
+    buf = gen.get_buffer()
 
-        min_world = (min_point[0] + ox, min_point[1] + oy, min_point[2])
-        max_world = (max_point[0] + ox, max_point[1] + oy, max_point[2])
+    origin = gen.get_min_bound()
+    map_yaml = {
+        "image": f"{map_name}.png",
+        "resolution": 0.05, 
+        "origin": [origin.x, origin.y, 0.0],
+        "negate": 0,
+        "occupied_thresh": 0.65,
+        "free_thresh": 0.196,
+    }
+    #plot binary map
+    from PIL import Image
+    img = Image.fromarray(np.array(buf, dtype=np.uint8).reshape(dims[1], dims[0]))
+    img.save(Path(save_folder) / f"{map_name}.png")
+    logger.info(f"Saved occupancy map image to {Path(save_folder) / f'{map_name}.png'}")
 
-        gen.set_transform(
-            (ox, oy, 0.0),  # origin of the map in world coordinates
-            min_world,  # min-max corners in world coordinates for i-th env
-            max_world,
-        )
-        s = time.time()
-        gen.generate2d()
-        logger.info(f"Occupancy map generation for env {i} took {time.time() - s:.5f} seconds")
-        dims = tuple(gen.get_dimensions())  # (W, H, C)
-        buf_t = torch.tensor(gen.get_buffer(), dtype=torch.uint8, device="cpu")
-
-        occupancy_maps[i] = {
-            "dims": dims,
-            "buffer": buf_t,
-            "origin": (ox, oy),
-            "bounds_world": (min_world, max_world),
-            "resolution": map_resolution,
-        }
-        # ## debug: save OGM as image
-        # from PIL import Image
-
-        # img = Image.fromarray(buf_t.cpu().numpy().reshape(dims[1], dims[0]))
-        # img.save(f"env_{i}_omap.png")
-        # logger.info(f"Occupancy map for env {i} saved as env_{i}_omap.png")
-
-        # save also dummy a* path for testing
-        start_coords = np.array([30, 60], dtype=np.int32)
-        goal_coords = np.array([57, 145], dtype=np.int32)
-        a_star_path = _compute_global_plan(occupancy_maps[i], start_coords, goal_coords)
+    with open(Path(save_folder) / f"{map_name}.yaml", "w") as f:
+        yaml.dump(map_yaml, f)
+    logger.info(f"Saved occupancy map YAML to {Path(save_folder) / f'{map_name}.yaml'}")
 
 
-    setattr(env.scene, "occupancy_maps", occupancy_maps)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("usd", help="Path to source USD file")
+    args = parser.parse_args()
 
-def _inflate_img(img: np.ndarray, radius: float, resolution: float) -> np.ndarray:
-    binary_img = (img == 0)  # occupied cells
-    # r = round(radius / resolution)
-    # Y, X = np.meshgrid(np.arange(-r, r + 1), np.arange(-r, r + 1))
-    # SE = X**2 + Y**2 <= r**2
-    # SE = SE.astype(int)
-    # bin = sp.binary_dilation(binary_img, SE).astype(np.bool_)
-    distances = sp.distance_transform_edt(~binary_img)
-    scale = 5.0
-    costmap = np.clip(np.max(distances) - (distances * scale), 0, 255).astype(np.float32)
-    return costmap 
+    usd_path = os.path.abspath(args.usd)
 
-def _compute_global_plan(
-        occupancy_dict: dict,
-        start_coords: np.ndarray,   # coordinates in gridmap reference frame
-        goal_coords: np.ndarray,
-    ) -> np.ndarray:
-    dims = occupancy_dict['dims']  
-    img = occupancy_dict['buffer'].cpu().numpy().reshape(dims[1], dims[0])
-    if img[start_coords[0], start_coords[1]] == 0 or img[goal_coords[0], goal_coords[1]] == 0:
-        raise ValueError("Start or goal is in an occupied cell.")
+    my_world = World(stage_units_in_meters=1.0)
+    my_world.scene.add_default_ground_plane() 
 
-    costmap = _inflate_img(img, radius=0.2, resolution=occupancy_dict['resolution']) + 1.0  # avoid zero-cost cells
-    costmap[costmap >= 255] = float("inf")
-    a_star_path = pyastar2d.astar_path(costmap, start_coords, goal_coords, allow_diagonal=False) 
-    # debug: visualize costmap and path (in color)
-    # from PIL import Image
-    # costmap_img = Image.fromarray(costmap.astype(np.uint8)).convert("RGB")
-    # for coord in a_star_path:
-    #     costmap_img.putpixel((coord[1], coord[0]), (255, 0, 0))
-    # costmap_img.save("costmap_with_path.png")
-    return a_star_path
+    add_reference_to_stage(usd_path=usd_path, prim_path="/World/environment")
+
+    my_world.reset()
+    my_world.step(render=True)  # step once to ensure all prims are loaded
+
+    create_occupancy_map(
+        scene_prim=my_world.stage.GetPrimAtPath("/World/environment"),
+        map_name=Path(usd_path).stem + "_map",
+        save_folder=Path(usd_path).parent,
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        traceback.print_exc()
+    finally:
+        simulation_app.close()
