@@ -38,9 +38,9 @@ def get_dummy_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> torch.Tensor:
     """
-    Returns (B, num_obstacles, 2):
-        [..., 0] = distance
-        [..., 1] = yaw (radians)
+    Returns (B, 2 * num_obstacles) where for each batch we concatenate the distance and yaw of the closest num_obstacles points:
+        result[B, :num_obstacles] = distance
+        result[B, num_obstacles:] = yaw (radians)
     """
 
     lidar: MultiMeshRayCaster = env.scene["lidar"]
