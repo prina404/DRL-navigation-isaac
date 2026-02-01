@@ -7,26 +7,16 @@ import argparse
 
 from isaaclab.app import AppLauncher
 
-simulation_app = AppLauncher(
-    {
-        "headless": True,
-    }
-).app
+simulation_app = AppLauncher({"headless": True,}).app
 
-# -------------------------------------------------
-# Imports AFTER SimulationApp
-# -------------------------------------------------
-from pxr import Usd, UsdPhysics, Sdf, UsdGeom, PhysxSchema
-
-
-# ----------------------------
-# helpers
-# ----------------------------
+from pxr import Usd, UsdPhysics, Sdf, UsdGeom
+import re
 
 
 def is_under_looks(prim: Usd.Prim) -> bool:
     p = prim.GetPath().pathString
     return "/Looks/" in p or p.endswith("/Looks")
+
 
 def is_invisible(prim: Usd.Prim) -> bool:
     """Returns True if prim is invisible (including inherited)."""
@@ -40,7 +30,7 @@ def is_invisible(prim: Usd.Prim) -> bool:
     return vis == UsdGeom.Tokens.invisible
 
 
-def set_kinematic(prim: Usd.Prim):
+def set_kinematic(prim: Usd.Prim):  # TODO: rework
     if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
         UsdPhysics.RigidBodyAPI.Apply(prim)
 
@@ -60,15 +50,18 @@ def set_kinematic(prim: Usd.Prim):
     kin.Set(True)
 
 
-# ----------------------------
-# preprocessing logic
-# ----------------------------
+def disable_rigid_body(prim: Usd.Prim):
+    rb = UsdPhysics.RigidBodyAPI(prim)
+    attr = rb.GetRigidBodyEnabledAttr()
+    if not attr:
+        attr = rb.CreateRigidBodyEnabledAttr()
+    if attr.Get() is not False:
+        attr.Set(False)
 
 
 def preprocess_usd(
     src_path: str,
     kinematic_categories: list[str],
-    scene_root: str = "/World",
 ):
     stage = Usd.Stage.Open(src_path)
     if not stage:
@@ -76,49 +69,41 @@ def preprocess_usd(
 
     root = stage.GetPseudoRoot()
 
-    # -------------------------------------------------
-    # 1) Disable all rigid bodies + convex hull collisions
-    # -------------------------------------------------
+    # -- Disable all rigid bodies and invisible meshes
     disabled_rb = 0
     deactivated_invisible = 0
 
+    # useful if we want to modify door properties in the future
+    # door_re = re.compile(r"\/Meshes\/door_\d+")
+    # is_door = lambda p: door_re.search(p.GetPath().pathString) is not None
 
     for prim in Usd.PrimRange(root):
         if not prim.IsValid() or is_under_looks(prim):
             continue
 
-        if prim.HasAPI(UsdPhysics.RigidBodyAPI):
-            rb = UsdPhysics.RigidBodyAPI(prim)
-            attr = rb.GetRigidBodyEnabledAttr()
-            if not attr:
-                attr = rb.CreateRigidBodyEnabledAttr()
-            if attr.Get() is not False:
-                attr.Set(False)
-                disabled_rb += 1
-
-        if prim.GetTypeName() == "Mesh":
+        if prim.GetTypeName() == "Mesh":  # Disable invisible meshes entirely
             if is_invisible(prim):
                 prim.SetActive(False)
                 deactivated_invisible += 1
                 continue
 
-            mc = UsdPhysics.MeshCollisionAPI.Apply(prim)
-            mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexHull)
+        if prim.HasAPI(UsdPhysics.RigidBodyAPI):  # Disable rigid bodyAPI, making every mesh static, apart from doors
+            disable_rigid_body(prim)
+            disabled_rb += 1
 
-    # -------------------------------------------------
-    # 2) Mark selected objects as kinematic
-    # -------------------------------------------------
+            # mc = UsdPhysics.MeshCollisionAPI.Apply(prim)  # Generally not necessary
+            # mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexDecomposition)
+
+    # -- Mark selected objects as kinematic
+
     kinematic_count = 0
-    disabled_nested_rb = 0
 
     for prim in Usd.PrimRange(root):
         for cat in kinematic_categories:
             pass
         # TODO: set root xform as kinematic, then disable rigid bodies in its subtree
 
-    # -------------------------------------------------
-    # 3) Save baked USD
-    # -------------------------------------------------
+    # -- Save baked USD
     src_dir, src_name = os.path.split(src_path)
     base, ext = os.path.splitext(src_name)
     dst_path = os.path.join(src_dir, f"{base}_baked{ext}")
@@ -127,17 +112,11 @@ def preprocess_usd(
 
     print("USD preprocessing complete")
     print(f"  Disabled rigid bodies : {disabled_rb}")
-    print(f"  Disabled nested RBs   : {disabled_nested_rb}")
     print(f"  Kinematic objects     : {kinematic_count}")
     print(f"  Deactivated invisible meshes : {deactivated_invisible}")
     print(f"  Saved baked USD       : {dst_path}")
 
     return dst_path
-
-
-# ----------------------------
-# CLI
-# ----------------------------
 
 
 def main():
@@ -147,12 +126,7 @@ def main():
         "--categories",
         nargs="+",
         default=[],
-        help="Mesh categories to mark as kinematic",
-    )
-    parser.add_argument(
-        "--scene-root",
-        default="/World",
-        help="Scene root path",
+        help="Mesh categories to mark as kinematic (e.g. 'door', 'chair')",
     )
 
     args = parser.parse_args()
@@ -160,7 +134,6 @@ def main():
     preprocess_usd(
         src_path=os.path.abspath(args.usd),
         kinematic_categories=args.categories,
-        scene_root=args.scene_root,
     )
 
 
