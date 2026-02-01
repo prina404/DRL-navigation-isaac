@@ -50,6 +50,59 @@ def set_kinematic(prim: Usd.Prim):  # TODO: rework
     kin.Set(True)
 
 
+def group_has_any_invisible_mesh(group_prim: Usd.Prim) -> bool:
+    """True if *any* Mesh under group_prim is invisible (incl. inherited) or inactive."""
+    # If the group itself is invisible, treat as having invisible meshes.
+    if group_prim.IsA(UsdGeom.Imageable) and is_invisible(group_prim):
+        return True
+
+    for p in Usd.PrimRange(group_prim):
+        if not p.IsValid() or p.GetTypeName() != "Mesh":
+            continue
+
+        # treat inactive Mesh as "invisible present" so we skip this group.
+        if is_invisible(p) or not p.IsActive():
+            return True
+
+    return False
+
+
+def apply_mesh_merge_collision_to_door_groups(
+    door_root_prim: Usd.Prim,
+    group_name_re: re.Pattern = re.compile(r"^group_\d+$"),
+) -> int:
+    """
+    For each direct child under door_root_prim matching group_000x:
+      - if NO invisible/inactive Mesh exists in its subtree:
+          - apply PhysX MeshMergeCollision to the group
+          - set convexHull approximation
+    Returns number of groups modified.
+    """
+    if not door_root_prim or not door_root_prim.IsValid():
+        return 0
+
+    modified = 0
+
+    for child in door_root_prim.GetChildren():
+        name = child.GetName()
+        if group_name_re.fullmatch(name) is None:
+            continue
+
+        # Skip groups that contain any invisible/inactive meshes.
+        if group_has_any_invisible_mesh(child):
+            continue
+        print(f"Applying MeshMergeCollision to door group: {child.GetPath().pathString}")
+        # Optional: ensure collision API is present on the group container.
+        UsdPhysics.CollisionAPI.Apply(child)
+
+        mc = UsdPhysics.MeshCollisionAPI.Apply(child)  
+        mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexDecomposition)
+
+        modified += 1
+
+    return modified
+
+
 def disable_rigid_body(prim: Usd.Prim):
     rb = UsdPhysics.RigidBodyAPI(prim)
     attr = rb.GetRigidBodyEnabledAttr()
@@ -73,26 +126,26 @@ def preprocess_usd(
     disabled_rb = 0
     deactivated_invisible = 0
 
-    # useful if we want to modify door properties in the future
-    # door_re = re.compile(r"\/Meshes\/door_\d+")
-    # is_door = lambda p: door_re.search(p.GetPath().pathString) is not None
 
     for prim in Usd.PrimRange(root):
         if not prim.IsValid() or is_under_looks(prim):
             continue
 
+        if prim.HasAPI(UsdPhysics.RigidBodyAPI):  # Disable rigid bodyAPI, making every mesh static
+            disable_rigid_body(prim)
+            disabled_rb += 1
+
         if prim.GetTypeName() == "Mesh":  # Disable invisible meshes entirely
             if is_invisible(prim):
                 prim.SetActive(False)
                 deactivated_invisible += 1
-                continue
-
-        if prim.HasAPI(UsdPhysics.RigidBodyAPI):  # Disable rigid bodyAPI, making every mesh static, apart from doors
-            disable_rigid_body(prim)
-            disabled_rb += 1
-
-            # mc = UsdPhysics.MeshCollisionAPI.Apply(prim)  # Generally not necessary
-            # mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexDecomposition)
+    
+    
+    door_re = re.compile(r"\/Meshes\/door_\d+$") # root Xform for mesh groups of door prims 
+    is_door_mesh = lambda p: door_re.search(p.GetPath().pathString) is not None
+    for prim in Usd.PrimRange(root):
+        if is_door_mesh(prim):
+            apply_mesh_merge_collision_to_door_groups(prim)
 
     # -- Mark selected objects as kinematic
 
