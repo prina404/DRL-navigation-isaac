@@ -33,7 +33,7 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 import go2.go2_mpc as go2_mpc
-from lab.managed_env import Go2EnvCfg
+from lab.MyEnvCfg import Go2EnvCfg
 
 from loguru import logger
 import traceback
@@ -62,7 +62,13 @@ def run_simulator(cfg: DictConfig):
 
     # Create the whole scene
     logger.info("Creating gym environment...")
-    env = gym.make("Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=go2_env_cfg)
+    gym.register(
+        id="Isaac-indoor-navigation-go2-v0",
+        entry_point="lab.MyEnv:MyEnv",
+        disable_env_checker=True
+    )
+    
+    env = gym.make("Isaac-indoor-navigation-go2-v0", cfg=go2_env_cfg)
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 

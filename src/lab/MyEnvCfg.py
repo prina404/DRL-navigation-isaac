@@ -22,6 +22,7 @@ from loguru import logger
 import lab.action_helpers as actions
 import lab.observation_helpers as observations
 import lab.reward_helpers as rewards
+import lab.event_helpers as events
 
 # from utils.gridmap import generate_ogm_on_reset
 from cfg.CFG import SCENE_USD_PATH
@@ -183,29 +184,35 @@ eps = 0.1
 @configclass
 class EventsCfg:
     # Reset robot back to its original pose/joints on every episode reset
+    # reset_pos = EventTermCfg(
+    #     func=mdp.reset_root_state_uniform,  # TODO: replace with wrapper for asset.write_root_pose_to_sim and use random poses
+    #     mode="reset",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg(name="unitree_go2"),
+    #         "pose_range": {
+    #             "x": (X_SPAWN - eps, X_SPAWN + eps),
+    #             "y": (Y_SPAWN - eps, Y_SPAWN + eps),
+    #             "z": (0.4, 0.4),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0.0, 0.0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #         "velocity_range": {
+    #             "x": (0.0, 0.0),
+    #             "y": (0.0, 0.0),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0.0, 0.0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #     },
+    # )
+
     reset_pos = EventTermCfg(
-        func=mdp.reset_root_state_uniform,  # TODO: replace with wrapper for asset.write_root_pose_to_sim and use random poses
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg(name="unitree_go2"),
-            "pose_range": {
-                "x": (X_SPAWN - eps, X_SPAWN + eps),
-                "y": (Y_SPAWN - eps, Y_SPAWN + eps),
-                "z": (0.4, 0.4),
-                "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "yaw": (0.0, 0.0),
-            },
-            "velocity_range": {
-                "x": (0.0, 0.0),
-                "y": (0.0, 0.0),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "yaw": (0.0, 0.0),
-            },
-        },
+        func=events.teleport_on_reset,
+        mode="reset"
     )
+
     reset_joints = EventTermCfg(
         func=mdp.reset_joints_by_scale,
         mode="reset",
