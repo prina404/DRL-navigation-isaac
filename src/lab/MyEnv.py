@@ -1,7 +1,9 @@
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
 from isaaclab.utils.math import quat_from_euler_xyz
 from cfg.CFG import SCENE_USD_PATH
+from isaacsim.core.utils.torch.maths import scale
 import networkx as nx
+import numpy as np
 import torch
 from go2.go2_articulation_cfg import UNITREE_GO2_CFG
 import map_utils.voronoi as voronoi
@@ -9,6 +11,7 @@ import yaml
 from loguru import logger
 import pyastar2d
 import cv2
+import scipy.ndimage as sp
 
 class MyEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
@@ -25,21 +28,33 @@ class MyEnv(ManagerBasedRLEnv):
             min_node_distance=20
         )
 
-        self._map_H, self._map_W = cv2.imread(map_png, cv2.IMREAD_GRAYSCALE).shape
+        self.map_img = cv2.imread(map_png, cv2.IMREAD_GRAYSCALE)
+        self._costmap = self._create_inflated_costmap(inflation_scale = 3)
         # store the pixel coordinates of each node (indexed by [row][col])
         self.nodes = torch.Tensor([coords[idx] for idx in self.graph.nodes]).to(self.device)  # (N, 2)
 
         # Tensors that map env_id -> start node_id and goal node_id
-        self.start_pos = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)
-        self.goals = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)  
+        self.start_pos_ids = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)
+        self.goal_ids = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)  
+        self.goal_pos = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)  # (num_envs, 2)
+        self._path_tensors = [None] * self.num_envs  # list of (num_path_points, 2) tensors
+        
+    
 
+    def _create_inflated_costmap(self, inflation_scale: int) -> np.ndarray:
+        binary_img = self.map_img == 0 # 1= occupied, 0=free/unknown
+        dist_transform = sp.distance_transform_edt(~binary_img)
+        costmap = np.clip(np.max(dist_transform) - (dist_transform * inflation_scale), 0, 255).astype(np.float32)
+        costmap[costmap > 255] = float('inf')
+        return costmap + 1.0 # min_cost = 1.0 for A* 
 
     
     def _map_to_world(self, node_coords: torch.Tensor) -> torch.Tensor:
         # node coords are tensor: [[row, col],
                                 #  [row, col], ...]
         # in isaac frame, y directions are ok the same as in pixel space, but x are inverted
-        node_coords[:, 1] = self._map_W - node_coords[:, 1]  # flip x axis
+        H, W = self.map_img.shape
+        node_coords[:, 1] = W - node_coords[:, 1]  # flip x axis
         node_coords = node_coords[:, [1,0]]  # swap to (x, y)
         
         n = node_coords.shape[0]
@@ -88,13 +103,54 @@ class MyEnv(ManagerBasedRLEnv):
 
         robot.write_root_state_to_sim(state, env_ids)
         print(pos_local, pos_w)
-        self.start_pos[env_ids] = node_ids
+        self.start_pos_ids[env_ids] = node_ids
 
 
     def compute_goals_on_reset(self, env_ids: torch.Tensor) -> None:
         # TODO: add distance_based sampling. For the time being, 
         # just select a random neighboring node and navigate towards it
         for id in env_ids:
-            current_node = self.start_pos[id]
+            current_node = self.start_pos_ids[id]
             nbr = next(self.graph.neighbors(current_node.item()))
-            self.goals[id] = nbr
+            self.goal_ids[id] = nbr
+            self.goal_pos[id] = self._map_to_world(self.nodes[nbr].unsqueeze(0))[0]
+
+            r1, c1 = self.nodes[current_node].int().cpu().numpy()
+            r2, c2 = self.nodes[nbr].int().cpu().numpy()
+            path = pyastar2d.astar_path(self._costmap, (r1, c1), (r2, c2), allow_diagonal=True)
+            if path is None or len(path) <= 1:
+                logger.warning(f"No path found from {current_node} to {nbr}!")
+                raise Exception # direct line
+
+            point_dist = 0.3  # meters
+            path_subsampled = path[::int(point_dist / self.img_meta['resolution'])]
+
+            path_tensor = torch.zeros((len(path_subsampled)+1, 2), device=self.device)
+            path_tensor[:-1] = torch.tensor(path_subsampled, device=self.device)
+            path_tensor[-1] = torch.tensor([r2, c2], device=self.device)  # ensure goal is included
+
+            world_path = self._map_to_world(path_tensor)  # (num_path_points, 2)
+            self._path_tensors[id] = world_path  
+
+
+    def _world_to_map(self, world_coords: torch.Tensor) -> torch.Tensor:
+        # world coords are tensor: [[x, y],
+                                #  [x, y], ...]
+        logger.debug(f"world_coords: {world_coords}")
+        n = len(world_coords)
+
+        x, y = self.img_meta['origin'][:2]
+
+        origin = torch.zeros((n, 2), device=self.device)
+        origin[:] = torch.tensor([x, y], device=self.device) # broadcast origin
+        print(origin)
+
+        local_coords = world_coords - origin  # (N, 2)
+        logger.debug(f"local_coords: {local_coords}")
+        scaled = local_coords / self.img_meta['resolution']  # (N, 2)
+
+        H, W = self.map_img.shape
+        scaled[:, 0] = W - scaled[:, 0]  # flip x axis
+        pixel_coords = scaled[:, [1,0]]  # swap to (row, col)
+        logger.debug(f"pixel_coords: {pixel_coords}")
+        return pixel_coords

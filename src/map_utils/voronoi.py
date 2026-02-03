@@ -347,12 +347,12 @@ def compute_voronoi_graph(
 
     # -------------------------------PLOT-------------------------------------
 
+    graph, coordinates = reindex_nodes(voronoi_graph, coordinates)
     if plot_graph:
         _, ax = setup_plot([im.shape[1], im.shape[0]])
         ax.imshow(copy, cmap='gray')
-        plot_voronoi(coordinates, voronoi_graph, ax, 0, False, 'voronoi_graph_' + name, filepath=filepath)
+        plot_voronoi(coordinates, graph, ax, 0, False, 'voronoi_graph_' + name, filepath=filepath)
     
-    graph, coordinates = reindex_nodes(voronoi_graph, coordinates)
     return graph, coordinates
 
 

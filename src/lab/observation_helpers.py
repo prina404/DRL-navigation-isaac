@@ -1,6 +1,9 @@
 import math
+
+from loguru import logger
 import torch
 import torch.nn as nn
+from lab.MyEnv import MyEnv
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
@@ -143,3 +146,82 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
         topk_yaw = (topk_yaw + torch.pi) / (2 * torch.pi)  # normalize yaw to [0, 1]
 
     return torch.cat([topk_dist, topk_yaw], dim=1)  # (B, 2*num_obstacles)
+
+
+def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> list[torch.Tensor]:
+    # for each robot, I compute the distance to the goal, then filter all the path points that are
+    # within that distance. return a tensor of fixed size with the path points.
+    # If there are too few points I pad with goal pos
+    env: MyEnv = env.unwrapped
+    local_robot_coords = env.scene["unitree_go2"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    dist_to_goals = torch.norm(local_robot_coords - env.goal_pos, dim=-1)  # (B,) distance from robot to goal
+
+    res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
+    res += env.goal_pos.unsqueeze(1)  # default to goal pos
+
+    for id in range(env.num_envs):
+        path_points = env._path_tensors[id]  # variable lenth tensor of (num_path_points, 2)
+        goal_pos = env.goal_pos[id]  # (2,)
+        # keep only points on the path that are closer than the robot to the goal
+        forward_points = path_points[torch.norm(path_points - goal_pos, dim=-1) <= dist_to_goals[id]]
+        n_forward = min(forward_points.shape[0], num_points_forward + 1)
+        # logger.debug(f"{forward_points.shape=}, {res.shape=}")
+        res[id, :n_forward] = forward_points[:n_forward]
+
+    return res
+
+
+def get_path_obs(
+    env: RslRlVecEnvWrapper, 
+    num_points_forward: int, 
+    normalize: bool = True, 
+    debug_vis: bool = False
+) -> torch.Tensor:
+    env: MyEnv = env.unwrapped
+    if getattr(env, "goal_pos", None) is None:  # this is needed because this is called before env is fully initialized
+        return torch.zeros((env.num_envs, num_points_forward * 2), device=env.device)
+
+    # returns a 1D tensor of size (B*num_points_forward*2) with distance and heading to each path point
+    local_robot_coords = env.scene["unitree_go2"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+
+    path_coords = _get_path_coords(env, num_points_forward)  # (B, num_points_forward, 2)
+
+    robot_coords_expanded = torch.zeros_like(path_coords) + local_robot_coords.unsqueeze(
+        1
+    )  # (B, num_points_forward, 2)
+
+    path_distances = torch.norm(path_coords - robot_coords_expanded, dim=-1)  # (B, num_points_forward)
+
+    deltas = path_coords - robot_coords_expanded  # (B, num_points_forward, 2)
+    path_angles = torch.atan2(deltas[..., 1], deltas[..., 0])  # angle from robot position to each path point
+
+    robot_rot = env.scene["unitree_go2"].data.root_link_quat_w  # (B, 4)
+    _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1)
+
+    headings = -wrap_to_pi(path_angles - robot_yaw.unsqueeze(1))  # (B, num_points_forward)
+
+    if debug_vis:
+        debug_visualize(env, num_points_forward)
+        logger.info(f"{headings=}")
+
+    if normalize:
+        max_horizon_dist = 2  # horizon distance for normalization (in m)
+        path_distances = torch.clamp(path_distances / max_horizon_dist, 0.0, 1.0)
+        headings = (headings + math.pi) / (2 * math.pi)  # normalize yaw to [0, 1]
+
+    return torch.cat([path_distances, headings], dim=1).flatten().unsqueeze(0)  # (B * num_points_forward * 2)
+
+
+
+
+def debug_visualize(env: MyEnv, num_points_forward: int) -> None:
+    from isaacsim.util.debug_draw import _debug_draw
+    draw = _debug_draw.acquire_debug_draw_interface()
+    z_coord = torch.zeros((env.num_envs, num_points_forward + 1, 1), device=env.device) + 0.4
+    path_coords = _get_path_coords(env, num_points_forward)  # (B, num_points_forward, 2)
+    path_coords_3d = torch.cat([path_coords, z_coord], dim=-1)  # (B, num_points_forward, 3)
+    draw.draw_points(
+        path_coords_3d.cpu().numpy().reshape(-1, 3).tolist(),
+        [(0, 1, 0, 1)],
+        [10.0] * (num_points_forward * env.num_envs),
+    )

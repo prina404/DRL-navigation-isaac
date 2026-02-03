@@ -104,12 +104,12 @@ class Go2SimCfg(InteractiveSceneCfg):
     )
 
 
-
 @configclass
 class ObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
+
         prev_action = ObsTerm(func=mdp.last_action)
 
         vision = ObsTerm(
@@ -118,14 +118,21 @@ class ObservationsCfg:
         )
         lidar_points = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 25})
 
+        path_headings = ObsTerm(
+            func=observations.get_path_obs,
+            params={
+                "num_points_forward": 10,
+                "normalize": True,
+                "debug_vis": False,
+            },
+        )
         # TODO: add heading and PointGoal obs
-        
 
         def __post_init__(self) -> None:
             self.concatenate_terms = True
 
     policy = PolicyCfg()
-    critic = PolicyCfg()    # in case we want different obs for critic later
+    critic = PolicyCfg()  # in case we want different obs for critic later
 
 
 @configclass
@@ -181,37 +188,11 @@ X_SPAWN = -0.6
 Y_SPAWN = 0.8
 eps = 0.1
 
+
 @configclass
 class EventsCfg:
-    # Reset robot back to its original pose/joints on every episode reset
-    # reset_pos = EventTermCfg(
-    #     func=mdp.reset_root_state_uniform,  # TODO: replace with wrapper for asset.write_root_pose_to_sim and use random poses
-    #     mode="reset",
-    #     params={
-    #         "asset_cfg": SceneEntityCfg(name="unitree_go2"),
-    #         "pose_range": {
-    #             "x": (X_SPAWN - eps, X_SPAWN + eps),
-    #             "y": (Y_SPAWN - eps, Y_SPAWN + eps),
-    #             "z": (0.4, 0.4),
-    #             "roll": (0.0, 0.0),
-    #             "pitch": (0.0, 0.0),
-    #             "yaw": (0.0, 0.0),
-    #         },
-    #         "velocity_range": {
-    #             "x": (0.0, 0.0),
-    #             "y": (0.0, 0.0),
-    #             "z": (0.0, 0.0),
-    #             "roll": (0.0, 0.0),
-    #             "pitch": (0.0, 0.0),
-    #             "yaw": (0.0, 0.0),
-    #         },
-    #     },
-    # )
 
-    reset_pos = EventTermCfg(
-        func=events.teleport_on_reset,
-        mode="reset"
-    )
+    reset_pos = EventTermCfg(func=events.teleport_on_reset, mode="reset")
 
     reset_joints = EventTermCfg(
         func=mdp.reset_joints_by_scale,
