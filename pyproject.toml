@@ -15,7 +15,13 @@ dependencies = [
     "matplotlib",
     "scikit-image",
     "networkx",
+    "skan",
     "torch==2.7.0",
     "torch-scatter",
 ]
 
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

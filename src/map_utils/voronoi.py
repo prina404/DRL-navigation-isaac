@@ -283,6 +283,16 @@ def remove_close_nodes_1_neighbors_one_cycle(graph: nx.Graph, coordinates: list[
     graph.remove_nodes_from(list(nx.isolates(graph)))
 
 
+def reindex_nodes(graph: nx.Graph, coordinates: list[tuple]) -> tuple[nx.Graph, list[tuple]]:
+    mapping = {}
+    new_coordinates = []
+    for new_idx, old_idx in enumerate(graph.nodes):
+        mapping[old_idx] = new_idx
+        new_coordinates.append(coordinates[old_idx])
+    reindexed_graph = nx.relabel_nodes(graph, mapping)
+    return reindexed_graph, new_coordinates
+
+
 def compute_voronoi_graph(
         map_path: str | Path, 
         blur_radius: int, 
@@ -342,9 +352,13 @@ def compute_voronoi_graph(
         ax.imshow(copy, cmap='gray')
         plot_voronoi(coordinates, voronoi_graph, ax, 0, False, 'voronoi_graph_' + name, filepath=filepath)
     
-    return voronoi_graph, coordinates
+    graph, coordinates = reindex_nodes(voronoi_graph, coordinates)
+    return graph, coordinates
 
 
 if __name__ == '__main__':
     img_path = sys.argv[1]
-    graph, coordinates = compute_voronoi_graph(img_path, 10, 20, plot_graph=True, name='test', filepath='')
+    graph, coordinates = compute_voronoi_graph(img_path, 20, 20, plot_graph=True, name='test', filepath='')
+    print(graph.nodes)
+    print(list(list(graph.neighbors(i)) for i in graph.nodes))
+    print(coordinates)
