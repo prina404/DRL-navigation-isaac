@@ -5,32 +5,6 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import quat_apply
 
 
-def cache_goal_on_reset(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor,
-    asset_name: str = "unitree_go2",
-    goal_dist_m: float = 1.0,
-) -> None:
-    """Compute goal once on reset and store in env._goal_pos[env_ids]."""
-    if not hasattr(env, "_goal_pos") or env._goal_pos is None:
-        env._goal_pos = torch.zeros((env.num_envs, 3), device=env.device, dtype=torch.float32)
-
-    robot = env.scene[asset_name]
-    default_root_state = robot.data.default_root_state  # (N, 13)
-    pos0 = default_root_state[:, 0:3]
-    quat0 = default_root_state[:, 3:7]
-
-    # forward (+X in base frame)
-    fwd_w = quat_apply(
-        quat0,
-        torch.tensor([1.0, 0.0, 0.0], device=env.device, dtype=torch.float32).repeat(env.num_envs, 1),
-    )
-    goal_w = pos0 + goal_dist_m * fwd_w
-
-    env._goal_pos[env_ids] = goal_w[env_ids]
-    # logger.info(f"Cached goal positions for env_ids={env_ids.tolist()}: {env._goal_pos[env_ids]}")
-
-
 def dist_to_goal_xy(env: ManagerBasedRLEnv) -> torch.Tensor:
     robot = env.scene["unitree_go2"]
     pos_w = robot.data.root_pos_w

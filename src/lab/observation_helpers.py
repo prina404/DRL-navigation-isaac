@@ -209,7 +209,7 @@ def get_path_obs(
         path_distances = torch.clamp(path_distances / max_horizon_dist, 0.0, 1.0)
         headings = (headings + math.pi) / (2 * math.pi)  # normalize yaw to [0, 1]
 
-    return torch.cat([path_distances, headings], dim=1).flatten().unsqueeze(0)  # (B * num_points_forward * 2)
+    return torch.cat([path_distances, headings], dim=1) # (B, num_points_forward * 2)
 
 
 
@@ -225,3 +225,10 @@ def debug_visualize(env: MyEnv, num_points_forward: int) -> None:
         [(0, 1, 0, 1)],
         [10.0] * (num_points_forward * env.num_envs),
     )
+
+
+def get_previous_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:
+    env: MyEnv = env.unwrapped
+    if not hasattr(env, "_action_buffer"):
+        return torch.zeros((env.num_envs, 10 * 3), device=env.device)
+    return env._action_buffer.reshape(env.num_envs, -1)     

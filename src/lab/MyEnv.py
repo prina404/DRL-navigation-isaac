@@ -1,4 +1,5 @@
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
+from isaaclab.envs.common import VecEnvStepReturn
 from isaaclab.utils.math import quat_from_euler_xyz
 from cfg.CFG import SCENE_USD_PATH
 from isaacsim.core.utils.torch.maths import scale
@@ -31,14 +32,23 @@ class MyEnv(ManagerBasedRLEnv):
         self.map_img = cv2.imread(map_png, cv2.IMREAD_GRAYSCALE)
         self._costmap = self._create_inflated_costmap(inflation_scale = 3)
         # store the pixel coordinates of each node (indexed by [row][col])
-        self.nodes = torch.Tensor([coords[idx] for idx in self.graph.nodes]).to(self.device)  # (N, 2)
+        self.nodes = torch.Tensor([coords[idx] for idx in self.graph.nodes]).to(self.device)  
 
         # Tensors that map env_id -> start node_id and goal node_id
         self.start_pos_ids = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)
         self.goal_ids = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)  
-        self.goal_pos = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)  # (num_envs, 2)
+        self.goal_pos = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)  
         self._path_tensors = [None] * self.num_envs  # list of (num_path_points, 2) tensors
         
+        # Action buffer with the past 10 actions
+        self._action_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)  
+    
+    def step(self, action: torch.Tensor) -> VecEnvStepReturn:
+        retVal = super().step(action)
+        self._action_buffer = torch.roll(self._action_buffer, shifts=1, dims=1)
+        self._action_buffer[:, 0, :] = action.to(self.device)
+        return retVal
+
     
 
     def _create_inflated_costmap(self, inflation_scale: int) -> np.ndarray:

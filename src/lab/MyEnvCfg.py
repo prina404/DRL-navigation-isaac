@@ -110,7 +110,7 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
 
-        prev_action = ObsTerm(func=mdp.last_action)
+        prev_actions = ObsTerm(func=observations.get_previous_actions)
 
         vision = ObsTerm(
             func=observations.VisionEncoder(),
@@ -202,12 +202,6 @@ class EventsCfg:
             "position_range": (1.0, 1.0),
             "velocity_range": (0.0, 0.0),
         },
-    )
-
-    cache_goal = EventTermCfg(
-        func=rewards.cache_goal_on_reset,
-        mode="reset",
-        params={"asset_name": "unitree_go2", "goal_dist_m": 1.0},
     )
 
 
