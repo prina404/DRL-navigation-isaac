@@ -126,7 +126,6 @@ class ObservationsCfg:
                 "debug_vis": False,
             },
         )
-        # TODO: add heading and PointGoal obs
 
         def __post_init__(self) -> None:
             self.concatenate_terms = True
@@ -168,6 +167,17 @@ class RewardsCfg:
         params={"force_thresh": 3.0, "penalty": -5.0},
     )
 
+    heading = RewTerm(
+        func=rewards.robot_heading_reward,
+        weight=0.5,
+    )
+
+    smoothness = RewTerm(
+        func=rewards.smoothness_reward,
+        weight=0.1,
+        params={"alpha": 0.1},
+    )
+
 
 @configclass
 class TerminationsCfg:
@@ -181,12 +191,6 @@ class TerminationsCfg:
         func=mdp.time_out,
         time_out=True,
     )
-
-
-## hardcoded params for early experiments
-X_SPAWN = -0.6
-Y_SPAWN = 0.8
-eps = 0.1
 
 
 @configclass
@@ -217,7 +221,7 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
     events = EventsCfg()
 
     def __post_init__(self) -> None:
-        self.sim.dt = 0.005
+        self.sim.dt = 0.010
         self.sim.device = "cuda:0"
         self.sim.use_fabric = True
         self.sim.render = sim_utils.RenderCfg(

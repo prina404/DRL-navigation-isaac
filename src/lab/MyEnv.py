@@ -42,11 +42,19 @@ class MyEnv(ManagerBasedRLEnv):
         
         # Action buffer with the past 10 actions
         self._action_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)  
-    
+
+        # Store last robot linear + angular velocity for reward computation
+        self.last_vel = torch.zeros((self.num_envs, 6), dtype=torch.float32, device=self.device)
+
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
+        # store last vel before stepping
+        self.last_vel= self.scene["unitree_go2"].data.root_com_vel_w
+
         retVal = super().step(action)
+
         self._action_buffer = torch.roll(self._action_buffer, shifts=1, dims=1)
         self._action_buffer[:, 0, :] = action.to(self.device)
+
         return retVal
 
     
@@ -63,7 +71,7 @@ class MyEnv(ManagerBasedRLEnv):
         # node coords are tensor: [[row, col],
                                 #  [row, col], ...]
         # in isaac frame, y directions are ok the same as in pixel space, but x are inverted
-        H, W = self.map_img.shape
+        _, W = self.map_img.shape
         node_coords[:, 1] = W - node_coords[:, 1]  # flip x axis
         node_coords = node_coords[:, [1,0]]  # swap to (x, y)
         
@@ -112,7 +120,6 @@ class MyEnv(ManagerBasedRLEnv):
         state = torch.cat([pos_w, quats, zero_vel], dim=-1)  # (num_pos, 13)
 
         robot.write_root_state_to_sim(state, env_ids)
-        print(pos_local, pos_w)
         self.start_pos_ids[env_ids] = node_ids
 
 
@@ -146,21 +153,16 @@ class MyEnv(ManagerBasedRLEnv):
     def _world_to_map(self, world_coords: torch.Tensor) -> torch.Tensor:
         # world coords are tensor: [[x, y],
                                 #  [x, y], ...]
-        logger.debug(f"world_coords: {world_coords}")
         n = len(world_coords)
-
         x, y = self.img_meta['origin'][:2]
 
         origin = torch.zeros((n, 2), device=self.device)
         origin[:] = torch.tensor([x, y], device=self.device) # broadcast origin
-        print(origin)
 
         local_coords = world_coords - origin  # (N, 2)
-        logger.debug(f"local_coords: {local_coords}")
         scaled = local_coords / self.img_meta['resolution']  # (N, 2)
 
-        H, W = self.map_img.shape
+        _, W = self.map_img.shape
         scaled[:, 0] = W - scaled[:, 0]  # flip x axis
         pixel_coords = scaled[:, [1,0]]  # swap to (row, col)
-        logger.debug(f"pixel_coords: {pixel_coords}")
         return pixel_coords

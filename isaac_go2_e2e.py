@@ -72,7 +72,8 @@ def run_simulator(cfg: DictConfig):
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
-    camera_controller = ViewportCameraController(env.unwrapped, cfg= ViewerCfg((3.5,-0.9, 2.1), (-0.6, 0.8, -0.4), origin_type='env'))
+    camera_controller = ViewportCameraController(env.unwrapped, cfg= ViewerCfg(
+        eye=(3,-6.3, 1.8), lookat=(-0.1, -0.3, -1.2), origin_type='env'))
     camera_controller.set_view_env_index(0)
 
     
