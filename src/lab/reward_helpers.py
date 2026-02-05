@@ -6,7 +6,7 @@ import torch
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import quat_apply
-from lab.observation_helpers import get_path_obs
+from lab.observation_helpers import get_path_obs, get_lidar
 
 
 def dist_to_goal_xy(env: MyEnv) -> torch.Tensor:
@@ -39,6 +39,10 @@ def penalty_collision_base(env: MyEnv, force_thresh: float = 3.0, penalty: float
     mag = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
     return torch.where(mag > force_thresh, torch.full_like(mag, penalty), torch.zeros_like(mag))
 
+def penalty_obstacle_proximity(env: MyEnv, dist_thresh: float = 0.4, penalty: float = -2.0) -> torch.Tensor:
+    lidar_ranges = get_lidar(env, num_obstacles=10, normalize=False)  # (B, num_obstacles*2)
+    min_dist = lidar_ranges[:, :10].min(dim=-1).values  # (B,)
+    return torch.where(min_dist < dist_thresh, torch.full_like(min_dist, penalty), torch.full_like(min_dist, -penalty))
 
 def robot_heading_reward(env: MyEnv) -> torch.Tensor:
     # Returns 1 if robot is heading in the correct direction, 0 otherwise

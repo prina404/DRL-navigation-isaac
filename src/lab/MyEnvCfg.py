@@ -175,7 +175,13 @@ class RewardsCfg:
     smoothness = RewTerm(
         func=rewards.smoothness_reward,
         weight=0.5,
-        params={"alpha": 0.1},
+        params={"alpha": 0.3},
+    )
+
+    obstacle_proximity = RewTerm(
+        func=rewards.penalty_obstacle_proximity,
+        weight=1.0,
+        params={"dist_thresh": 0.4, "penalty": -1.0},
     )
 
 
