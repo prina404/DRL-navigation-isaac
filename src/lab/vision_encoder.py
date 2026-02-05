@@ -1,3 +1,4 @@
+from pathlib import Path
 import timm
 import torch
 import torch.nn as nn
@@ -12,6 +13,7 @@ class ViTEncoder(nn.Module):
             'efficientvit_m3.r224_in1k',
             pretrained=True,
             num_classes=0,  # remove classifier nn.Linear
+            cache_dir=Path('~/.cache/torch/hub/timm').expanduser()
         ).eval()
         data_config = timm.data.resolve_model_data_config(self.vit)
         self.transforms = timm.data.create_transform(**data_config, is_training=False)

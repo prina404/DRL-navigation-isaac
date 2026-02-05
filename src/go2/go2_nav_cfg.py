@@ -2,7 +2,7 @@
 go2_policy_cfg = {
     # Training loop parameters
     "num_steps_per_env": 24,
-    "save_interval": 50,
+    "save_interval": 100,
     "max_iterations": 1000,
     "device": "cuda:0",
     "empirical_normalization": False,

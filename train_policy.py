@@ -50,7 +50,7 @@ from dotenv import load_dotenv
 
 import go2.go2_mpc as go2_mpc
 from go2.go2_nav_cfg import go2_policy_cfg
-from lab.managed_env import Go2EnvCfg
+from lab.MyEnvCfg import Go2EnvCfg
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
@@ -82,8 +82,13 @@ def run_simulator(cfg: DictConfig):
 
     # Create the whole scene
     logger.info("Creating gym environment...")
+    gym.register(
+        id="Isaac-indoor-navigation-go2-v0",
+        entry_point="lab.MyEnv:MyEnv",
+        disable_env_checker=True
+    )
     env = gym.make(
-        "Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=go2_env_cfg, render_mode="rgb_array" if args_cli.video else None
+        "Isaac-indoor-navigation-go2-v0", cfg=go2_env_cfg, render_mode="rgb_array" if args_cli.video else None
     )
     logger.info("Gym environment created")
 
@@ -101,10 +106,6 @@ def run_simulator(cfg: DictConfig):
 
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
-    camera_controller = ViewportCameraController(
-        env.unwrapped, cfg=ViewerCfg((3.5, -0.9, 2.1), (-0.6, 0.8, -0.4), origin_type="env")
-    )
-    camera_controller.set_view_env_index(0)
 
     # Navigation Policy setup
     agent_cfg = go2_policy_cfg
@@ -122,11 +123,15 @@ def run_simulator(cfg: DictConfig):
         )
         ppo_runner.load(ckpt_path)
 
-    ppo_runner.learn(
-        num_learning_iterations=(
-            go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
-        ),
-    )
+    try: # during the last iteration, the camera may throw an exception if robot 0 gets despawned
+        ppo_runner.learn(
+            num_learning_iterations=(
+                go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
+            ),
+        )
+    except:
+        pass
+    ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
 
 
 if __name__ == "__main__":

@@ -146,7 +146,7 @@ class ActionsCfg:
 class RewardsCfg:
     goal_reached = RewTerm(
         func=rewards.is_goal_reached,
-        weight=5.0,
+        weight=10.0,
         params={"threshold_m": 0.2},
     )
 
@@ -158,7 +158,7 @@ class RewardsCfg:
     penalty_still = RewTerm(
         func=rewards.penalty_still,
         weight=1.0,
-        params={"speed_thresh": 0.05, "penalty": -0.2},
+        params={"speed_thresh": 0.05, "penalty": -0.1},
     )
 
     collision = RewTerm(
@@ -169,12 +169,12 @@ class RewardsCfg:
 
     heading = RewTerm(
         func=rewards.robot_heading_reward,
-        weight=0.5,
+        weight=1.0,
     )
 
     smoothness = RewTerm(
         func=rewards.smoothness_reward,
-        weight=0.1,
+        weight=0.5,
         params={"alpha": 0.1},
     )
 
@@ -221,7 +221,7 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
     events = EventsCfg()
 
     def __post_init__(self) -> None:
-        self.sim.dt = 0.010
+        self.sim.dt = 0.005
         self.sim.device = "cuda:0"
         self.sim.use_fabric = True
         self.sim.render = sim_utils.RenderCfg(

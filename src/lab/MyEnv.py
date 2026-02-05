@@ -1,22 +1,25 @@
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
 from isaaclab.envs.common import VecEnvStepReturn
-from isaaclab.utils.math import quat_from_euler_xyz
+from isaaclab.utils.math import quat_apply, quat_from_euler_xyz
 from cfg.CFG import SCENE_USD_PATH
 from isaacsim.core.utils.torch.maths import scale
 import networkx as nx
 import numpy as np
 import torch
-from go2.go2_articulation_cfg import UNITREE_GO2_CFG
 import map_utils.voronoi as voronoi
 import yaml
 from loguru import logger
 import pyastar2d
 import cv2
 import scipy.ndimage as sp
+from isaaclab.envs.ui import ViewportCameraController
+from isaaclab.envs import ViewerCfg
 
 class MyEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+
+        self.camera_controller = ViewportCameraController(self, cfg= ViewerCfg(origin_type='world'))
 
         map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
         map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
@@ -25,7 +28,7 @@ class MyEnv(ManagerBasedRLEnv):
 
         self.graph, coords = voronoi.compute_voronoi_graph(
             map_path=map_png,
-            blur_radius=20,
+            blur_radius=22,
             min_node_distance=20
         )
 
@@ -44,16 +47,17 @@ class MyEnv(ManagerBasedRLEnv):
         self._action_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)  
 
         # Store last robot linear + angular velocity for reward computation
-        self.last_vel = torch.zeros((self.num_envs, 6), dtype=torch.float32, device=self.device)
+        self._last_vel = torch.zeros((self.num_envs, 6), dtype=torch.float32, device=self.device)
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         # store last vel before stepping
-        self.last_vel= self.scene["unitree_go2"].data.root_com_vel_w
-
+        self._last_vel= self.scene["unitree_go2"].data.root_com_vel_w.clone()
         retVal = super().step(action)
 
         self._action_buffer = torch.roll(self._action_buffer, shifts=1, dims=1)
         self._action_buffer[:, 0, :] = action.to(self.device)
+
+        self.update_follow_camera()
 
         return retVal
 
@@ -101,9 +105,8 @@ class MyEnv(ManagerBasedRLEnv):
 
         positions = self.nodes[node_ids]    # map coordinates of node_ids
         positions = self._map_to_world(positions)  # (num_pos, 2)
-        z_col = torch.zeros((num_pos, 1), device=self.device) + 0.01  # set z to 0.01
+        z_col = torch.zeros((num_pos, 1), device=self.device) + 0.3  # set z to 0.3
         pos_local = torch.cat([positions, z_col], dim=-1)  # (num_pos, 3)
-        pos_local[:, -1] = 0.01  # set z to 0.01
 
         # swap x and y to match world frame
 
@@ -119,7 +122,7 @@ class MyEnv(ManagerBasedRLEnv):
 
         state = torch.cat([pos_w, quats, zero_vel], dim=-1)  # (num_pos, 13)
 
-        robot.write_root_state_to_sim(state, env_ids)
+        robot.write_root_com_state_to_sim(state, env_ids)
         self.start_pos_ids[env_ids] = node_ids
 
 
@@ -166,3 +169,17 @@ class MyEnv(ManagerBasedRLEnv):
         scaled[:, 0] = W - scaled[:, 0]  # flip x axis
         pixel_coords = scaled[:, [1,0]]  # swap to (row, col)
         return pixel_coords
+    
+    def update_follow_camera(self):
+        robot_pos = self.scene['unitree_go2'].data.root_pos_w[0]
+        robot_quat = self.scene['unitree_go2'].data.root_quat_w[0]
+
+        camera_offset_local = torch.tensor([-1.2, 0.0, 1.2], device=self.device)
+        lookat_offset_local = torch.tensor([2.0, 0.0, -1.0], device=self.device)
+
+        camera_offset_w = quat_apply(robot_quat, camera_offset_local)
+        lookat_offset_w = quat_apply(robot_quat, lookat_offset_local)
+
+        eye_pos = robot_pos + camera_offset_w
+        lookat_pos = robot_pos + lookat_offset_w
+        self.camera_controller.update_view_location(eye=eye_pos.cpu().numpy(), lookat=lookat_pos.cpu().numpy())

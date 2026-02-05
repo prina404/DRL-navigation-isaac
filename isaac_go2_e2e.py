@@ -72,10 +72,6 @@ def run_simulator(cfg: DictConfig):
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
-    camera_controller = ViewportCameraController(env.unwrapped, cfg= ViewerCfg(
-        eye=(3,-6.3, 1.8), lookat=(-0.1, -0.3, -1.2), origin_type='env'))
-    camera_controller.set_view_env_index(0)
-
     
     # Navigation Policy setup
     agent_cfg = go2_policy_cfg
