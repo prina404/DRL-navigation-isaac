@@ -110,15 +110,16 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
 
-        prev_actions = ObsTerm(func=observations.get_previous_actions)
+        action_buffer = ObsTerm(func=observations.get_previous_actions)
 
         vision = ObsTerm(
             func=observations.VisionEncoder(),
             # func=observations.get_dummy_embedding,
         )
-        lidar_points = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 25})
+        
+        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 25})
 
-        path_headings = ObsTerm(
+        global_plan = ObsTerm(
             func=observations.get_path_obs,
             params={
                 "num_points_forward": 10,
@@ -128,10 +129,9 @@ class ObservationsCfg:
         )
 
         def __post_init__(self) -> None:
-            self.concatenate_terms = True
+            self.concatenate_terms = False
 
-    policy = PolicyCfg()
-    critic = PolicyCfg()  # in case we want different obs for critic later
+    full_obs_group = PolicyCfg()
 
 
 @configclass
@@ -178,11 +178,11 @@ class RewardsCfg:
         params={"alpha": 0.3},
     )
 
-    obstacle_proximity = RewTerm(
-        func=rewards.penalty_obstacle_proximity,
-        weight=1.0,
-        params={"dist_thresh": 0.4, "penalty": -1.0},
-    )
+    # obstacle_proximity = RewTerm(
+    #     func=rewards.penalty_obstacle_proximity,
+    #     weight=1.0,
+    #     params={"dist_thresh": 0.4, "penalty": -1.0},
+    # )
 
 
 @configclass

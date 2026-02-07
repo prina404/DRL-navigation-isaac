@@ -1,3 +1,4 @@
+from policy_model.ActorCriticWithEncoders import ActorCriticWithEncoders
 
 go2_policy_cfg = {
     # Training loop parameters
@@ -8,16 +9,21 @@ go2_policy_cfg = {
     "empirical_normalization": False,
     # Observation routing
     "obs_groups": {
-        "policy": ["policy"],
-        "critic": ["policy"],
+        "policy": ["full_obs_group"],
+        "critic": ["full_obs_group"],
     },
     # Policy architecture
     "policy": {
-        "class_name": "ActorCritic",
+        "class_name": ActorCriticWithEncoders,
         "actor_hidden_dims": [512, 256, 128],
         "critic_hidden_dims": [512, 256, 128],
         "activation": "elu",
         "init_noise_std": 1.0,
+        "encoders_hidden_dims": {
+            "lidar": [128, 256],
+            "global_plan": [128, 128],
+            "action_buffer": [128, 128],
+        },
     },
     # PPO algorithm parameters
     "algorithm": {
