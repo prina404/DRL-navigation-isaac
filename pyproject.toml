@@ -7,17 +7,20 @@ authors = [
 version = "0.1.0"
 requires-python = "==3.11.*"
 dependencies = [
-    #"pyastar2d", # pending PR for python 3.11 support
+    "pyastar2d>=1.1.0", # pending PR for python 3.11 support
     "loguru",
     "tensordict",
     "timm",
     "opencv-python",
     "matplotlib",
     "scikit-image",
+    "numpy==1.26.0",
+    "numba==0.59.1",
+    "llvmlite==0.42.0",
     "networkx",
     "skan",
     "torch==2.7.0",
-    "torch-scatter",
+    "rsl-rl-lib==3.3.0"
 ]
 
 [tool.setuptools]
