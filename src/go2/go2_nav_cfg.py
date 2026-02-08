@@ -9,8 +9,8 @@ go2_policy_cfg = {
     "empirical_normalization": False,
     # Observation routing
     "obs_groups": {
-        "policy": ["full_obs_group"],
-        "critic": ["full_obs_group"],
+        "policy": ["vision", "lidar", "global_plan", "action_buffer"],
+        "critic": ["vision", "lidar", "global_plan", "action_buffer"],
     },
     # Policy architecture
     "policy": {

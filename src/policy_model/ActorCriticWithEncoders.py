@@ -7,6 +7,7 @@ from loguru import logger
 
 from rsl_rl.networks import MLP, EmpiricalNormalization
 from rsl_rl.modules.actor_critic import ActorCritic
+from typing import Literal
 
 
 class ActorCriticWithEncoders(ActorCritic):
@@ -36,7 +37,7 @@ class ActorCriticWithEncoders(ActorCritic):
 
         nn.Module.__init__(self)  # skip ActorCritic constructor
         self.obs_groups = obs_groups
-        
+
         # Encoders
         self.actor_encoders, actor_input_dim = self._init_encoder_modules(obs, "policy", activation, encoders_hidden_dims)
         self.critic_encoders, critic_input_dim = self._init_encoder_modules(obs, "critic", activation, encoders_hidden_dims)
@@ -88,32 +89,28 @@ class ActorCriticWithEncoders(ActorCritic):
     ) -> tuple[nn.ModuleDict, int]:
         encoders = nn.ModuleDict()
         input_dim = 0
-        for obs_group in self.obs_groups[group_name]:
-            for obs_term in obs[obs_group].keys():
-                obs_size = obs[obs_group][obs_term].shape[-1]
-                if encoder_cfg is not None and obs_term in encoder_cfg:  # initialize an encoder for this observation term
-                    hidden_dims = encoder_cfg[obs_term]
-                    encoders[obs_term] = MLP(obs_size, hidden_dims[-1], hidden_dims[:-1], activation)
-                    input_dim += hidden_dims[-1]
-                else:
-                    encoders[obs_term] = nn.Identity()
-                    input_dim += obs_size
+        for obs_name in self.obs_groups[group_name]:
+            obs_tensor = obs[obs_name]
+            obs_size = obs_tensor.shape[-1]
+            if encoder_cfg is not None and obs_name in encoder_cfg:  # initialize an encoder for this observation term
+                hidden_dims = encoder_cfg[obs_name]
+                encoders[obs_name] = MLP(obs_size, hidden_dims[-1], hidden_dims[:-1], activation)
+                input_dim += hidden_dims[-1]
+            else:
+                encoders[obs_name] = nn.Identity()
+                input_dim += obs_size
         return encoders, input_dim
     
-    def get_actor_obs(self, obs: TensorDict) -> torch.Tensor:
+    def _get_encoded_obs(self, obs: TensorDict, group_name: Literal["policy", "critic"]) -> torch.Tensor:
         encoder_outputs = []
-        for obs_group in self.obs_groups["policy"]:
-            for obs_term in obs[obs_group].keys():
-                encoder = self.actor_encoders[obs_term]
-                obs_data = obs[obs_group][obs_term]
-                encoder_outputs.append(encoder(obs_data))
+        encoders = self.actor_encoders if group_name == "policy" else self.critic_encoders
+        for obs_name in self.obs_groups[group_name]:
+            encoder = encoders[obs_name]
+            encoder_outputs.append(encoder(obs[obs_name]))
         return torch.cat(encoder_outputs, dim=-1)
     
+    def get_actor_obs(self, obs: TensorDict) -> torch.Tensor:
+        return self._get_encoded_obs(obs, "policy")
+    
     def get_critic_obs(self, obs: TensorDict) -> torch.Tensor:
-        encoder_outputs = []
-        for obs_group in self.obs_groups["critic"]:
-            for obs_term in obs[obs_group].keys():
-                encoder = self.critic_encoders[obs_term]
-                obs_data = obs[obs_group][obs_term]
-                encoder_outputs.append(encoder(obs_data))
-        return torch.cat(encoder_outputs, dim=-1)
+        return self._get_encoded_obs(obs, "critic")

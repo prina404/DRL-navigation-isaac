@@ -103,8 +103,8 @@ def run_simulator(cfg: DictConfig):
         print_dict(video_kwargs, nesting=4)
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
     
-
     env = RslRlVecEnvWrapper(env)
+    env.reset()
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
     # Navigation Policy setup
@@ -112,7 +112,7 @@ def run_simulator(cfg: DictConfig):
     if args_cli.wandb:
         load_dotenv()
         agent_cfg["logger"] = "wandb"
-        agent_cfg["wandb_project"] = "LearningForPlanning-test"
+        agent_cfg["wandb_project"] = "LearningForPlanning-encoders"
 
     agent_cfg["num_envs"] = cfg.num_envs
     ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=log_dir, device=agent_cfg["device"])
@@ -123,16 +123,13 @@ def run_simulator(cfg: DictConfig):
         )
         ppo_runner.load(ckpt_path)
 
-    try: # during the last iteration, the camera may throw an exception if robot 0 gets despawned
-        ppo_runner.learn(
-            num_learning_iterations=(
-                go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
-            ),
-        )
-    except:
-        pass
-    ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
-
+    ppo_runner.learn(
+        num_learning_iterations=(
+            go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
+        ),
+    )
+    # ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
+    env.close()
 
 if __name__ == "__main__":
     try:

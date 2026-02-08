@@ -107,18 +107,19 @@ class Go2SimCfg(InteractiveSceneCfg):
 @configclass
 class ObservationsCfg:
     @configclass
-    class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
-
+    class ActionGroup(ObsGroup):
         action_buffer = ObsTerm(func=observations.get_previous_actions)
 
-        vision = ObsTerm(
-            func=observations.VisionEncoder(),
-            # func=observations.get_dummy_embedding,
-        )
-        
+    @configclass
+    class VisionGroup(ObsGroup):
+        vision = ObsTerm(func=observations.VisionEncoder())
+
+    @configclass
+    class LidarGroup(ObsGroup):
         lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 25})
 
+    @configclass
+    class GlobalPlanGroup(ObsGroup):
         global_plan = ObsTerm(
             func=observations.get_path_obs,
             params={
@@ -128,10 +129,10 @@ class ObservationsCfg:
             },
         )
 
-        def __post_init__(self) -> None:
-            self.concatenate_terms = False
-
-    full_obs_group = PolicyCfg()
+    action_buffer = ActionGroup()
+    vision = VisionGroup()
+    lidar = LidarGroup()
+    global_plan = GlobalPlanGroup()
 
 
 @configclass
