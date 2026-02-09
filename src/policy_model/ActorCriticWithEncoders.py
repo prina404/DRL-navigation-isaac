@@ -94,7 +94,7 @@ class ActorCriticWithEncoders(ActorCritic):
             obs_size = obs_tensor.shape[-1]
             if encoder_cfg is not None and obs_name in encoder_cfg:  # initialize an encoder for this observation term
                 hidden_dims = encoder_cfg[obs_name]
-                encoders[obs_name] = MLP(obs_size, hidden_dims[-1], hidden_dims[:-1], activation)
+                encoders[obs_name] = MLP(obs_size, hidden_dims[-1], hidden_dims[:-1], activation, last_activation='sigmoid')
                 input_dim += hidden_dims[-1]
             else:
                 encoders[obs_name] = nn.Identity()

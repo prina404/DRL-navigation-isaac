@@ -147,8 +147,8 @@ class ActionsCfg:
 class RewardsCfg:
     goal_reached = RewTerm(
         func=rewards.is_goal_reached,
-        weight=10.0,
-        params={"threshold_m": 0.2},
+        weight=50.0,
+        params={"threshold_m": 0.3},
     )
 
     distance_to_goal = RewTerm(
@@ -158,32 +158,32 @@ class RewardsCfg:
 
     penalty_still = RewTerm(
         func=rewards.penalty_still,
-        weight=1.0,
-        params={"speed_thresh": 0.05, "penalty": -0.1},
+        weight=0.5,
+        params={"speed_thresh": 0.2, "penalty": -0.1},
     )
 
     collision = RewTerm(
         func=rewards.penalty_collision_base,
         weight=1.0,
-        params={"force_thresh": 3.0, "penalty": -5.0},
+        params={"force_thresh": 2.0, "penalty": -5.0},
     )
 
     heading = RewTerm(
         func=rewards.robot_heading_reward,
-        weight=1.0,
+        weight=3.0,
     )
 
-    smoothness = RewTerm(
-        func=rewards.smoothness_reward,
+    action_smoothness = RewTerm(
+        func=rewards.action_smoothness_penalty,
         weight=0.5,
         params={"alpha": 0.3},
     )
 
-    # obstacle_proximity = RewTerm(
-    #     func=rewards.penalty_obstacle_proximity,
-    #     weight=1.0,
-    #     params={"dist_thresh": 0.4, "penalty": -1.0},
-    # )
+    obstacle_proximity = RewTerm(
+        func=rewards.penalty_obstacle_proximity,
+        weight=0.5,
+        params={"max_penalty": -2.0},
+    )
 
 
 @configclass
@@ -192,7 +192,7 @@ class TerminationsCfg:
 
     goal_reached = DoneTerm(
         func=rewards.is_goal_reached,
-        params={"threshold_m": 0.2},
+        params={"threshold_m": 0.3},
     )
     timeout = DoneTerm(
         func=mdp.time_out,

@@ -20,6 +20,8 @@ class MyEnv(ManagerBasedRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.camera_controller = ViewportCameraController(self, cfg= ViewerCfg(origin_type='world'))
+        self.old_eye_pos = None
+        self.old_lookat_pos = None
 
         map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
         map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
@@ -174,12 +176,24 @@ class MyEnv(ManagerBasedRLEnv):
         robot_pos = self.scene['unitree_go2'].data.root_pos_w[0]
         robot_quat = self.scene['unitree_go2'].data.root_quat_w[0]
 
-        camera_offset_local = torch.tensor([-1.2, 0.0, 1.2], device=self.device)
-        lookat_offset_local = torch.tensor([2.0, 0.0, -1.0], device=self.device)
+        camera_offset_local = torch.tensor([-1.0, 0.0, 1.0], device=self.device)
+        lookat_offset_local = torch.tensor([2.0, 0.0, -0.8], device=self.device)
 
         camera_offset_w = quat_apply(robot_quat, camera_offset_local)
         lookat_offset_w = quat_apply(robot_quat, lookat_offset_local)
 
-        eye_pos = robot_pos + camera_offset_w
-        lookat_pos = robot_pos + lookat_offset_w
-        self.camera_controller.update_view_location(eye=eye_pos.cpu().numpy(), lookat=lookat_pos.cpu().numpy())
+        if self.old_eye_pos is None:
+            self.old_eye_pos = robot_pos + camera_offset_w
+            self.old_lookat_pos = robot_pos + lookat_offset_w
+        else:            # smooth camera movement by interpolating between old and new positions
+            alpha = 0.2  # smoothing factor
+            new_eye_pos = robot_pos + camera_offset_w
+            new_lookat_pos = robot_pos + lookat_offset_w
+
+            smoothed_eye_pos = (1 - alpha) * self.old_eye_pos + alpha * new_eye_pos
+            smoothed_lookat_pos = (1 - alpha) * self.old_lookat_pos + alpha * new_lookat_pos
+
+            self.camera_controller.update_view_location(eye=smoothed_eye_pos.cpu().numpy(), lookat=smoothed_lookat_pos.cpu().numpy())
+
+            self.old_eye_pos = smoothed_eye_pos
+            self.old_lookat_pos = smoothed_lookat_pos

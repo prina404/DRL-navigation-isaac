@@ -10,8 +10,8 @@ from lab.observation_helpers import get_path_obs, get_lidar
 
 
 def dist_to_goal_xy(env: MyEnv) -> torch.Tensor:
-    robot = env.scene["unitree_go2"]
-    pos_w = robot.data.root_pos_w
+    robot: Articulation = env.scene["unitree_go2"]
+    pos_w = robot.data.root_com_pos_w
     goal_local = env.goal_pos
     goal_w = goal_local + env.scene.env_origins[:, :2]
     delta_xy = goal_w[:, 0:2] - pos_w[:, 0:2]
@@ -39,22 +39,22 @@ def penalty_collision_base(env: MyEnv, force_thresh: float = 3.0, penalty: float
     mag = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
     return torch.where(mag > force_thresh, torch.full_like(mag, penalty), torch.zeros_like(mag))
 
-def penalty_obstacle_proximity(env: MyEnv, dist_thresh: float = 0.4, penalty: float = -2.0) -> torch.Tensor:
+def penalty_obstacle_proximity(env: MyEnv, max_penalty: float = -2.0) -> torch.Tensor:
     lidar_ranges = get_lidar(env, num_obstacles=10, normalize=False)  # (B, num_obstacles*2)
     min_dist = lidar_ranges[:, :10].min(dim=-1).values  # (B,)
-    return torch.where(min_dist < dist_thresh, torch.full_like(min_dist, penalty), torch.full_like(min_dist, -penalty))
+    return max_penalty + torch.clamp(torch.pow(min_dist, 2), min = max_penalty, max=-max_penalty) # ()
 
 def robot_heading_reward(env: MyEnv) -> torch.Tensor:
     # Returns 1 if robot is heading in the correct direction, 0 otherwise
     # We compute the alignment wrt to the direction of the last point of the path in hour horizon.
     obs_tensor = get_path_obs(env, num_points_forward=10, normalize=True)  # (B, 20)
-    last_heading = obs_tensor[:, -1]
-    # if last_heading == 0.5 -> robot is facing the goal. Max reward.
-    heading_delta = torch.abs(0.5 - last_heading)
+    dist, headings = obs_tensor[:, :10], obs_tensor[:, 10:]  # (B, 10), (B, 10)
+    next_heading = headings[:, 2] # I extract the heading of 3rd point forward (approx 1m ahead)
+    # if next_heading == 0.5 -> robot is facing the correct direction. Max reward.
+    heading_delta = torch.abs(0.5 - next_heading)
     return 1.0 - heading_delta * 2.0  # normalize to [0, 1]
 
-def smoothness_reward(env: MyEnv, alpha: float = 0.1) -> torch.Tensor:
+def action_smoothness_penalty(env: MyEnv, alpha: float = 0.2) -> torch.Tensor:
     # I assume that jerky motions are correlated to sudden changes in velocity.
-    robot:Articulation = env.scene["unitree_go2"]
-    delta_v = (robot.data.root_com_vel_w - env._last_vel)
-    return -alpha * torch.linalg.norm(delta_v, dim=-1)
+    delta = env._action_buffer[:, 0] - env._action_buffer[:, 1]  # (B, action_dim)
+    return -alpha * torch.linalg.norm(delta, dim=-1)
