@@ -2,8 +2,6 @@ from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
 from isaaclab.envs.common import VecEnvStepReturn
 from isaaclab.utils.math import quat_apply, quat_from_euler_xyz
 from cfg.CFG import SCENE_USD_PATH
-from isaacsim.core.utils.torch.maths import scale
-import networkx as nx
 import numpy as np
 import torch
 import map_utils.voronoi as voronoi

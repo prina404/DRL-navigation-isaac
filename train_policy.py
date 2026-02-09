@@ -17,6 +17,7 @@ parser.add_argument("--log_interval", type=int, default=100_000, help="Log data 
 parser.add_argument("--checkpoint", type=str, default=None, help="Continue the training from checkpoint.")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
 parser.add_argument("--wandb", action="store_true", default=False, help="Name of the WandB project for logging")
+parser.add_argument("--debug-vis", action="store_true", default=False, help="Enable debug visualizations in the environment.")
 
 AppLauncher.add_app_launcher_args(parser)
 
@@ -31,15 +32,12 @@ simulation_app = app_launcher.app
 
 
 import os
-import time
 import traceback
 from datetime import datetime
 
 import gymnasium as gym
 import hydra
-import torch
-from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
-from isaaclab.envs.ui import ViewportCameraController
+from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils.dict import print_dict
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
@@ -84,7 +82,7 @@ def run_simulator(cfg: DictConfig):
     logger.info("Creating gym environment...")
     gym.register(
         id="Isaac-indoor-navigation-go2-v0",
-        entry_point="lab.MyEnv:MyEnv",
+        entry_point="lab.MyEnv:MyEnv" if not args_cli.debug_vis else "lab.MyEnvDebuggingVis:MyEnvDebuggingVis",
         disable_env_checker=True
     )
     env = gym.make(
