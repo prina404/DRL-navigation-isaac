@@ -24,7 +24,7 @@ def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> torch.Tensor:
 
 
 def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
-    return 1 - dist_to_goal_xy(env)  # Reward is higher when closer to goal
+    return -dist_to_goal_xy(env)  # Reward is higher when closer to goal
 
 
 def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2) -> torch.Tensor:

@@ -1,6 +1,7 @@
+from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
 from isaaclab.envs.common import VecEnvStepReturn
-from isaaclab.utils.math import quat_apply, quat_from_euler_xyz
+from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_from_euler_xyz
 from cfg.CFG import SCENE_USD_PATH
 import numpy as np
 import torch
@@ -43,19 +44,30 @@ class MyEnv(ManagerBasedRLEnv):
         self.goal_pos = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)  
         self._path_tensors = [None] * self.num_envs  # list of (num_path_points, 2) tensors
         
-        # Action buffer with the past 10 actions
-        self._action_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)  
+        # Action buffer with the past 5 actions (Δx, Δy, Δtheta)
+        self._action_buffer = torch.zeros((self.num_envs, 5, 3), dtype=torch.float32, device=self.device)  
 
-        # Store last robot linear + angular velocity for reward computation
-        self._last_vel = torch.zeros((self.num_envs, 6), dtype=torch.float32, device=self.device)
+        # Store past 10 robot linear + angular velocity (x,y,theta)
+        self._velocity_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)
+        self._old_yaw = torch.zeros((self.num_envs), dtype=torch.float32, device=self.device)
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
-        # store last vel before stepping
-        self._last_vel= self.scene["unitree_go2"].data.root_com_vel_w.clone()
         retVal = super().step(action)
 
+        # Update action buffer
         self._action_buffer = torch.roll(self._action_buffer, shifts=1, dims=1)
         self._action_buffer[:, 0, :] = action.to(self.device)
+
+        ## Update linear velocity
+        robot: Articulation = self.scene['unitree_go2']
+        self._velocity_buffer = torch.roll(self._velocity_buffer, shifts=1, dims=1)
+        self._velocity_buffer[:, 0, :2] = robot.data.root_com_lin_vel_w[:, :2].to(self.device)  # only x, y linear velocity
+        
+        ## Angular velocity
+        _, _, new_yaw = euler_xyz_from_quat(robot.data.root_com_quat_w)
+        theta = (new_yaw - self._old_yaw) / getattr(self.sim, 'dt', 0.005)
+        self._velocity_buffer[:, 0, 2] = theta
+        self._old_yaw = new_yaw
 
         self.update_follow_camera()
 
@@ -100,12 +112,12 @@ class MyEnv(ManagerBasedRLEnv):
         ## set cartesian position, quaternion orientation in (w, x, y, z), and linear and angular velocity
         ## reset positions only for specified env indices
 
-        robot = self.scene['unitree_go2']
+        robot: Articulation = self.scene['unitree_go2']
         num_pos = node_ids.shape[0]
 
         positions = self.nodes[node_ids]    # map coordinates of node_ids
         positions = self._map_to_world(positions)  # (num_pos, 2)
-        z_col = torch.zeros((num_pos, 1), device=self.device) + 0.3  # set z to 0.3
+        z_col = torch.zeros((num_pos, 1), device=self.device) + robot.data.default_root_state[0,2]  # set z to default
         pos_local = torch.cat([positions, z_col], dim=-1)  # (num_pos, 3)
 
         # swap x and y to match world frame

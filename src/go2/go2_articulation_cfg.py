@@ -30,7 +30,7 @@ UNITREE_GO2_CFG = ArticulationCfg(
         #collision_props = CollisionPropertiesCfg(collision_enabled=False)
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.05),
+        pos=(0.0, 0.0, 0.6),
         joint_pos={
             ".*L_hip_joint": 0.1,
             ".*R_hip_joint": -0.1,
@@ -53,25 +53,3 @@ UNITREE_GO2_CFG = ArticulationCfg(
         ),
     },
 )
-
-def enable_foot_collisions(env: RslRlVecEnvWrapper):
-    stage = omni.usd.get_context().get_stage()
-    
-    art = env.unwrapped.scene.articulations['unitree_go2']
-    links_lst = art.root_physx_view.link_paths
-    flattened_links = [link for inner_lst in links_lst for link in inner_lst]
-    for prim_root in flattened_links:
-        for prim in Usd.PrimRange(stage.GetPrimAtPath(prim_root)):
-            if not prim.IsValid():
-                continue
-            enabled_attr = prim.GetAttribute("physics:collisionEnabled")
-            enabled_attr.Set(False)
-            # if prim.endswith('foot'):
-            #     continue
-            print(f"\nPrim: {prim.GetPath()}  Type: {prim.GetTypeName()}")
-            print("APIs:", [api for api in prim.GetAppliedSchemas()])            
-            # if prim.HasAPI(UsdPhysics.CollisionAPI) or prim.HasAPI(PhysxSchema.PhysxCollisionAPI):
-            #     # Remove the API
-            #     print(f"CollisionAPI removed from {prim.GetPath()}")
-            # else:
-            #     print(f"No CollisionAPI found on {prim.GetPath()}")

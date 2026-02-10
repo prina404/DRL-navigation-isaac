@@ -230,5 +230,11 @@ def debug_visualize(env: MyEnv, num_points_forward: int) -> None:
 def get_previous_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:
     env: MyEnv = env.unwrapped
     if not hasattr(env, "_action_buffer"):
-        return torch.zeros((env.num_envs, 10 * 3), device=env.device)
+        return torch.zeros((env.num_envs, 5 * 3), device=env.device)
     return env._action_buffer.reshape(env.num_envs, -1)     
+
+def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
+    env: MyEnv = env.unwrapped
+    if not hasattr(env, "_velocity_buffer"):
+        return torch.zeros((env.num_envs, 10 * 3), device=env.device)
+    return env._velocity_buffer.reshape(env.num_envs, -1)

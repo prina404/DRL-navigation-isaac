@@ -45,9 +45,9 @@ class ActorCriticWithEncoders(ActorCritic):
         # Actor
         self.state_dependent_std = state_dependent_std
         if self.state_dependent_std:
-            self.actor = MLP(actor_input_dim, [2, num_actions], actor_hidden_dims, activation)
+            self.actor = MLP(actor_input_dim, [2, num_actions], actor_hidden_dims, activation, last_activation="tanh")
         else:
-            self.actor = MLP(actor_input_dim, num_actions, actor_hidden_dims, activation)
+            self.actor = MLP(actor_input_dim, num_actions, actor_hidden_dims, activation, last_activation="tanh")
         
         # Critic
         self.critic = MLP(critic_input_dim, 1, critic_hidden_dims, activation)

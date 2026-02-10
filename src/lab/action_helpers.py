@@ -1,4 +1,5 @@
 import time
+from isaaclab.assets.articulation.articulation import Articulation
 import isaaclab.envs.mdp as mdp
 import torch
 from isaaclab.managers import ActionTerm, SceneEntityCfg
@@ -11,7 +12,8 @@ class Go2MPCPolicyAction(ActionTerm):
         super().__init__(cfg, env)
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
         self.null_cmd = torch.zeros((self.num_envs, 3), device=self.device)
-        self._cmd = self.null_cmd
+        self._cmd = self.null_cmd.clone()
+        self._last_action_received = self.null_cmd.clone()
         self._last_joint_action = None
         self._decimation = 1  # Run MPC every 1*dt seconds
 
@@ -27,14 +29,24 @@ class Go2MPCPolicyAction(ActionTerm):
 
     @property
     def raw_actions(self) -> torch.Tensor:
-        return self._cmd
+        return self._last_action_received
 
     @property
     def processed_actions(self) -> torch.Tensor:
-        return self._cmd
+        return self._last_action_received
 
     def process_actions(self, actions: torch.Tensor):
-        self._cmd[:] = actions
+        self._last_action_received = actions.clone()
+        self._cmd += self._last_action_received
+
+    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        self._cmd[env_ids] = 0.0
+        self._last_action_received[env_ids] = 0.0
+        if self._last_joint_action is not None:
+            self._last_joint_action[env_ids] = 0.0
 
     def _build_low_level_obs(self) -> torch.Tensor:
         base_lin_vel = mdp.base_lin_vel(self._env, asset_cfg=self._robot_cfg)
@@ -73,7 +85,7 @@ class Go2MPCPolicyAction(ActionTerm):
         self.physics_step_counter += 1
         mpc_action = self._last_joint_action
 
-        robot = self._env.scene[self.cfg.asset_name]
+        robot: Articulation = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos
         q_des = q0 + mpc_action * 0.25
         robot.set_joint_position_target(q_des)

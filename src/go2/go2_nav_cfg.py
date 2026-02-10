@@ -9,8 +9,8 @@ go2_policy_cfg = {
     "empirical_normalization": False,
     # Observation routing
     "obs_groups": {
-        "policy": ["vision", "lidar", "global_plan", "action_buffer"],
-        "critic": ["vision", "lidar", "global_plan", "action_buffer"],
+        "policy": ["global_plan", "action_buffer", "velocity_buffer", "vision", "lidar"],
+        "critic": ["global_plan", "action_buffer", "velocity_buffer", "vision", "lidar"],
     },
     # Policy architecture
     "policy": {
@@ -22,7 +22,8 @@ go2_policy_cfg = {
         "encoders_hidden_dims": {
             "lidar": [128, 256],
             "global_plan": [128, 128],
-            "action_buffer": [128, 128],
+            "action_buffer": [64, 64],
+            "velocity_buffer": [128, 128],
         },
     },
     # PPO algorithm parameters

@@ -111,6 +111,10 @@ class ObservationsCfg:
         action_buffer = ObsTerm(func=observations.get_previous_actions)
 
     @configclass
+    class VelocityGroup(ObsGroup):
+        velocity_buffer = ObsTerm(func=observations.get_previous_velocities)
+
+    @configclass
     class VisionGroup(ObsGroup):
         vision = ObsTerm(func=observations.VisionEncoder())
 
@@ -130,6 +134,7 @@ class ObservationsCfg:
         )
 
     action_buffer = ActionGroup()
+    velocity_buffer = VelocityGroup()
     vision = VisionGroup()
     lidar = LidarGroup()
     global_plan = GlobalPlanGroup()
@@ -145,11 +150,11 @@ class ActionsCfg:
 
 @configclass
 class RewardsCfg:
-    goal_reached = RewTerm(
-        func=rewards.is_goal_reached,
-        weight=50.0,
-        params={"threshold_m": 0.3},
-    )
+    # goal_reached = RewTerm(
+    #     func=rewards.is_goal_reached,
+    #     weight=50.0,
+    #     params={"threshold_m": 0.3},
+    # )
 
     distance_to_goal = RewTerm(
         func=rewards.reward_distance_to_goal,
@@ -210,7 +215,7 @@ class EventsCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg(name="unitree_go2"),
-            "position_range": (1.0, 1.0),
+            "position_range": (0.0, 0.0),
             "velocity_range": (0.0, 0.0),
         },
     )
