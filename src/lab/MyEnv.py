@@ -186,7 +186,7 @@ class MyEnv(ManagerBasedRLEnv):
         robot_pos = self.scene['unitree_go2'].data.root_pos_w[0]
         robot_quat = self.scene['unitree_go2'].data.root_quat_w[0]
 
-        camera_offset_local = torch.tensor([-1.0, 0.0, 1.0], device=self.device)
+        camera_offset_local = torch.tensor([-1.1, 0.0, 0.8], device=self.device)
         lookat_offset_local = torch.tensor([2.0, 0.0, -0.8], device=self.device)
 
         camera_offset_w = quat_apply(robot_quat, camera_offset_local)
@@ -196,7 +196,7 @@ class MyEnv(ManagerBasedRLEnv):
             self.old_eye_pos = robot_pos + camera_offset_w
             self.old_lookat_pos = robot_pos + lookat_offset_w
         else:            # smooth camera movement by interpolating between old and new positions
-            alpha = 0.2  # smoothing factor
+            alpha = 0.25  # smoothing factor
             new_eye_pos = robot_pos + camera_offset_w
             new_lookat_pos = robot_pos + lookat_offset_w
 

@@ -15,9 +15,9 @@ def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
     robot: Articulation = env.scene["unitree_go2"]
     default_pos = robot.data.default_joint_pos[env_ids]
     default_vel = robot.data.default_joint_vel[env_ids]
-    robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
     robot.set_joint_position_target(default_pos, None, env_ids)
-
+    robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
+    #logger.debug(f"robot joint state: {robot.data.joint_pos, robot.data.joint_vel} -> [{robot.data.default_joint_pos},{robot.data.default_joint_vel}]")
     # logger.debug(f"Teleported {n_samples} robots on reset."
     #             f"{env.start_pos_ids=}"
     #             f"{env.goal_ids=}"

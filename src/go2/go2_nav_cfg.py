@@ -2,7 +2,7 @@ from policy_model.ActorCriticWithEncoders import ActorCriticWithEncoders
 
 go2_policy_cfg = {
     # Training loop parameters
-    "num_steps_per_env": 24,
+    "num_steps_per_env": int((20 * (1/0.005)) / 16), # 20 seconds per episode, converted to steps (with decimation)
     "save_interval": 100,
     "max_iterations": 1000,
     "device": "cuda:0",

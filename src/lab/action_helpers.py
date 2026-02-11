@@ -15,7 +15,9 @@ class Go2MPCPolicyAction(ActionTerm):
         self._cmd = self.null_cmd.clone()
         self._last_action_received = self.null_cmd.clone()
         self._last_joint_action = None
+
         self._decimation = 1  # Run MPC every 1*dt seconds
+        self.sim_dt = getattr(env.sim, 'dt', 0.005) * env.cfg.decimation
 
         self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
@@ -37,7 +39,7 @@ class Go2MPCPolicyAction(ActionTerm):
 
     def process_actions(self, actions: torch.Tensor):
         self._last_action_received = actions.clone()
-        self._cmd += self._last_action_received
+        self._cmd += self._last_action_received * self.sim_dt
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         if env_ids is None:
