@@ -87,6 +87,7 @@ class MyEnv(ManagerBasedRLEnv):
         # node coords are tensor: [[row, col],
                                 #  [row, col], ...]
         # in isaac frame, y directions are ok the same as in pixel space, but x are inverted
+        node_coords = node_coords.clone()
         _, W = self.map_img.shape
         node_coords[:, 1] = W - node_coords[:, 1]  # flip x axis
         node_coords = node_coords[:, [1,0]]  # swap to (x, y)
@@ -145,10 +146,11 @@ class MyEnv(ManagerBasedRLEnv):
             current_node = self.start_pos_ids[id]
             nbr = next(self.graph.neighbors(current_node.item()))
             self.goal_ids[id] = nbr
-            self.goal_pos[id] = self._map_to_world(self.nodes[nbr].unsqueeze(0))[0]
+            goal_node_rc = self.nodes[nbr].clone()
+            self.goal_pos[id] = self._map_to_world(goal_node_rc.unsqueeze(0))[0]
 
             r1, c1 = self.nodes[current_node].int().cpu().numpy()
-            r2, c2 = self.nodes[nbr].int().cpu().numpy()
+            r2, c2 = goal_node_rc.int().cpu().numpy()
             path = pyastar2d.astar_path(self._costmap, (r1, c1), (r2, c2), allow_diagonal=True)
             if path is None or len(path) <= 1:
                 logger.warning(f"No path found from {current_node} to {nbr}!")
@@ -168,6 +170,7 @@ class MyEnv(ManagerBasedRLEnv):
     def _world_to_map(self, world_coords: torch.Tensor) -> torch.Tensor:
         # world coords are tensor: [[x, y],
                                 #  [x, y], ...]
+        world_coords = world_coords.clone()
         n = len(world_coords)
         x, y = self.img_meta['origin'][:2]
 
