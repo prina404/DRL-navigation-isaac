@@ -129,7 +129,6 @@ class ObservationsCfg:
             params={
                 "num_points_forward": 10,
                 "normalize": True,
-                "debug_vis": False,
             },
         )
 

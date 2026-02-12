@@ -200,31 +200,12 @@ def get_path_obs(
 
     headings = -wrap_to_pi(path_angles - robot_yaw.unsqueeze(1))  # (B, num_points_forward)
 
-    if debug_vis:
-        debug_visualize(env, num_points_forward)
-        logger.info(f"{headings=}")
-
     if normalize:
         max_horizon_dist = 2  # horizon distance for normalization (in m)
         path_distances = torch.clamp(path_distances / max_horizon_dist, 0.0, 1.0)
         headings = (headings + math.pi) / (2 * math.pi)  # normalize yaw to [0, 1]
 
     return torch.cat([path_distances, headings], dim=1) # (B, num_points_forward * 2)
-
-
-
-
-def debug_visualize(env: MyEnv, num_points_forward: int) -> None:
-    from isaacsim.util.debug_draw import _debug_draw
-    draw = _debug_draw.acquire_debug_draw_interface()
-    z_coord = torch.zeros((env.num_envs, num_points_forward + 1, 1), device=env.device) + 0.4
-    path_coords = _get_path_coords(env, num_points_forward)  # (B, num_points_forward, 2)
-    path_coords_3d = torch.cat([path_coords, z_coord], dim=-1)  # (B, num_points_forward, 3)
-    draw.draw_points(
-        path_coords_3d.cpu().numpy().reshape(-1, 3).tolist(),
-        [(0, 1, 0, 1)],
-        [10.0] * (num_points_forward * env.num_envs),
-    )
 
 
 def get_previous_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:

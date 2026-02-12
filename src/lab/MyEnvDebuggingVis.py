@@ -59,7 +59,12 @@ class MyEnvDebuggingVis(MyEnv):
 
         all_envs = torch.arange(self.cfg.scene.num_envs, device=self.device)
         indices = torch.hstack((torch.zeros_like(all_envs), torch.ones_like(all_envs)))  # (2B,)
-        
+        # goal marker
+        goal_locs = torch.cat((self.goal_pos + self.scene.env_origins[:, :2], torch.zeros((self.cfg.scene.num_envs, 1), device=self.device)), dim=-1)
+        goal_rots = torch.zeros((self.cfg.scene.num_envs, 4), device=self.device)
+        goal_rots[:, 0] = 1.0  # identity quaternion
+        goal_indices = torch.full((self.cfg.scene.num_envs,), 3, device=self.device, dtype=torch.int64)
+
         # --- path points (one every 30cm) ---
         step = 0.3
         path_loc_list = []
@@ -88,9 +93,9 @@ class MyEnvDebuggingVis(MyEnv):
             path_rots[:, 0] = 1.0  # identity quaternion
             path_indices = torch.full((path_locs.shape[0],), 2, device=self.device, dtype=torch.int64)
 
-            loc = torch.vstack((loc, path_locs))
-            rots = torch.vstack((rots, path_rots))
-            indices = torch.hstack((indices, path_indices))
+            loc = torch.vstack((loc, path_locs, goal_locs))
+            rots = torch.vstack((rots, path_rots, goal_rots))
+            indices = torch.hstack((indices, path_indices, goal_indices))
 
         self.viz_marker.visualize(loc, rots, marker_indices=indices)
 
@@ -113,6 +118,11 @@ class MyEnvDebuggingVis(MyEnv):
                     usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Shapes/sphere.usd",
                     scale=(0.05, 0.05, 0.05),
                     visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
+                ),
+                "goal": sim_utils.UsdFileCfg(
+                    usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Shapes/sphere.usd",
+                    scale=(0.15, 0.15, 0.15),
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
                 ),
             }
         )
