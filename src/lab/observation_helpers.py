@@ -148,28 +148,21 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
     return torch.cat([topk_dist, topk_yaw], dim=1)  # (B, 2*num_obstacles)
 
 
-def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> list[torch.Tensor]:
-    # for each robot, I compute the distance to the goal, then filter all the path points that are
-    # within that distance. return a tensor of fixed size with the path points.
-    # If there are too few points I pad with goal pos
+def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.Tensor:
+    # I find which point is closest to the robot, 
+    # then use the fact that the path points are ordered and take the next num_points_forward points.
+    # If the closest point is the last point, I pad with the goal pos.
     env: MyEnv = env.unwrapped
     local_robot_coords = env.scene["unitree_go2"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
-    dist_to_goals = torch.norm(local_robot_coords - env.goal_pos, dim=-1)  # (B,) distance from robot to goal
-
     res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
     res += env.goal_pos.unsqueeze(1)  # default to goal pos
-
     for id in range(env.num_envs):
-        path_points = env._path_tensors[id]  # variable lenth tensor of (num_path_points, 2)
-        goal_pos = env.goal_pos[id]  # (2,)
-        # keep only points on the path that are closer than the robot to the goal
-        forward_points = path_points[torch.norm(path_points - goal_pos, dim=-1) <= dist_to_goals[id]]
-        n_forward = min(forward_points.shape[0], num_points_forward + 1)
-        # logger.debug(f"{forward_points.shape=}, {res.shape=}")
-        res[id, :n_forward] = forward_points[:n_forward]
+        path_points = env._path_tensors[id]  
+        closest_idx = torch.argmin(torch.norm(path_points - local_robot_coords[id], dim=-1))
+        n_forward = min(path_points.shape[0] - closest_idx, num_points_forward + 1)
+        res[id, :n_forward] = path_points[closest_idx :closest_idx + n_forward]
 
     return res
-
 
 def get_path_obs(
     env: RslRlVecEnvWrapper, 

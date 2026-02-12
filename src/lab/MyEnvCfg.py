@@ -183,6 +183,11 @@ class RewardsCfg:
         params={"alpha": 0.3},
     )
 
+    time_penalty = RewTerm(
+        func=rewards.time_penalty,
+        weight=0.1,
+    )
+
     obstacle_proximity = RewTerm(
         func=rewards.penalty_obstacle_proximity,
         weight=0.5,
