@@ -83,7 +83,7 @@ class MyEnv(ManagerBasedRLEnv):
         return costmap + 1.0 # min_cost = 1.0 for A* 
 
     
-    def _map_to_world(self, node_coords: torch.Tensor) -> torch.Tensor:
+    def _map_to_local(self, node_coords: torch.Tensor) -> torch.Tensor:
         # node coords are tensor: [[row, col],
                                 #  [row, col], ...]
         # in isaac frame, y directions are ok the same as in pixel space, but x are inverted
@@ -117,7 +117,7 @@ class MyEnv(ManagerBasedRLEnv):
         num_pos = node_ids.shape[0]
 
         positions = self.nodes[node_ids]    # map coordinates of node_ids
-        positions = self._map_to_world(positions)  # (num_pos, 2)
+        positions = self._map_to_local(positions)  # (num_pos, 2)
         z_col = torch.zeros((num_pos, 1), device=self.device) + robot.data.default_root_state[0,2]  # set z to default
         pos_local = torch.cat([positions, z_col], dim=-1)  # (num_pos, 3)
 
@@ -147,7 +147,7 @@ class MyEnv(ManagerBasedRLEnv):
             nbr = next(self.graph.neighbors(current_node.item()))
             self.goal_ids[id] = nbr
             goal_node_rc = self.nodes[nbr].clone()
-            self.goal_pos[id] = self._map_to_world(goal_node_rc.unsqueeze(0))[0]
+            self.goal_pos[id] = self._map_to_local(goal_node_rc.unsqueeze(0))[0]
 
             r1, c1 = self.nodes[current_node].int().cpu().numpy()
             r2, c2 = goal_node_rc.int().cpu().numpy()
@@ -163,21 +163,21 @@ class MyEnv(ManagerBasedRLEnv):
             path_tensor[:-1] = torch.tensor(path_subsampled, device=self.device)
             path_tensor[-1] = torch.tensor([r2, c2], device=self.device)  # ensure goal is included
 
-            world_path = self._map_to_world(path_tensor)  # (num_path_points, 2)
+            world_path = self._map_to_local(path_tensor)  # (num_path_points, 2)
             self._path_tensors[id] = world_path  
 
 
-    def _world_to_map(self, world_coords: torch.Tensor) -> torch.Tensor:
-        # world coords are tensor: [[x, y],
+    def _local_to_map(self, local_coords: torch.Tensor) -> torch.Tensor:
+        # local coords are tensor: [[x, y],
                                 #  [x, y], ...]
-        world_coords = world_coords.clone()
-        n = len(world_coords)
+        local_coords = local_coords.clone()
+        n = len(local_coords)
         x, y = self.img_meta['origin'][:2]
 
         origin = torch.zeros((n, 2), device=self.device)
         origin[:] = torch.tensor([x, y], device=self.device) # broadcast origin
 
-        local_coords = world_coords - origin  # (N, 2)
+        local_coords = local_coords - origin  # (N, 2)
         scaled = local_coords / self.img_meta['resolution']  # (N, 2)
 
         _, W = self.map_img.shape

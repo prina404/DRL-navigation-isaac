@@ -1,6 +1,7 @@
 import time
 from isaaclab.assets.articulation.articulation import Articulation
 import isaaclab.envs.mdp as mdp
+from isaaclab.utils.math import subtract_frame_transforms
 import torch
 from isaaclab.managers import ActionTerm, SceneEntityCfg
 from rsl_rl.modules import ActorCritic
@@ -55,7 +56,7 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self._cmd  
+        base_vel_cmd = self.nominal_action()#self._cmd  
 
         joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
@@ -83,7 +84,7 @@ class Go2MPCPolicyAction(ActionTerm):
                 mpc_obs = self._build_low_level_obs()
                 mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
                 self._last_joint_action = self.mpc(mpc_obs)
-
+        
         self.physics_step_counter += 1
         mpc_action = self._last_joint_action
 
@@ -91,3 +92,23 @@ class Go2MPCPolicyAction(ActionTerm):
         q0 = robot.data.default_joint_pos
         q_des = q0 + mpc_action * 0.25
         robot.set_joint_position_target(q_des)
+
+    def nominal_action(self) -> torch.Tensor:
+        robot: Articulation = self._env.scene[self.cfg.asset_name]
+        
+        goal_pos_w = self._env.goal_pos + self._env.scene.env_origins[:, :2]  # (B, 2)
+        padded_goal = torch.cat([goal_pos_w, torch.zeros((self.num_envs, 1), device=self.device)], dim=-1)  # (B, 3)
+        
+        # Now goal positions are in robot frame
+        # the nominal lin_vel component is just the vector (x, y) corresponding to the goal
+        goal_pos_r, _ = subtract_frame_transforms(
+            robot.data.root_com_pos_w,
+            robot.data.root_link_quat_w,
+            padded_goal,
+        )
+
+        goal_rot = torch.atan2(goal_pos_r[:, 1], goal_pos_r[:, 0])  # angle to goal in robot frame
+        nominal_action = torch.cat([goal_pos_r[:, :2], goal_rot.unsqueeze(-1)], dim=-1)  # (B, 3)
+
+        return torch.clamp(nominal_action, -1.0, 1.0)
+        
