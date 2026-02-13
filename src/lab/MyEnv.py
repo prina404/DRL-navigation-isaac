@@ -42,7 +42,7 @@ class MyEnv(ManagerBasedRLEnv):
         self.start_pos_ids = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)
         self.goal_ids = torch.zeros((self.num_envs), dtype=torch.int64, device=self.device)  
         self.goal_pos = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)  
-        self._path_tensors = [None] * self.num_envs  # list of (num_path_points, 2) tensors
+        self._path_tensors: list[torch.Tensor] = [None] * self.num_envs  # list of (num_path_points, 2) tensors
         
         # Action buffer with the past 5 actions (Δx, Δy, Δtheta)
         self._action_buffer = torch.zeros((self.num_envs, 5, 3), dtype=torch.float32, device=self.device)  

@@ -23,9 +23,24 @@ def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> torch.Tensor:
     return dist_to_goal < threshold_m
 
 
-def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
-    return -dist_to_goal_xy(env)  # Reward is higher when closer to goal
+# def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
+#     return -dist_to_goal_xy(env)  # Reward is higher when closer to goal
 
+def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
+    # find the closest point on the path and compute distance from that point to goal.
+    env: MyEnv = env.unwrapped
+    local_robot_coords = env.scene["unitree_go2"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    res = torch.zeros((env.num_envs), device=env.device)
+    for id in range(env.num_envs):
+        path_points = env._path_tensors[id]  # (num_path_points, 2)
+        closest_idx = torch.argmin(torch.norm(path_points - local_robot_coords[id], dim=-1))
+        closest_point_dist = torch.norm(path_points[closest_idx] - local_robot_coords[id])
+        remaining_points = path_points.size(dim=0) - closest_idx
+        # note that I'm measuring the number of remaining points on the subsampled path
+        # so the distance is approximately remaining_path * point_dist.
+        remaining_distance = remaining_points * 0.3 + closest_point_dist
+        res[id] = -remaining_distance
+    return res
 
 def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2) -> torch.Tensor:
     v = mdp.base_lin_vel(env, asset_cfg=SceneEntityCfg(name="unitree_go2"))
