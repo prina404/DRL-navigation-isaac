@@ -13,17 +13,12 @@ class Go2MPCPolicyAction(ActionTerm):
         super().__init__(cfg, env)
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
         self.null_cmd = torch.zeros((self.num_envs, 3), device=self.device)
-        self._cmd = self.null_cmd.clone()
         self._last_action_received = self.null_cmd.clone()
         self._last_joint_action = None
-
-        self._decimation = 1  # Run MPC every 1*dt seconds
-        self.sim_dt = getattr(env.sim, 'dt', 0.005) * env.cfg.decimation
 
         self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
             raise ValueError("MPC policy must be provided in the environment config.")
-        self.physics_step_counter = 0
 
 
     @property
@@ -40,13 +35,11 @@ class Go2MPCPolicyAction(ActionTerm):
 
     def process_actions(self, actions: torch.Tensor):
         self._last_action_received = actions.clone()
-        self._cmd += self._last_action_received * self.sim_dt
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        self._cmd[env_ids] = 0.0
         self._last_action_received[env_ids] = 0.0
         if self._last_joint_action is not None:
             self._last_joint_action[env_ids] = 0.0
@@ -56,7 +49,10 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self.nominal_action()#self._cmd  
+        base_vel_cmd = self.nominal_action() + self._last_action_received  
+        logger.debug(f"Nominal action: {self.nominal_action()[0]}")
+        logger.debug(f"Policy command: {self._last_action_received[0]}")
+        logger.debug(f"Final cmd (nominal + action): {base_vel_cmd[0]}")
 
         joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
@@ -79,18 +75,14 @@ class Go2MPCPolicyAction(ActionTerm):
 
     def apply_actions(self):
         # Run low-level policy every sim step by default
-        if self.physics_step_counter % self._decimation == 0 or self._last_joint_action is None:
-            with torch.no_grad():
-                mpc_obs = self._build_low_level_obs()
-                mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
-                self._last_joint_action = self.mpc(mpc_obs)
+        with torch.no_grad():
+            mpc_obs = self._build_low_level_obs()
+            mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
+            self._last_joint_action = self.mpc(mpc_obs)
         
-        self.physics_step_counter += 1
-        mpc_action = self._last_joint_action
-
         robot: Articulation = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos
-        q_des = q0 + mpc_action * 0.25
+        q_des = q0 + self._last_joint_action * 0.25
         robot.set_joint_position_target(q_des)
 
     def nominal_action(self) -> torch.Tensor:

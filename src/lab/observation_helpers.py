@@ -6,7 +6,7 @@ import torch.nn as nn
 from lab.MyEnv import MyEnv
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
+from isaaclab.utils.math import euler_xyz_from_quat, subtract_frame_transforms, wrap_to_pi
 from isaaclab.sensors import MultiMeshRayCaster
 from cfg.CFG import DEVICE
 from lab.vision_encoder import ViTEncoder
@@ -212,3 +212,26 @@ def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
     if not hasattr(env, "_velocity_buffer"):
         return torch.zeros((env.num_envs, 10 * 3), device=env.device)
     return env._velocity_buffer.reshape(env.num_envs, -1)
+
+def get_goal_relative_position(env: RslRlVecEnvWrapper) -> torch.Tensor:
+    # same logic as in the nominal action computation
+    env: MyEnv = env.unwrapped
+    if not hasattr(env, "goal_pos"):
+        return torch.zeros((env.num_envs, 3), device=env.device)
+    
+    robot = env.scene["unitree_go2"]
+    
+    goal_pos_w = env.goal_pos + env.scene.env_origins[:, :2]  # (B, 2)
+    padded_goal = torch.cat([goal_pos_w, torch.zeros((env.num_envs, 1), device=env.device)], dim=-1)  # (B, 3)
+    
+    # Now goal positions are in robot frame
+    goal_pos_r, _ = subtract_frame_transforms(
+        robot.data.root_com_pos_w,
+        robot.data.root_link_quat_w,
+        padded_goal,
+    )
+
+    goal_rot = torch.atan2(goal_pos_r[:, 1], goal_pos_r[:, 0])  # angle to goal in robot frame
+    goal_displacement_vector = torch.cat([goal_pos_r[:, :2], goal_rot.unsqueeze(-1)], dim=-1)  # (B, 3)
+
+    return torch.clamp(goal_displacement_vector, -1.0, 1.0)  

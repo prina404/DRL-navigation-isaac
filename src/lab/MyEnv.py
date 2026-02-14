@@ -21,6 +21,9 @@ class MyEnv(ManagerBasedRLEnv):
         self.camera_controller = ViewportCameraController(self, cfg= ViewerCfg(origin_type='world'))
         self.old_eye_pos = None
         self.old_lookat_pos = None
+        # Camera and lookat settings for video recording
+        self.camera_offset = torch.tensor([-1.5, 0.0, 1.2], device=self.device)
+        self.lookat_offset = torch.tensor([2.0, 0.0, -0.8], device=self.device)
 
         map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
         map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
@@ -51,6 +54,7 @@ class MyEnv(ManagerBasedRLEnv):
         self._velocity_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)
         self._old_yaw = torch.zeros((self.num_envs), dtype=torch.float32, device=self.device)
 
+
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         retVal = super().step(action)
 
@@ -59,7 +63,7 @@ class MyEnv(ManagerBasedRLEnv):
         self._action_buffer[:, 0, :] = action.to(self.device)
 
         ## Update linear velocity
-        robot: Articulation = self.scene['unitree_go2']
+        robot: Articulation = self.scene["unitree_go2"]
         self._velocity_buffer = torch.roll(self._velocity_buffer, shifts=1, dims=1)
         self._velocity_buffer[:, 0, :2] = robot.data.root_com_lin_vel_w[:, :2].to(self.device)  # only x, y linear velocity
         
@@ -113,7 +117,7 @@ class MyEnv(ManagerBasedRLEnv):
         ## set cartesian position, quaternion orientation in (w, x, y, z), and linear and angular velocity
         ## reset positions only for specified env indices
 
-        robot: Articulation = self.scene['unitree_go2']
+        robot: Articulation = self.scene["unitree_go2"]
         num_pos = node_ids.shape[0]
 
         positions = self.nodes[node_ids]    # map coordinates of node_ids
@@ -186,14 +190,11 @@ class MyEnv(ManagerBasedRLEnv):
         return pixel_coords
     
     def update_follow_camera(self):
-        robot_pos = self.scene['unitree_go2'].data.root_pos_w[0]
-        robot_quat = self.scene['unitree_go2'].data.root_quat_w[0]
+        robot_pos = self.scene["unitree_go2"].data.root_pos_w[0]
+        robot_quat = self.scene["unitree_go2"].data.root_quat_w[0]
 
-        camera_offset_local = torch.tensor([-1.1, 0.0, 0.8], device=self.device)
-        lookat_offset_local = torch.tensor([2.0, 0.0, -0.8], device=self.device)
-
-        camera_offset_w = quat_apply(robot_quat, camera_offset_local)
-        lookat_offset_w = quat_apply(robot_quat, lookat_offset_local)
+        camera_offset_w = quat_apply(robot_quat, self.camera_offset)
+        lookat_offset_w = quat_apply(robot_quat, self.lookat_offset)
 
         if self.old_eye_pos is None:
             self.old_eye_pos = robot_pos + camera_offset_w

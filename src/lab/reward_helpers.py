@@ -69,11 +69,11 @@ def robot_heading_reward(env: MyEnv) -> torch.Tensor:
     heading_delta = torch.abs(0.5 - next_heading)
     return 1.0 - heading_delta * 2.0  # normalize to [0, 1]
 
-def action_smoothness_penalty(env: MyEnv, alpha: float = 0.2) -> torch.Tensor:
+def action_smoothness_penalty(env: MyEnv) -> torch.Tensor:
     # I assume that jerky motions are correlated to sudden changes in velocity.
     delta = env._action_buffer[:, 0] - env._action_buffer[:, 1]  # (B, action_dim)
-    return -alpha * torch.linalg.norm(delta, dim=-1)
+    return -torch.linalg.norm(delta, dim=-1)
 
 def time_penalty(env: MyEnv) -> torch.Tensor:
     # Small penalty at each timestep to encourage faster completion
-    return -0.01 
+    return -1.0 

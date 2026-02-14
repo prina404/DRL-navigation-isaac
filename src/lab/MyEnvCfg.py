@@ -37,7 +37,7 @@ class Go2SimCfg(InteractiveSceneCfg):
     # ground plane
     ground = AssetBaseCfg(
         prim_path="/World/ground",
-        spawn=sim_utils.GroundPlaneCfg(color=(0.1, 0.1, 0.1), size=(300.0, 300.0)),
+        spawn=sim_utils.GroundPlaneCfg(color=(0.1, 0.1, 0.1), size=(500.0, 500.0)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0, 0, -0.01)),
     )
 
@@ -131,12 +131,17 @@ class ObservationsCfg:
                 "normalize": True,
             },
         )
+    
+    @configclass
+    class GoalGroup(ObsGroup):
+        goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position)
 
     action_buffer = ActionGroup()
     velocity_buffer = VelocityGroup()
+    goal_relative_pos = GoalGroup()
     # vision = VisionGroup()
     # lidar = LidarGroup()
-    global_plan = GlobalPlanGroup()
+    # global_plan = GlobalPlanGroup()
 
 
 @configclass
@@ -155,16 +160,16 @@ class RewardsCfg:
     #     params={"threshold_m": 0.3},
     # )
 
-    distance_to_goal = RewTerm(
-        func=rewards.reward_distance_to_goal,
-        weight=1.0,
-    )
+    # distance_to_goal = RewTerm(
+    #     func=rewards.reward_distance_to_goal,
+    #     weight=1.0,
+    # )
 
-    penalty_still = RewTerm(
-        func=rewards.penalty_still,
-        weight=0.5,
-        params={"speed_thresh": 0.2, "penalty": -0.1},
-    )
+    # penalty_still = RewTerm(
+    #     func=rewards.penalty_still,
+    #     weight=0.5,
+    #     params={"speed_thresh": 0.2, "penalty": -0.1},
+    # )
 
     collision = RewTerm(
         func=rewards.penalty_collision_base,
@@ -172,20 +177,19 @@ class RewardsCfg:
         params={"force_thresh": 2.0, "penalty": -5.0},
     )
 
-    heading = RewTerm(
-        func=rewards.robot_heading_reward,
-        weight=3.0,
-    )
+    # heading = RewTerm(
+    #     func=rewards.robot_heading_reward,
+    #     weight=3.0,
+    # )
 
     action_smoothness = RewTerm(
         func=rewards.action_smoothness_penalty,
-        weight=0.5,
-        params={"alpha": 0.3},
+        weight=0.3,
     )
 
     time_penalty = RewTerm(
         func=rewards.time_penalty,
-        weight=0.1,
+        weight=0.3,
     )
 
     # obstacle_proximity = RewTerm(
@@ -228,7 +232,7 @@ class EventsCfg:
 @configclass
 class Go2EnvCfg(ManagerBasedRLEnvCfg):
 
-    scene = Go2SimCfg(num_envs=1, env_spacing=5.0)
+    scene = Go2SimCfg(num_envs=1, env_spacing=12.0)
 
     actions = ActionsCfg()
     observations = ObservationsCfg()
@@ -248,6 +252,9 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
             enable_ambient_occlusion=True,
             dlss_mode="3",  # defaults to 1 in performance mode
         )
-        self.episode_length_s = 30.0
+        self.episode_length_s = 15.0
+        
+        self.decimation = 16
+        self.sim.render_interval = self.decimation
 
         logger.info("Go2 EnvCfg initialized")
