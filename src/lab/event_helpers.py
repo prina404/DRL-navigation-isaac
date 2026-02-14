@@ -10,6 +10,7 @@ def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
     sampled_node_id = env.sample_node_ids(n_samples)  # (num_envs_to_reset, 1)
     env.teleport_robots(env_ids, sampled_node_id)
     env.compute_goals_on_reset(env_ids)
+    env.place_mid_obstacle_on_reset(env_ids)
 
     # Reset joints to default state after teleporting root poses.
     robot: Articulation = env.scene["unitree_go2"]

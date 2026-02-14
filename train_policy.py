@@ -14,7 +14,7 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--log_interval", type=int, default=100_000, help="Log data every n timesteps.")
-parser.add_argument("--checkpoint", type=str, default=None, help="Continue the training from checkpoint.")
+parser.add_argument("--checkpoint", action="store_true", default=False, help="Continue the training from checkpoint.")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
 parser.add_argument("--wandb", action="store_true", default=False, help="Name of the WandB project for logging")
 parser.add_argument("--debug-vis", action="store_true", default=False, help="Enable debug visualizations in the environment.")
@@ -64,8 +64,6 @@ def run_simulator(cfg: DictConfig):
     go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc  # inject mpc policy
     go2_env_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
     go2_env_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
-    go2_env_cfg.decimation = 16
-    go2_env_cfg.sim.render_interval = go2_env_cfg.decimation
 
     run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", "base_example"))
@@ -110,12 +108,12 @@ def run_simulator(cfg: DictConfig):
     if args_cli.wandb:
         load_dotenv()
         agent_cfg["logger"] = "wandb"
-        agent_cfg["wandb_project"] = "LearningForPlanning-encoders"
+        agent_cfg["wandb_project"] = "LearningForPlanning-unit-test"
 
     agent_cfg["num_envs"] = cfg.num_envs
     ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=log_dir, device=agent_cfg["device"])
 
-    if args_cli.checkpoint is not None:
+    if args_cli.checkpoint == True:
         ckpt_path = get_checkpoint_path(
             log_path=os.path.abspath("ckpts"), run_dir=agent_cfg["load_run"], checkpoint=agent_cfg["load_checkpoint"]
         )

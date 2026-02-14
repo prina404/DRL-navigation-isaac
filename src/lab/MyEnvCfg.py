@@ -51,6 +51,17 @@ class Go2SimCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Go2",
     )
 
+    mid_obstacle = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/mid_obstacle",
+        spawn=sim_utils.CylinderCfg(
+            radius=0.2,
+            height=1.0,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            collision_props=CollisionPropertiesCfg(collision_enabled=True),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.5), rot=(1.0, 0.0, 0.0, 0.0)),
+    )
+
     body_collision_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Go2/base",
         history_length=1,
@@ -69,27 +80,32 @@ class Go2SimCfg(InteractiveSceneCfg):
     #     spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
     # )
 
-    # lidar = MultiMeshRayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Go2/radar",
-    #     update_period=0.02,
-    #     offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
-    #     ray_alignment="yaw",
-    #     pattern_cfg=patterns.LidarPatternCfg(
-    #         channels=10,
-    #         vertical_fov_range=(0, 30),
-    #         horizontal_fov_range=(0, 360),
-    #         horizontal_res=3.0,
-    #     ),
-    #     debug_vis=False,
-    #     mesh_prim_paths=[
-    #         "/World/ground",
-    #         MultiMeshRayCasterCfg.RaycastTargetCfg(
-    #             prim_expr="{ENV_REGEX_NS}/environment",
-    #             is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
-    #             track_mesh_transforms=False,
-    #         ),
-    #     ],
-    # )
+    lidar = MultiMeshRayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/radar",
+        update_period=0.02,
+        offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=10,
+            vertical_fov_range=(0, 30),
+            horizontal_fov_range=(0, 360),
+            horizontal_res=3.0,
+        ),
+        debug_vis=False,
+        mesh_prim_paths=[
+            "/World/ground",
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/mid_obstacle",
+                is_shared=True,
+                track_mesh_transforms=True,
+                ),
+            # MultiMeshRayCasterCfg.RaycastTargetCfg(
+            #     prim_expr="{ENV_REGEX_NS}/environment",
+            #     is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
+            #     track_mesh_transforms=False,
+            # ),
+        ],
+    )
 
     # # TODO: static env loading ok, check if setting a subset of kinematic objects is possible
     # environment = AssetBaseCfg(
@@ -120,7 +136,7 @@ class ObservationsCfg:
 
     @configclass
     class LidarGroup(ObsGroup):
-        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 25})
+        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 10})
 
     @configclass
     class GlobalPlanGroup(ObsGroup):
@@ -140,7 +156,7 @@ class ObservationsCfg:
     velocity_buffer = VelocityGroup()
     goal_relative_pos = GoalGroup()
     # vision = VisionGroup()
-    # lidar = LidarGroup()
+    lidar = LidarGroup()
     # global_plan = GlobalPlanGroup()
 
 
@@ -171,16 +187,16 @@ class RewardsCfg:
     #     params={"speed_thresh": 0.2, "penalty": -0.1},
     # )
 
+    # heading = RewTerm(
+    #     func=rewards.robot_heading_reward,
+    #     weight=3.0,
+    # )
+    
     collision = RewTerm(
         func=rewards.penalty_collision_base,
         weight=1.0,
         params={"force_thresh": 2.0, "penalty": -5.0},
     )
-
-    # heading = RewTerm(
-    #     func=rewards.robot_heading_reward,
-    #     weight=3.0,
-    # )
 
     action_smoothness = RewTerm(
         func=rewards.action_smoothness_penalty,

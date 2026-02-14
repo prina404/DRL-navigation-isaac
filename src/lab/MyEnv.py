@@ -53,6 +53,8 @@ class MyEnv(ManagerBasedRLEnv):
         # Store past 10 robot linear + angular velocity (x,y,theta)
         self._velocity_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)
         self._old_yaw = torch.zeros((self.num_envs), dtype=torch.float32, device=self.device)
+        self._mid_obstacle_jitter_radius = 0.3
+        self._mid_obstacle_height = 1.0
 
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
@@ -169,6 +171,31 @@ class MyEnv(ManagerBasedRLEnv):
 
             world_path = self._map_to_local(path_tensor)  # (num_path_points, 2)
             self._path_tensors[id] = world_path  
+
+
+    def place_mid_obstacle_on_reset(self, env_ids: torch.Tensor) -> None:
+        robot: Articulation = self.scene["unitree_go2"]
+        obstacle = self.scene["mid_obstacle"]
+
+        robot_xy = robot.data.root_com_pos_w[env_ids, :2]
+        goal_xy = self.goal_pos[env_ids] + self.scene.env_origins[env_ids, :2]
+        midpoint_xy = 0.5 * (robot_xy + goal_xy)
+
+        n = env_ids.shape[0]
+        angles = torch.rand((n,), device=self.device) * 2.0 * torch.pi
+        radii = torch.sqrt(torch.rand((n,), device=self.device)) * self._mid_obstacle_jitter_radius
+        jitter_xy = torch.stack((radii * torch.cos(angles), radii * torch.sin(angles)), dim=-1)
+
+        obstacle_xy = midpoint_xy + jitter_xy
+        obstacle_z = torch.full((n, 1), self._mid_obstacle_height * 0.5, dtype=torch.float32, device=self.device)
+        obstacle_pos_w = torch.cat((obstacle_xy, obstacle_z), dim=-1)
+
+        obstacle_quat = torch.zeros((n, 4), dtype=torch.float32, device=self.device)
+        obstacle_quat[:, 0] = 1.0
+        obstacle_vel = torch.zeros((n, 6), dtype=torch.float32, device=self.device)
+
+        obstacle_state = torch.cat((obstacle_pos_w, obstacle_quat, obstacle_vel), dim=-1)
+        obstacle.write_root_state_to_sim(obstacle_state, env_ids=env_ids)
 
 
     def _local_to_map(self, local_coords: torch.Tensor) -> torch.Tensor:
