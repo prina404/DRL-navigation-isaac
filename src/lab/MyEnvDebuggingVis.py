@@ -25,21 +25,21 @@ class MyEnvDebuggingVis(MyEnv):
         # reward heading: 3rd point forward along path (closer to goal than robot)
         reward_yaw = torch.zeros((self.num_envs,), device=self.device)
         for i in range(self.num_envs):
-            goal_pos = self.goal_pos[i]
             path_points = self._path_tensors[i]
 
             if path_points is None or path_points.numel() == 0:
-                target = goal_pos
+                target = self.goal_pos[i]
             else:
-                dist_to_goal = torch.norm(robot_pos_local[i] - goal_pos)
-                forward_points = path_points[torch.norm(path_points - goal_pos, dim=-1) <= dist_to_goal]
-                if forward_points.shape[0] == 0:
-                    forward_points = path_points
-                idx = min(2, forward_points.shape[0] - 1)
-                target = forward_points[idx]
+                # Find closest point on trajectory
+                distances = torch.norm(path_points - robot_pos_local[i], dim=-1)
+                closest_idx = torch.argmin(distances)
+                
+                # Pick third point forward on trajectory with boundary check
+                target_idx = min(closest_idx + 3, path_points.shape[0] - 1)
+                target = path_points[target_idx]
 
-            delta = target - robot_pos_local[i]
-            reward_yaw[i] = torch.atan2(delta[1], delta[0])
+                delta = target - robot_pos_local[i]
+                reward_yaw[i] = torch.atan2(delta[1], delta[0])
 
         self.reward_marker_orientations = quat_from_angle_axis(reward_yaw, self.up_dir)
 

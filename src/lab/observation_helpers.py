@@ -213,15 +213,27 @@ def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
         return torch.zeros((env.num_envs, 10 * 3), device=env.device)
     return env._velocity_buffer.reshape(env.num_envs, -1)
 
-def get_goal_relative_position(env: RslRlVecEnvWrapper) -> torch.Tensor:
+def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
     # same logic as in the nominal action computation
-    env: MyEnv = env.unwrapped
-    if not hasattr(env, "goal_pos"):
+    if isinstance(env, RslRlVecEnvWrapper):
+        env: MyEnv = env.unwrapped
+
+    if not hasattr(env, "_path_tensors") :
         return torch.zeros((env.num_envs, 3), device=env.device)
     
     robot = env.scene["unitree_go2"]
-    
-    goal_pos_w = env.goal_pos + env.scene.env_origins[:, :2]  # (B, 2)
+    robot_pos_local = robot.data.root_com_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    goal_pos_local = torch.zeros((env.num_envs, 2), device=env.device)
+
+    for i, path in enumerate(env._path_tensors):
+        if path is None:
+            goal_pos_local[i] = torch.zeros(2, device=env.device)
+            continue
+        closest = torch.argmin(torch.norm(path - robot_pos_local[i], dim=-1))
+        forward_point = path[closest: closest + 4][-1] # last point in my horizon
+        goal_pos_local[i] = forward_point
+
+    goal_pos_w = goal_pos_local + env.scene.env_origins[:, :2]  # (B, 2) 
     padded_goal = torch.cat([goal_pos_w, torch.zeros((env.num_envs, 1), device=env.device)], dim=-1)  # (B, 3)
     
     # Now goal positions are in robot frame
