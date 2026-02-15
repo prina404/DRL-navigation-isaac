@@ -210,3 +210,5 @@ outputs/*
 .*venv
 logs/
 wandb/
+ckpts/
+IsaacLab/

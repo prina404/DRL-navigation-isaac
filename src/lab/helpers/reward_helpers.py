@@ -6,7 +6,7 @@ import torch
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import quat_apply
-from lab.observation_helpers import get_path_obs, get_lidar
+from lab.helpers.observation_helpers import get_path_obs, get_lidar
 
 
 def dist_to_goal_xy(env: MyEnv) -> torch.Tensor:

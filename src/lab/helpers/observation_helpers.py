@@ -9,7 +9,7 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab.utils.math import euler_xyz_from_quat, subtract_frame_transforms, wrap_to_pi
 from isaaclab.sensors import MultiMeshRayCaster
 from cfg.CFG import DEVICE
-from lab.vision_encoder import ViTEncoder
+from models.vision_encoder import ViTEncoder
 
 
 class VisionEncoder:

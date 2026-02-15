@@ -19,10 +19,10 @@ from isaaclab.sim.schemas import CollisionPropertiesCfg
 from isaaclab.utils import configclass
 from loguru import logger
 
-import lab.action_helpers as actions
-import lab.observation_helpers as observations
-import lab.reward_helpers as rewards
-import lab.event_helpers as events
+import lab.helpers.action_helpers as actions
+import lab.helpers.observation_helpers as observations
+import lab.helpers.reward_helpers as rewards
+import lab.helpers.event_helpers as events
 
 # from utils.gridmap import generate_ogm_on_reset
 from cfg.CFG import SCENE_USD_PATH

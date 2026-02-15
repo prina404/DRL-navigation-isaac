@@ -1,4 +1,4 @@
-from policy_model.ActorCriticWithEncoders import ActorCriticWithEncoders
+from models.policy_model import ActorCriticWithEncoders
 
 go2_policy_cfg = {
     # Training loop parameters
