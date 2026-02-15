@@ -94,30 +94,30 @@ class Go2SimCfg(InteractiveSceneCfg):
         debug_vis=False,
         mesh_prim_paths=[
             "/World/ground",
-            MultiMeshRayCasterCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/mid_obstacle",
-                is_shared=True,
-                track_mesh_transforms=True,
-                ),
             # MultiMeshRayCasterCfg.RaycastTargetCfg(
-            #     prim_expr="{ENV_REGEX_NS}/environment",
-            #     is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
-            #     track_mesh_transforms=False,
-            # ),
+            #     prim_expr="{ENV_REGEX_NS}/mid_obstacle",
+            #     is_shared=True,
+            #     track_mesh_transforms=True,
+            #     ),
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/environment",
+                is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
+                track_mesh_transforms=False,
+            ),
         ],
     )
 
     # # TODO: static env loading ok, check if setting a subset of kinematic objects is possible
-    # environment = AssetBaseCfg(
-    #     prim_path="{ENV_REGEX_NS}/environment",
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=str(SCENE_USD_PATH),
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             kinematic_enabled=False
-    #         ),  # Big impact on performance if True, but env is now static
-    #         collision_props=CollisionPropertiesCfg(collision_enabled=True),
-    #     ),
-    # )
+    environment = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/environment",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=str(SCENE_USD_PATH),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False
+            ),  # Big impact on performance if True, but env is now static
+            collision_props=CollisionPropertiesCfg(collision_enabled=True),
+        ),
+    )
 
 
 @configclass
@@ -191,7 +191,7 @@ class RewardsCfg:
     #     func=rewards.robot_heading_reward,
     #     weight=3.0,
     # )
-    
+
     collision = RewTerm(
         func=rewards.penalty_collision_base,
         weight=1.0,

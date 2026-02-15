@@ -13,6 +13,7 @@ import cv2
 import scipy.ndimage as sp
 from isaaclab.envs.ui import ViewportCameraController
 from isaaclab.envs import ViewerCfg
+import random
 
 class MyEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
@@ -147,19 +148,22 @@ class MyEnv(ManagerBasedRLEnv):
 
     def compute_goals_on_reset(self, env_ids: torch.Tensor) -> None:
         # TODO: add distance_based sampling. For the time being, 
-        # just select a random neighboring node and navigate towards it
+        # just select a random node and navigate towards it
         for id in env_ids:
             current_node = self.start_pos_ids[id]
-            nbr = next(self.graph.neighbors(current_node.item()))
-            self.goal_ids[id] = nbr
-            goal_node_rc = self.nodes[nbr].clone()
+            random_node = random.randint(0, self.nodes.shape[0]-1)
+            while random_node == current_node:
+                random_node = random.randint(0, self.nodes.shape[0]-1)
+
+            self.goal_ids[id] = random_node
+            goal_node_rc = self.nodes[random_node].clone()
             self.goal_pos[id] = self._map_to_local(goal_node_rc.unsqueeze(0))[0]
 
             r1, c1 = self.nodes[current_node].int().cpu().numpy()
             r2, c2 = goal_node_rc.int().cpu().numpy()
             path = pyastar2d.astar_path(self._costmap, (r1, c1), (r2, c2), allow_diagonal=True)
             if path is None or len(path) <= 1:
-                logger.warning(f"No path found from {current_node} to {nbr}!")
+                logger.warning(f"No path found from {current_node} to {random_node}!")
                 raise Exception # direct line
 
             point_dist = 0.3  # meters
