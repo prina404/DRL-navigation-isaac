@@ -34,5 +34,7 @@ git clone --branch main git@github.com:isaac-sim/IsaacLab.git
 cd IsaacLab && ./isaaclab.sh -i
 cd ..
 
-
-
+# ViNT repo setup
+git clone https://github.com/robodhruv/visualnav-transformer.git
+cd visualnav-transformer/train
+pip install -e .

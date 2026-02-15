@@ -6,7 +6,7 @@ import torch
 from isaaclab.managers import ActionTerm, SceneEntityCfg
 from rsl_rl.modules import ActorCritic
 from loguru import logger
-from lab.observation_helpers import get_goal_relative_position
+from lab.helpers.observation_helpers import get_goal_relative_position
 
 
 class Go2MPCPolicyAction(ActionTerm):

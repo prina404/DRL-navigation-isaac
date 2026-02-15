@@ -20,7 +20,9 @@ dependencies = [
     "networkx",
     "skan",
     "torch==2.7.0",
-    "rsl-rl-lib==3.3.0"
+    "rsl-rl-lib==3.3.0",
+    "efficientnet-pytorch",
+    "warmup-scheduler",
 ]
 
 [tool.setuptools]

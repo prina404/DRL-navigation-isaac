@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 from loguru import logger
 import torch
@@ -9,21 +10,24 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab.utils.math import euler_xyz_from_quat, subtract_frame_transforms, wrap_to_pi
 from isaaclab.sensors import MultiMeshRayCaster
 from cfg.CFG import DEVICE
-from models.vision_encoder import ViTEncoder
+from models.vision_encoder import ViTEncoder, ViNTVisionEncoder
 
 
 class VisionEncoder:
-    def __init__(self, encoder: nn.Module = ViTEncoder(), device=DEVICE, normalize: bool = True):
-        self.encoder = encoder.to(device)
+    def __init__(self, encoder: Literal["vit", "vint"], device=DEVICE, normalize: bool = True):
+        if encoder == "vit":
+            self.encoder = ViTEncoder().to(device)
+        elif encoder == "vint":
+            self.encoder = ViNTVisionEncoder().to(device)
+        else:
+            raise ValueError(f"Unknown encoder type: {encoder}")
         self.normalize = normalize
 
     @torch.no_grad()
     def __call__(self, env: RslRlVecEnvWrapper) -> torch.Tensor:
-        # rgb = torch.zeros((env.num_envs, 3, 320, 240), device=env.device)
-
         cam = env.scene["camera"]
         rgb = cam.data.output["rgb"]  # (N, H, W, C)
-        rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT
+        rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT/ViNT
         rgb = rgb.to(dtype=torch.float32) / 255.0
         embedding = self.encoder(rgb)
         if self.normalize:

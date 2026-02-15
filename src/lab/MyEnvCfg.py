@@ -68,17 +68,17 @@ class Go2SimCfg(InteractiveSceneCfg):
         track_air_time=False,
     )
 
-    # camera = TiledCameraCfg(
-    #     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-    #     width=224,
-    #     height=224,
-    #     offset=TiledCameraCfg.OffsetCfg(
-    #         pos=(0.4, 0.0, 0.0),  # Your desired offset
-    #         convention="world",  # Coordinate frame convention
-    #     ),
-    #     data_types=["rgb"],
-    #     spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
-    # )
+    camera = TiledCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
+        width=224,
+        height=224,
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.4, 0.0, 0.0),  
+            convention="world",  
+        ),
+        data_types=["rgb"],
+        spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
+    )
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
@@ -132,7 +132,7 @@ class ObservationsCfg:
 
     @configclass
     class VisionGroup(ObsGroup):
-        vision = ObsTerm(func=observations.VisionEncoder())
+        vision = ObsTerm(func=observations.VisionEncoder(encoder="vint"))
 
     @configclass
     class LidarGroup(ObsGroup):
@@ -155,7 +155,7 @@ class ObservationsCfg:
     action_buffer = ActionGroup()
     velocity_buffer = VelocityGroup()
     goal_relative_pos = GoalGroup()
-    # vision = VisionGroup()
+    vision = VisionGroup()
     lidar = LidarGroup()
     # global_plan = GlobalPlanGroup()
 
