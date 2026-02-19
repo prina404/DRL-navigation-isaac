@@ -153,7 +153,7 @@ def create_occupancy_map(scene_prim: Usd.Prim, map_name: str, save_folder: str |
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("usd", help="Path to source USD file")
+    parser.add_argument("--usd", help="Path to source USD file")
     args = parser.parse_args()
 
     usd_path = os.path.abspath(args.usd)
@@ -165,6 +165,8 @@ def main():
 
     my_world.reset()
     my_world.step(render=True)  # step once to ensure all prims are loaded
+    for _ in range(100):
+        my_world.step(render=False)  # step a few more times to ensure doors reach their final positions
 
     create_occupancy_map(
         scene_prim=my_world.stage.GetPrimAtPath("/World/environment"),

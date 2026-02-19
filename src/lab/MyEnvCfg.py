@@ -51,16 +51,16 @@ class Go2SimCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Go2",
     )
 
-    mid_obstacle = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/mid_obstacle",
-        spawn=sim_utils.CylinderCfg(
-            radius=0.2,
-            height=1.0,
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            collision_props=CollisionPropertiesCfg(collision_enabled=True),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.5), rot=(1.0, 0.0, 0.0, 0.0)),
-    )
+    # mid_obstacle = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/mid_obstacle",
+    #     spawn=sim_utils.CylinderCfg(
+    #         radius=0.2,
+    #         height=1.0,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+    #         collision_props=CollisionPropertiesCfg(collision_enabled=True),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.5), rot=(1.0, 0.0, 0.0, 0.0)),
+    # )
 
     body_collision_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Go2/base",
@@ -70,8 +70,8 @@ class Go2SimCfg(InteractiveSceneCfg):
 
     camera = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-        width=224,
-        height=224,
+        width=128,
+        height=128,
         offset=TiledCameraCfg.OffsetCfg(
             pos=(0.4, 0.0, 0.0),  
             convention="world",  
@@ -94,14 +94,14 @@ class Go2SimCfg(InteractiveSceneCfg):
         debug_vis=False,
         mesh_prim_paths=[
             "/World/ground",
-            # MultiMeshRayCasterCfg.RaycastTargetCfg(
-            #     prim_expr="{ENV_REGEX_NS}/mid_obstacle",
-            #     is_shared=True,
-            #     track_mesh_transforms=True,
-            #     ),
             MultiMeshRayCasterCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/environment",
-                is_shared=True,  # TODO: this reduces VRAM usage significantly, but can we make it work with semi-static objects?
+                prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
+                is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms for accurate raycasting
+                track_mesh_transforms=True,
+            ),
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/environment/Meshes/static_objects",
+                is_shared=True, 
                 track_mesh_transforms=False,
             ),
         ],
@@ -112,9 +112,9 @@ class Go2SimCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/environment",
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(SCENE_USD_PATH),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=False
-            ),  # Big impact on performance if True, but env is now static
+            # rigid_props=sim_utils.RigidBodyPropertiesCfg( # should be handled in preprocessing
+            #     kinematic_enabled=True
+            # ),  # Big impact on performance if True, but env is now static
             collision_props=CollisionPropertiesCfg(collision_enabled=True),
         ),
     )
@@ -132,7 +132,7 @@ class ObservationsCfg:
 
     @configclass
     class VisionGroup(ObsGroup):
-        vision = ObsTerm(func=observations.VisionEncoder(encoder="vint"))
+        vision = ObsTerm(func=observations.VisionEncoder(encoder="vit"))
 
     @configclass
     class LidarGroup(ObsGroup):
@@ -156,7 +156,7 @@ class ObservationsCfg:
     velocity_buffer = VelocityGroup()
     goal_relative_pos = GoalGroup()
     vision = VisionGroup()
-    lidar = LidarGroup()
+    #lidar = LidarGroup()
     # global_plan = GlobalPlanGroup()
 
 
@@ -205,7 +205,7 @@ class RewardsCfg:
 
     time_penalty = RewTerm(
         func=rewards.time_penalty,
-        weight=0.3,
+        weight=0.2,
     )
 
     # obstacle_proximity = RewTerm(
@@ -248,7 +248,7 @@ class EventsCfg:
 @configclass
 class Go2EnvCfg(ManagerBasedRLEnvCfg):
 
-    scene = Go2SimCfg(num_envs=1, env_spacing=12.0)
+    scene = Go2SimCfg(num_envs=1, env_spacing=18.0)
 
     actions = ActionsCfg()
     observations = ObservationsCfg()
