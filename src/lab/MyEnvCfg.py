@@ -95,6 +95,7 @@ class Go2SimCfg(InteractiveSceneCfg):
         mesh_prim_paths=[
             "/World/ground",
             MultiMeshRayCasterCfg.RaycastTargetCfg(
+                # TODO check if we can simplify prim_expr
                 prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
                 is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms for accurate raycasting
                 track_mesh_transforms=True,
@@ -155,8 +156,8 @@ class ObservationsCfg:
     action_buffer = ActionGroup()
     velocity_buffer = VelocityGroup()
     goal_relative_pos = GoalGroup()
-    vision = VisionGroup()
-    #lidar = LidarGroup()
+    #vision = VisionGroup()
+    lidar = LidarGroup()
     # global_plan = GlobalPlanGroup()
 
 
@@ -242,6 +243,11 @@ class EventsCfg:
             "position_range": (0.0, 0.0),
             "velocity_range": (0.0, 0.0),
         },
+    )
+
+    randomize_doors = EventTermCfg(
+        func=events.randomize_door_positions,
+        mode="reset",
     )
 
 

@@ -51,8 +51,8 @@ def set_stage_static(root: Usd.Prim):
 def set_mesh_merge_collision(prim: Usd.Prim):
     meshMergeCollision = PhysxSchema.PhysxMeshMergeCollisionAPI.Apply(prim)
     meshMergeCollection = meshMergeCollision.GetCollisionMeshesCollectionAPI()
-    for name in prim.GetAllChildrenNames():
-        meshMergeCollection.GetIncludesRel().AddTarget(name)
+    for child in prim.GetAllChildren():
+        meshMergeCollection.GetIncludesRel().AddTarget(child.GetPath())
 
 
 def _local_translation(prim: Usd.Prim) -> Gf.Vec3d:
@@ -207,6 +207,7 @@ def _process_normal_doors(root: Usd.Prim):
         joint_prim = create_hinge_constraint(hinge, door_frame, body)
         create_hinge_drive(joint_prim, 90)
 
+
 def _process_entrance_door(root: Usd.Prim):
     # I can leave everything as static, but I have to enable RigidBodyAPI on the door body, to have collisions
     for prim in Usd.PrimRange(root):
@@ -214,11 +215,12 @@ def _process_entrance_door(root: Usd.Prim):
             set_rigid_body_API(prim, False)  # disable rigid body API on root xform, to avoid nested api errors
 
         if is_door_body(prim):
-            set_rigid_body_API(prim, True, kinematic=True)  
+            set_rigid_body_API(prim, True, kinematic=True)
             set_mesh_merge_collision(prim)
             UsdPhysics.CollisionAPI.Apply(prim)
             mc = UsdPhysics.MeshCollisionAPI.Apply(prim)
             mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexHull)
+
 
 def set_door_physics(root: Usd.Prim, door_cfg: dict) -> list[Usd.Prim]:
     dynamic_doors = []
@@ -266,10 +268,10 @@ def init_static_dynamic_folders(
     static_path = f"{root_path}/{static_folder_name}"
     dynamic_path = f"{root_path}/{dynamic_folder_name}"
 
-    static_folder:Usd.Prim = stage.DefinePrim(static_path, "Xform")
+    static_folder: Usd.Prim = stage.DefinePrim(static_path, "Xform")
     dynamic_folder = stage.DefinePrim(dynamic_path, "Xform")
 
-    sim_utils.standardize_xform_ops(static_folder) # needed for isaaclab xform validation
+    sim_utils.standardize_xform_ops(static_folder)  # needed for isaaclab xform validation
     sim_utils.standardize_xform_ops(dynamic_folder)
 
     # Move all prims into static folder by default
@@ -324,6 +326,7 @@ def main(scene_dir: str, usd_path: str):
 
     os.remove(temp_usd_file)  # clean up temp file
     logger.info(f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors.")
+
 
 if __name__ == "__main__":
     args = parser.parse_args()
