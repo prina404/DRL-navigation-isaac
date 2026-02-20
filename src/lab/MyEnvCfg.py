@@ -24,10 +24,8 @@ import lab.helpers.observation_helpers as observations
 import lab.helpers.reward_helpers as rewards
 import lab.helpers.event_helpers as events
 
-# from utils.gridmap import generate_ogm_on_reset
 from cfg.CFG import SCENE_USD_PATH
 
-# from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 from go2.go2_articulation_cfg import UNITREE_GO2_CFG
 import torch
 
@@ -51,34 +49,23 @@ class Go2SimCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Go2",
     )
 
-    # mid_obstacle = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/mid_obstacle",
-    #     spawn=sim_utils.CylinderCfg(
-    #         radius=0.2,
-    #         height=1.0,
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-    #         collision_props=CollisionPropertiesCfg(collision_enabled=True),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.5), rot=(1.0, 0.0, 0.0, 0.0)),
-    # )
-
     body_collision_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Go2/base",
         history_length=1,
         track_air_time=False,
     )
 
-    camera = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-        width=128,
-        height=128,
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.4, 0.0, 0.0),  
-            convention="world",  
-        ),
-        data_types=["rgb"],
-        spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
-    )
+    # camera = TiledCameraCfg(
+    #     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
+    #     width=128,
+    #     height=128,
+    #     offset=TiledCameraCfg.OffsetCfg(
+    #         pos=(0.4, 0.0, 0.0),  
+    #         convention="world",  
+    #     ),
+    #     data_types=["rgb"],
+    #     spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
+    # )
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
@@ -137,7 +124,7 @@ class ObservationsCfg:
 
     @configclass
     class LidarGroup(ObsGroup):
-        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 10})
+        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 50})
 
     @configclass
     class GlobalPlanGroup(ObsGroup):
@@ -196,12 +183,12 @@ class RewardsCfg:
     collision = RewTerm(
         func=rewards.penalty_collision_base,
         weight=1.0,
-        params={"force_thresh": 2.0, "penalty": -5.0},
+        params={"force_thresh": 1.0, "penalty": -10.0},
     )
 
     action_smoothness = RewTerm(
         func=rewards.action_smoothness_penalty,
-        weight=0.3,
+        weight=0.4,
     )
 
     time_penalty = RewTerm(
@@ -249,6 +236,13 @@ class EventsCfg:
         func=events.randomize_door_positions,
         mode="reset",
     )
+
+    replan = EventTermCfg(
+        func=events.replan_global_plan,
+        mode="interval",
+        interval_range_s=(2.0, 2.0)
+    )
+
 
 
 @configclass

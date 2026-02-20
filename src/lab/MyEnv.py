@@ -1,3 +1,5 @@
+import time
+
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
 from isaaclab.envs.common import VecEnvStepReturn
@@ -23,8 +25,8 @@ class MyEnv(ManagerBasedRLEnv):
         self.old_eye_pos = None
         self.old_lookat_pos = None
         # Camera and lookat settings for video recording
-        self.camera_offset = torch.tensor([-1.5, 0.0, 1.2], device=self.device)
-        self.lookat_offset = torch.tensor([2.0, 0.0, -0.8], device=self.device)
+        self.camera_offset = torch.tensor([-1, 0.0, 1.0], device=self.device)
+        self.lookat_offset = torch.tensor([1.8, 0.0, -0.8], device=self.device)
 
         map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
         map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
@@ -33,12 +35,14 @@ class MyEnv(ManagerBasedRLEnv):
 
         self.graph, coords = voronoi.compute_voronoi_graph(
             map_path=map_png,
-            blur_radius=22,
-            min_node_distance=20
+            blur_radius=15,
+            min_node_distance=15,
+            plot_graph=True,
+            filepath=str(SCENE_USD_PATH)
         )
 
         self.map_img = cv2.imread(map_png, cv2.IMREAD_GRAYSCALE)
-        self._costmap = self._create_inflated_costmap(inflation_scale = 3)
+        self._costmap = self._create_inflated_costmap(inflation_scale = 2)
         # store the pixel coordinates of each node (indexed by [row][col])
         self.nodes = torch.Tensor([coords[idx] for idx in self.graph.nodes]).to(self.device)  
 
@@ -80,35 +84,56 @@ class MyEnv(ManagerBasedRLEnv):
 
         return retVal
 
-    
 
     def _create_inflated_costmap(self, inflation_scale: int) -> np.ndarray:
         binary_img = self.map_img == 0 # 1= occupied, 0=free/unknown
         dist_transform = sp.distance_transform_edt(~binary_img)
         costmap = np.clip(np.max(dist_transform) - (dist_transform * inflation_scale), 0, 255).astype(np.float32)
-        costmap[costmap > 255] = float('inf')
+        max_value = costmap.max()
+        costmap[costmap >= max_value] = float('inf')
         return costmap + 1.0 # min_cost = 1.0 for A* 
 
     
-    def _map_to_local(self, node_coords: torch.Tensor) -> torch.Tensor:
+    def _map_to_local(self, map_coords: torch.Tensor) -> torch.Tensor:
         # node coords are tensor: [[row, col],
                                 #  [row, col], ...]
         # in isaac frame, y directions are ok the same as in pixel space, but x are inverted
-        node_coords = node_coords.clone()
+        map_coords = map_coords.clone()
         _, W = self.map_img.shape
-        node_coords[:, 1] = W - node_coords[:, 1]  # flip x axis
-        node_coords = node_coords[:, [1,0]]  # swap to (x, y)
+        map_coords[:, 1] = W - map_coords[:, 1]  # flip x axis
+        map_coords = map_coords[:, [1,0]]  # swap to (x, y)
         
-        n = node_coords.shape[0]
+        n = map_coords.shape[0]
         x, y = self.img_meta['origin'][:2]
 
         origin = torch.zeros((n, 2), device=self.device)
         origin[:] = torch.tensor([x, y], device=self.device) # broadcast origin
 
-        scaled = node_coords * self.img_meta['resolution']  # (N, 2)
+        scaled = map_coords * self.img_meta['resolution']  # (N, 2)
         local_coords = scaled + origin  # (N, 2)
         return local_coords
 
+
+    def _local_to_map(self, local_coords: torch.Tensor) -> torch.Tensor:
+        # local coords are tensor: [[x, y],
+                                #  [x, y], ...]
+        if local_coords.size(1) > 2:
+            local_coords = local_coords[:, :2]  # only consider x, y
+
+        local_coords = local_coords.clone()
+        n = len(local_coords)
+        x, y = self.img_meta['origin'][:2]
+
+        origin = torch.zeros((n, 2), device=self.device)
+        origin[:] = torch.tensor([x, y], device=self.device) # broadcast origin
+
+        local_coords = local_coords - origin  # (N, 2)
+        scaled = local_coords / self.img_meta['resolution']  # (N, 2)
+
+        _, W = self.map_img.shape
+        scaled[:, 0] = W - scaled[:, 0]  # flip x axis
+        map_coords = scaled[:, [1,0]]  # swap to (row, col)
+        return map_coords
 
     def sample_node_ids(self, num_samples: int) -> torch.Tensor:
         '''Returns (num_samples,) tensor of node_ids'''
@@ -152,19 +177,34 @@ class MyEnv(ManagerBasedRLEnv):
         for id in env_ids:
             current_node = self.start_pos_ids[id]
             random_node = random.randint(0, self.nodes.shape[0]-1)
-            while random_node == current_node:
+            while random_node == current_node or random_node in self.graph.neighbors(current_node.item()):
                 random_node = random.randint(0, self.nodes.shape[0]-1)
 
             self.goal_ids[id] = random_node
-            goal_node_rc = self.nodes[random_node].clone()
-            self.goal_pos[id] = self._map_to_local(goal_node_rc.unsqueeze(0))[0]
+            goal_pos_map = self.nodes[random_node].clone()
+            self.goal_pos[id] = self._map_to_local(goal_pos_map.unsqueeze(0))[0]
 
-            r1, c1 = self.nodes[current_node].int().cpu().numpy()
-            r2, c2 = goal_node_rc.int().cpu().numpy()
+        self.compute_global_plan(env_ids)
+            
+
+    def compute_global_plan(self, env_ids: torch.Tensor) -> None:
+        start = time.time()
+        robot: Articulation = self.scene["unitree_go2"]
+        robot_pos_w = robot.data.root_com_pos_w[env_ids]
+        robot_pos_local = robot_pos_w - self.scene.env_origins[env_ids]  # convert to local coordinates
+        robot_pos_map = self._local_to_map(robot_pos_local[:, :2])  # (num_envs, 2)
+        for idx, env_id in enumerate(env_ids):
+            goal_node_id = self.goal_ids[env_id]
+            goal_pos_map = self.nodes[goal_node_id]
+
+            r1, c1 = robot_pos_map[idx].int().cpu().numpy()
+            r2, c2 = goal_pos_map.int().cpu().numpy()
+
             path = pyastar2d.astar_path(self._costmap, (r1, c1), (r2, c2), allow_diagonal=True)
             if path is None or len(path) <= 1:
-                logger.warning(f"No path found from {current_node} to {random_node}!")
-                raise Exception # direct line
+                logger.warning(f"No path found from {r1}, {c1} to {r2}, {c2}!\nReturning empty path tensor")
+                self._path_tensors[env_id] = torch.tensor([[r2, c2]], device=self.device)  # just return the goal as the path
+                continue
 
             point_dist = 0.3  # meters
             path_subsampled = path[::int(point_dist / self.img_meta['resolution'])]
@@ -174,51 +214,10 @@ class MyEnv(ManagerBasedRLEnv):
             path_tensor[-1] = torch.tensor([r2, c2], device=self.device)  # ensure goal is included
 
             world_path = self._map_to_local(path_tensor)  # (num_path_points, 2)
-            self._path_tensors[id] = world_path  
+            self._path_tensors[env_id] = world_path  
+        
+        logger.debug(f"Computed global plans for envs {env_ids.size(0)} in {time.time() - start:.4f} seconds")
 
-
-    def place_mid_obstacle_on_reset(self, env_ids: torch.Tensor) -> None:
-        robot: Articulation = self.scene["unitree_go2"]
-        obstacle = self.scene["mid_obstacle"]
-
-        robot_xy = robot.data.root_com_pos_w[env_ids, :2]
-        goal_xy = self.goal_pos[env_ids] + self.scene.env_origins[env_ids, :2]
-        midpoint_xy = 0.5 * (robot_xy + goal_xy)
-
-        n = env_ids.shape[0]
-        angles = torch.rand((n,), device=self.device) * 2.0 * torch.pi
-        radii = torch.sqrt(torch.rand((n,), device=self.device)) * self._mid_obstacle_jitter_radius
-        jitter_xy = torch.stack((radii * torch.cos(angles), radii * torch.sin(angles)), dim=-1)
-
-        obstacle_xy = midpoint_xy + jitter_xy
-        obstacle_z = torch.full((n, 1), self._mid_obstacle_height * 0.5, dtype=torch.float32, device=self.device)
-        obstacle_pos_w = torch.cat((obstacle_xy, obstacle_z), dim=-1)
-
-        obstacle_quat = torch.zeros((n, 4), dtype=torch.float32, device=self.device)
-        obstacle_quat[:, 0] = 1.0
-        obstacle_vel = torch.zeros((n, 6), dtype=torch.float32, device=self.device)
-
-        obstacle_state = torch.cat((obstacle_pos_w, obstacle_quat, obstacle_vel), dim=-1)
-        obstacle.write_root_state_to_sim(obstacle_state, env_ids=env_ids)
-
-
-    def _local_to_map(self, local_coords: torch.Tensor) -> torch.Tensor:
-        # local coords are tensor: [[x, y],
-                                #  [x, y], ...]
-        local_coords = local_coords.clone()
-        n = len(local_coords)
-        x, y = self.img_meta['origin'][:2]
-
-        origin = torch.zeros((n, 2), device=self.device)
-        origin[:] = torch.tensor([x, y], device=self.device) # broadcast origin
-
-        local_coords = local_coords - origin  # (N, 2)
-        scaled = local_coords / self.img_meta['resolution']  # (N, 2)
-
-        _, W = self.map_img.shape
-        scaled[:, 0] = W - scaled[:, 0]  # flip x axis
-        pixel_coords = scaled[:, [1,0]]  # swap to (row, col)
-        return pixel_coords
     
     def update_follow_camera(self):
         robot_pos = self.scene["unitree_go2"].data.root_pos_w[0]
@@ -231,7 +230,7 @@ class MyEnv(ManagerBasedRLEnv):
             self.old_eye_pos = robot_pos + camera_offset_w
             self.old_lookat_pos = robot_pos + lookat_offset_w
         else:            # smooth camera movement by interpolating between old and new positions
-            alpha = 0.25  # smoothing factor
+            alpha = 0.3  # smoothing factor
             new_eye_pos = robot_pos + camera_offset_w
             new_lookat_pos = robot_pos + lookat_offset_w
 

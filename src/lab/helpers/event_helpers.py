@@ -28,6 +28,9 @@ def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
     #         )
     
 
+def replan_global_plan(env: MyEnv, env_ids: torch.Tensor) -> None:
+    env.compute_global_plan(env_ids)
+
 def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
     root_path = f"{env_ns}/environment/Meshes/dynamic_objects/other"
     root_prim = stage.GetPrimAtPath(root_path)
