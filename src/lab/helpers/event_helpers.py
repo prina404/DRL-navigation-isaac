@@ -1,19 +1,21 @@
-from isaaclab.assets.articulation.articulation import Articulation
-import torch
-from isaaclab.envs import ManagerBasedRLEnv
-from lab.MyEnv import MyEnv
-from loguru import logger
-import omni.usd
 import random
+
+import omni.usd
+import torch
+from isaaclab.assets.articulation.articulation import Articulation
+from isaaclab.envs import ManagerBasedRLEnv
+from loguru import logger
 from pxr import Usd, UsdPhysics
 
+from lab.MyEnv import MyEnv
+
+
 def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
-    # on reset, sample new start positions, 
+    # on reset, sample new start positions,
     n_samples = env_ids.shape[0]
     sampled_node_id = env.sample_node_ids(n_samples)  # (num_envs_to_reset, 1)
     env.teleport_robots(env_ids, sampled_node_id)
     env.compute_goals_on_reset(env_ids)
-    #env.place_mid_obstacle_on_reset(env_ids)
 
     # Reset joints to default state after teleporting root poses.
     robot: Articulation = env.scene["unitree_go2"]
@@ -21,15 +23,11 @@ def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
     default_vel = robot.data.default_joint_vel[env_ids]
     robot.set_joint_position_target(default_pos, None, env_ids)
     robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
-    #logger.debug(f"robot joint state: {robot.data.joint_pos, robot.data.joint_vel} -> [{robot.data.default_joint_pos},{robot.data.default_joint_vel}]")
-    # logger.debug(f"Teleported {n_samples} robots on reset."
-    #             f"{env.start_pos_ids=}"
-    #             f"{env.goal_ids=}"
-    #         )
-    
+
 
 def replan_global_plan(env: MyEnv, env_ids: torch.Tensor) -> None:
     env.compute_global_plan(env_ids)
+
 
 def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
     root_path = f"{env_ns}/environment/Meshes/dynamic_objects/other"
@@ -37,21 +35,19 @@ def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
 
     joint_prims = []
     for prim in Usd.PrimRange(root_prim):
-        if (
-            prim.IsValid()
-            and prim.GetTypeName() == 'PhysicsRevoluteJoint'
-        ):
+        if prim.IsValid() and prim.GetTypeName() == "PhysicsRevoluteJoint":
             joint_prims.append(prim)
     return joint_prims
+
 
 def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
     stage = omni.usd.get_context().get_stage()
 
     if not hasattr(env, "_door_prim_paths"):
         env._door_prim_paths = {}
-    
+
     for env_id in env_ids.cpu().numpy():
-        env_ns = f'/World/envs/env_{env_id}'
+        env_ns = f"/World/envs/env_{env_id}"
         door_prims = env._door_prim_paths.get(env_id, None)
         if door_prims is None:
             door_prims = _collect_door_prims(stage, env_ns)

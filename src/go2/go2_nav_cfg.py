@@ -2,15 +2,15 @@ from models.policy_model import ActorCriticWithEncoders
 
 go2_policy_cfg = {
     # Training loop parameters
-    "num_steps_per_env": int((15 * (1/0.005)) / 16), # 15 seconds per episode, converted to steps (with decimation)
+    "num_steps_per_env": int((15 * (1 / 0.005)) / 16),  # 15 seconds per episode, converted to steps (with decimation)
     "save_interval": 100,
     "max_iterations": 1000,
     "device": "cuda:0",
     "empirical_normalization": False,
     # Observation routing
     "obs_groups": {
-        "policy": ["velocity_buffer","goal_relative_pos", "lidar"],
-        "critic": ["velocity_buffer","goal_relative_pos", "lidar"],
+        "policy": ["velocity_buffer", "goal_relative_pos", "lidar"],
+        "critic": ["velocity_buffer", "goal_relative_pos", "lidar"],
     },
     # Policy architecture
     "policy": {

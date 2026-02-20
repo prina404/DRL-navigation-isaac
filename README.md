@@ -5,7 +5,7 @@
 bash setup.sh
 ```
 
-## InteriorAgent dataset 
+## InteriorAgent dataset
 
 Clone huggingface repo (25GB of disk required)
 ```bash

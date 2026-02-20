@@ -1,15 +1,16 @@
-'''
+"""
 Based on the code from:
 https://github.com/aislabunimi/ROSE2/blob/main/src/util/voronoi.py
 
-'''
+"""
 
 
 import math
-from pathlib import Path
 import sys
-import matplotlib.colors
+from pathlib import Path
+
 import cv2
+import matplotlib.colors
 import matplotlib.pyplot as plt
 import networkx as nx
 from skan.csr import skeleton_to_csgraph
@@ -33,8 +34,6 @@ def remove_2_neighbors(graph):
         new_edges = len(graph.edges)
         precision = old_edges - new_edges
     graph.remove_nodes_from(list(nx.isolates(graph)))
-
-
 
 
 def remove_1_neighbors(graph):
@@ -95,18 +94,20 @@ def remove_1_and_2_neighbors(graph):
             graph.remove_edge(node, tmp[0])
     graph.remove_nodes_from(list(nx.isolates(graph)))
 
+
 def setup_plot(size):
-	plt.clf()
-	plt.cla()
-	plt.close('all')
-	width = size[0]/100
-	height = size[1]/100
-	fig, ax = plt.subplots()
-	fig.set_size_inches(width, height)
-	ax = plt.Axes(fig, [0., 0., 1., 1.])
-	ax.axis('off')
-	fig.add_axes(ax)
-	return fig, ax
+    plt.clf()
+    plt.cla()
+    plt.close("all")
+    width = size[0] / 100
+    height = size[1] / 100
+    fig, ax = plt.subplots()
+    fig.set_size_inches(width, height)
+    ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
+    ax.axis("off")
+    fig.add_axes(ax)
+    return fig, ax
+
 
 def plot_line(node_i, node_j, ax):
     x_coordinates = []
@@ -117,7 +118,7 @@ def plot_line(node_i, node_j, ax):
     y2 = int(node_j[0])
     x_coordinates.extend((x1, x2))
     y_coordinates.extend((y1, y2))
-    ax.plot(x_coordinates, y_coordinates, color='k', linewidth=1)
+    ax.plot(x_coordinates, y_coordinates, color="k", linewidth=1)
     del x_coordinates[:]
     del y_coordinates[:]
 
@@ -130,17 +131,29 @@ def removed_isolated_cycles(graph: nx.Graph) -> nx.Graph:
     return voronoi_graph
 
 
-def plot_voronoi(coordinates: list[tuple], voronoi_graph: nx.Graph, ax: plt.Axes, label, is_labelled, name, filepath:str):
+def plot_voronoi(
+    coordinates: list[tuple],
+    voronoi_graph: nx.Graph,
+    ax: plt.Axes,
+    label,
+    is_labelled,
+    name,
+    filepath: str,
+):
     for edge in voronoi_graph.edges:
         plot_line(coordinates[edge[0]], coordinates[edge[1]], ax)
     for node in voronoi_graph.nodes:
         if is_labelled:
             col = (label[node][0] / 255, label[node][1] / 255, label[node][2] / 255)
-            ax.scatter(coordinates[node][1], coordinates[node][0], c=matplotlib.colors.rgb2hex(col))
+            ax.scatter(
+                coordinates[node][1],
+                coordinates[node][0],
+                c=matplotlib.colors.rgb2hex(col),
+            )
         else:
             ax.scatter(coordinates[node][1], coordinates[node][0])
-    print('Plotting voronoi graph in: ', filepath + name + '.png')
-    plt.savefig(filepath + name + '.png')
+    print("Plotting voronoi graph in: ", filepath + name + ".png")
+    plt.savefig(filepath + name + ".png")
 
 
 def evaluate_distance(node1, node2):
@@ -173,7 +186,6 @@ def exist_path(color, paths, label):
 def compute_lines_direction(centers, v, u, n1, n2, directions):
     point1 = centers[v]
     point2 = centers[u]
-    pt = [(point1[0] + point2[0]) / 2, (point1[1] + point2[1]) / 2]
     pt_n = [(n1[0] + n2[0]) / 2, (n1[1] + n2[1]) / 2]
     lines1 = []
     lines2 = []
@@ -260,7 +272,11 @@ def remove_close_node_2_neighbors(graph: nx.Graph, coordinates: list[tuple], thr
     while precision != 0:
         for node in graph.nodes:
             tmp = list(graph.neighbors(node))
-            if len(tmp) == 2 and evaluate_distance(coordinates[node], coordinates[tmp[0]]) < thresh and evaluate_distance(coordinates[node], coordinates[tmp[1]]) < thresh:
+            if (
+                len(tmp) == 2
+                and evaluate_distance(coordinates[node], coordinates[tmp[0]]) < thresh
+                and evaluate_distance(coordinates[node], coordinates[tmp[1]]) < thresh
+            ):
                 graph.remove_edge(node, tmp[0])
                 graph.remove_edge(node, tmp[1])
                 graph.add_edge(tmp[0], tmp[1])
@@ -274,7 +290,7 @@ def remove_close_nodes_1_neighbors_one_cycle(graph: nx.Graph, coordinates: list[
     li = []
     for node in graph.nodes:
         tmp = list(graph.neighbors(node))
-        if len(tmp) == 1 and evaluate_distance(coordinates[node], coordinates[tmp[0]-1]) < thresh:
+        if len(tmp) == 1 and evaluate_distance(coordinates[node], coordinates[tmp[0] - 1]) < thresh:
             li.append(node)
     for el in li:
         n = list(graph.neighbors(el))
@@ -294,19 +310,18 @@ def reindex_nodes(graph: nx.Graph, coordinates: list[tuple]) -> tuple[nx.Graph, 
 
 
 def compute_voronoi_graph(
-        map_path: str | Path, 
-        blur_radius: int, 
-        min_node_distance: float, 
-        plot_graph: bool = False, 
-        name: str = '', 
-        filepath: str =''
-    ) -> tuple[nx.Graph, list[tuple]]:
+    map_path: str | Path,
+    blur_radius: int,
+    min_node_distance: float,
+    plot_graph: bool = False,
+    name: str = "",
+    filepath: str = "",
+) -> tuple[nx.Graph, list[tuple]]:
     # --------------------------INITIALIZATION----------------------------------
 
     # load map
     copy = cv2.imread(str(map_path))
     im = copy.copy()
-
 
     im = cv2.blur(im, (blur_radius, blur_radius))
     im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
@@ -333,7 +348,6 @@ def compute_voronoi_graph(
     # remove isolated part of graph
     voronoi_graph = removed_isolated_cycles(graph)
 
-
     remove_close_nodes_1_neighbors_one_cycle(voronoi_graph, coordinates, 40)
     remove_close_node_2_neighbors(voronoi_graph, coordinates, 60)
     remove_close_nodes_1_neighbors(voronoi_graph, coordinates, 30)
@@ -343,22 +357,22 @@ def compute_voronoi_graph(
 
     graph.remove_nodes_from(list(nx.isolates(graph)))
 
-    print('voronoi nodes:', len(voronoi_graph.nodes))
+    print("voronoi nodes:", len(voronoi_graph.nodes))
 
     # -------------------------------PLOT-------------------------------------
 
     graph, coordinates = reindex_nodes(voronoi_graph, coordinates)
     if plot_graph:
         _, ax = setup_plot([im.shape[1], im.shape[0]])
-        ax.imshow(copy, cmap='gray')
-        plot_voronoi(coordinates, graph, ax, 0, False, 'voronoi_graph_' + name, filepath=filepath)
-    
+        ax.imshow(copy, cmap="gray")
+        plot_voronoi(coordinates, graph, ax, 0, False, "voronoi_graph_" + name, filepath=filepath)
+
     return graph, coordinates
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     img_path = sys.argv[1]
-    graph, coordinates = compute_voronoi_graph(img_path, 20, 20, plot_graph=True, name='test', filepath='')
+    graph, coordinates = compute_voronoi_graph(img_path, 20, 20, plot_graph=True, name="test", filepath="")
     print(graph.nodes)
     print(list(list(graph.neighbors(i)) for i in graph.nodes))
     print(coordinates)

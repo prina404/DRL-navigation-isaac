@@ -25,29 +25,27 @@ simulation_app = app_launcher.app
 
 import os
 import time
+import traceback
 
 import gymnasium as gym
 import hydra
 import torch
+from isaaclab.envs import ViewerCfg
+from isaaclab.envs.ui import ViewportCameraController
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
+
 import go2.go2_mpc as go2_mpc
-from lab.MyEnvCfg import Go2EnvCfg
-
-from loguru import logger
-import traceback
-
 from go2.go2_nav_cfg import go2_policy_cfg
-from isaaclab.envs.ui import ViewportCameraController
-from isaaclab.envs import ViewerCfg
+from lab.MyEnvCfg import Go2EnvCfg
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
 
 @hydra.main(config_path=FILE_PATH, config_name="sim", version_base=None)
 def run_simulator(cfg: DictConfig):
-
 
     # Go2 MPC setup
     mpc = go2_mpc.get_mpc_policy()
@@ -59,20 +57,18 @@ def run_simulator(cfg: DictConfig):
     go2_env_cfg.decimation = 16
     go2_env_cfg.sim.render_interval = go2_env_cfg.decimation
 
-
     # Create the whole scene
     logger.info("Creating gym environment...")
     gym.register(
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="lab.MyEnv:MyEnv",
-        disable_env_checker=True
+        disable_env_checker=True,
     )
-    
+
     env = gym.make("Isaac-indoor-navigation-go2-v0", cfg=go2_env_cfg)
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
-    
     # Navigation Policy setup
     agent_cfg = go2_policy_cfg
     agent_cfg["num_envs"] = cfg.num_envs
@@ -80,9 +76,7 @@ def run_simulator(cfg: DictConfig):
     # ckpt_path = get_checkpoint_path(log_path=os.path.abspath("ckpts"),
     #                                 run_dir=agent_cfg["load_run"],
     #                                 checkpoint=agent_cfg["load_checkpoint"])
-    ppo_runner = OnPolicyRunner(
-        env, agent_cfg, log_dir=None, device=agent_cfg["device"]
-    )
+    ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=None, device=agent_cfg["device"])
     # ppo_runner.load(ckpt_path)
 
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
@@ -97,7 +91,6 @@ def run_simulator(cfg: DictConfig):
     wall_time_acc = 0.0
     policy_time_acc = 0.0
     env_step_time_acc = 0.0
-
 
     logger.info("Starting simulation loop...")
     while simulation_app.is_running():
@@ -115,7 +108,6 @@ def run_simulator(cfg: DictConfig):
             obs, reward, terminated, truncated = env.step(actions)
             env_step_time_acc += time.time() - env_step_start
 
-
         wall_time_acc += time.time() - wall_start
 
         step_count += 1
@@ -131,7 +123,7 @@ def run_simulator(cfg: DictConfig):
             wall_time_acc = 0.0
             policy_time_acc = 0.0
             env_step_time_acc = 0.0
-        
+
         if step_count % 150 == 0:
             env.reset()
             logger.info("Environment reset")
@@ -140,8 +132,8 @@ def run_simulator(cfg: DictConfig):
 if __name__ == "__main__":
     try:
         run_simulator()
-    
-    except Exception as e:
+
+    except Exception:
         traceback.print_exc()
     finally:
         simulation_app.close()

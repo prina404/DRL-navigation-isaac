@@ -1,11 +1,13 @@
 import time
-from isaaclab.assets.articulation.articulation import Articulation
+
 import isaaclab.envs.mdp as mdp
-from isaaclab.utils.math import subtract_frame_transforms
 import torch
+from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.managers import ActionTerm, SceneEntityCfg
-from rsl_rl.modules import ActorCritic
+from isaaclab.utils.math import subtract_frame_transforms
 from loguru import logger
+from rsl_rl.modules import ActorCritic
+
 from lab.helpers.observation_helpers import get_goal_relative_position
 
 
@@ -20,7 +22,6 @@ class Go2MPCPolicyAction(ActionTerm):
         self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
             raise ValueError("MPC policy must be provided in the environment config.")
-
 
     @property
     def action_dim(self) -> int:
@@ -50,7 +51,7 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self.nominal_action() + self._last_action_received  
+        base_vel_cmd = self.nominal_action() + self._last_action_received
         # logger.debug(f"Nominal action: {self.nominal_action()[0]}")
         # logger.debug(f"Policy command: {self._last_action_received[0]}")
         # logger.debug(f"Final cmd (nominal + action): {base_vel_cmd[0]}")
@@ -80,7 +81,7 @@ class Go2MPCPolicyAction(ActionTerm):
             mpc_obs = self._build_low_level_obs()
             mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
             self._last_joint_action = self.mpc(mpc_obs)
-        
+
         robot: Articulation = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos
         q_des = q0 + self._last_joint_action * 0.25
@@ -88,4 +89,3 @@ class Go2MPCPolicyAction(ActionTerm):
 
     def nominal_action(self) -> torch.Tensor:
         return get_goal_relative_position(self._env)
-        

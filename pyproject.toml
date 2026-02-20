@@ -30,3 +30,17 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "flake8",
+    "pre-commit",
+]
+
+[tool.black]
+line-length = 130
+
+[tool.isort]
+profile = "black"

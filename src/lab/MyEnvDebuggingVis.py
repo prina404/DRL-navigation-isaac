@@ -1,9 +1,11 @@
-from isaaclab.utils.math import quat_from_angle_axis, euler_xyz_from_quat
-from lab.MyEnv import MyEnv
 import isaaclab.sim as sim_utils
+import torch
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-import torch
+from isaaclab.utils.math import euler_xyz_from_quat, quat_from_angle_axis
+
+from lab.MyEnv import MyEnv
+
 
 class MyEnvDebuggingVis(MyEnv):
     def __init__(self, cfg, render_mode: str | None = None, **kwargs):
@@ -14,7 +16,7 @@ class MyEnvDebuggingVis(MyEnv):
         retVal = super().step(action)
         self._visualize_markers()
         return retVal
-    
+
     def _visualize_markers(self):
         robot = self.scene["unitree_go2"]
         self.marker_locations = robot.data.root_pos_w  # (B, 3)
@@ -33,7 +35,7 @@ class MyEnvDebuggingVis(MyEnv):
                 # Find closest point on trajectory
                 distances = torch.norm(path_points - robot_pos_local[i], dim=-1)
                 closest_idx = torch.argmin(distances)
-                
+
                 # Pick third point forward on trajectory with boundary check
                 target_idx = min(closest_idx + 3, path_points.shape[0] - 1)
                 target = path_points[target_idx]
@@ -60,7 +62,13 @@ class MyEnvDebuggingVis(MyEnv):
         all_envs = torch.arange(self.cfg.scene.num_envs, device=self.device)
         indices = torch.hstack((torch.zeros_like(all_envs), torch.ones_like(all_envs)))  # (2B,)
         # goal marker
-        goal_locs = torch.cat((self.goal_pos + self.scene.env_origins[:, :2], torch.zeros((self.cfg.scene.num_envs, 1), device=self.device)), dim=-1)
+        goal_locs = torch.cat(
+            (
+                self.goal_pos + self.scene.env_origins[:, :2],
+                torch.zeros((self.cfg.scene.num_envs, 1), device=self.device),
+            ),
+            dim=-1,
+        )
         goal_rots = torch.zeros((self.cfg.scene.num_envs, 4), device=self.device)
         goal_rots[:, 0] = 1.0  # identity quaternion
         goal_indices = torch.full((self.cfg.scene.num_envs,), 3, device=self.device, dtype=torch.int64)
@@ -99,7 +107,6 @@ class MyEnvDebuggingVis(MyEnv):
 
         self.viz_marker.visualize(loc, rots, marker_indices=indices)
 
-
     def _define_markers(self) -> VisualizationMarkers:
         heading_marker = VisualizationMarkersCfg(
             prim_path="/Visuals/myMarkers",
@@ -124,28 +131,27 @@ class MyEnvDebuggingVis(MyEnv):
                     scale=(0.15, 0.15, 0.15),
                     visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
                 ),
-            }
+            },
         )
         # setting aside useful variables for later
         self.up_dir = torch.tensor([0.0, 0.0, 1.0]).cuda()
         self.yaws = torch.zeros((self.cfg.scene.num_envs, 1)).cuda()
         self.commands = torch.randn((self.cfg.scene.num_envs, 3)).cuda()
-        self.commands[:,-1] = 0.0
-        self.commands = self.commands/torch.linalg.norm(self.commands, dim=1, keepdim=True)
+        self.commands[:, -1] = 0.0
+        self.commands = self.commands / torch.linalg.norm(self.commands, dim=1, keepdim=True)
 
         # offsets to account for atan range and keep things on [-pi, pi]
-        ratio = self.commands[:,1]/(self.commands[:,0]+1E-8)
+        ratio = self.commands[:, 1] / (self.commands[:, 0] + 1e-8)
         gzero = torch.where(self.commands > 0, True, False)
         lzero = torch.where(self.commands < 0, True, False)
-        plus = lzero[:,0]*gzero[:,1]
-        minus = lzero[:,0]*lzero[:,1]
-        offsets = torch.pi*plus - torch.pi*minus
-        self.yaws = torch.atan(ratio).reshape(-1,1) + offsets.reshape(-1,1)
+        plus = lzero[:, 0] * gzero[:, 1]
+        minus = lzero[:, 0] * lzero[:, 1]
+        offsets = torch.pi * plus - torch.pi * minus
+        self.yaws = torch.atan(ratio).reshape(-1, 1) + offsets.reshape(-1, 1)
 
         self.marker_locations = torch.zeros((self.cfg.scene.num_envs, 3)).cuda()
         self.marker_offset = torch.zeros((self.cfg.scene.num_envs, 3)).cuda()
-        self.marker_offset[:,-1] = 0.5
+        self.marker_offset[:, -1] = 0.5
         self.reward_marker_orientations = torch.zeros((self.cfg.scene.num_envs, 4)).cuda()
         self.command_marker_orientations = torch.zeros((self.cfg.scene.num_envs, 4)).cuda()
         return VisualizationMarkers(heading_marker)
-

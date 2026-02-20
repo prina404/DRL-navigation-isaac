@@ -1,16 +1,21 @@
 import math
 from typing import Literal
 
-from loguru import logger
 import torch
 import torch.nn as nn
-from lab.MyEnv import MyEnv
 from isaaclab.envs import ManagerBasedRLEnv
-from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-from isaaclab.utils.math import euler_xyz_from_quat, subtract_frame_transforms, wrap_to_pi
 from isaaclab.sensors import MultiMeshRayCaster
+from isaaclab.utils.math import (
+    euler_xyz_from_quat,
+    subtract_frame_transforms,
+    wrap_to_pi,
+)
+from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+from loguru import logger
+
 from cfg.CFG import DEVICE
-from models.vision_encoder import ViTEncoder, ViNTVisionEncoder
+from lab.MyEnv import MyEnv
+from models.vision_encoder import ViNTVisionEncoder, ViTEncoder
 
 
 class VisionEncoder:
@@ -88,15 +93,18 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
     Nx, Ny, Nz = (VOLUME_DIMS / VOXEL_SIZE).to(torch.int32)
     V = Nx * Ny * Nz
 
+    # binary mask of shape (B, N_rays) which stores whether each ray is inside the volume
     mask = (
-          (voxels[..., 0] >= 0) & (voxels[..., 0] < Nx)
-        & (voxels[..., 1] >= 0) & (voxels[..., 1] < Ny)
-        & (voxels[..., 2] >= 0) & (voxels[..., 2] < Nz)
-    )  # binary mask of shape (B, N_rays) which stores whether each ray is inside the volume
+        (voxels[..., 0] >= 0)
+        & (voxels[..., 0] < Nx)
+        & (voxels[..., 1] >= 0)
+        & (voxels[..., 1] < Ny)
+        & (voxels[..., 2] >= 0)
+        & (voxels[..., 2] < Nz)
+    )
 
-    voxel_hash = (
-        voxels[..., 0] + voxels[..., 1] * Nx + voxels[..., 2] * Nx * Ny
-    ).to(torch.int64)  # (B, N_rays, 3) -> (B, N_rays) hashed voxel coordinates
+    # (B, N_rays, 3) -> (B, N_rays) hashed voxel coordinates
+    voxel_hash = (voxels[..., 0] + voxels[..., 1] * Nx + voxels[..., 2] * Nx * Ny).to(torch.int64)
 
     # Invalidate out-of-bounds
     voxel_hash.masked_fill_(~mask, 0)
@@ -153,7 +161,7 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
 
 
 def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.Tensor:
-    # I find which point is closest to the robot, 
+    # I find which point is closest to the robot,
     # then use the fact that the path points are ordered and take the next num_points_forward points.
     # If the closest point is the last point, I pad with the goal pos.
     env: MyEnv = env.unwrapped
@@ -161,18 +169,19 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
     res += env.goal_pos.unsqueeze(1)  # default to goal pos
     for id in range(env.num_envs):
-        path_points = env._path_tensors[id]  
+        path_points = env._path_tensors[id]
         closest_idx = torch.argmin(torch.norm(path_points - local_robot_coords[id], dim=-1))
         n_forward = min(path_points.shape[0] - closest_idx, num_points_forward + 1)
-        res[id, :n_forward] = path_points[closest_idx :closest_idx + n_forward]
+        res[id, :n_forward] = path_points[closest_idx : closest_idx + n_forward]
 
     return res
 
+
 def get_path_obs(
-    env: RslRlVecEnvWrapper, 
-    num_points_forward: int, 
-    normalize: bool = True, 
-    debug_vis: bool = False
+    env: RslRlVecEnvWrapper,
+    num_points_forward: int,
+    normalize: bool = True,
+    debug_vis: bool = False,
 ) -> torch.Tensor:
     env: MyEnv = env.unwrapped
     if getattr(env, "goal_pos", None) is None:  # this is needed because this is called before env is fully initialized
@@ -183,9 +192,7 @@ def get_path_obs(
 
     path_coords = _get_path_coords(env, num_points_forward)  # (B, num_points_forward, 2)
 
-    robot_coords_expanded = torch.zeros_like(path_coords) + local_robot_coords.unsqueeze(
-        1
-    )  # (B, num_points_forward, 2)
+    robot_coords_expanded = torch.zeros_like(path_coords) + local_robot_coords.unsqueeze(1)  # (B, num_points_forward, 2)
 
     path_distances = torch.norm(path_coords - robot_coords_expanded, dim=-1)  # (B, num_points_forward)
 
@@ -202,14 +209,15 @@ def get_path_obs(
         path_distances = torch.clamp(path_distances / max_horizon_dist, 0.0, 1.0)
         headings = (headings + math.pi) / (2 * math.pi)  # normalize yaw to [0, 1]
 
-    return torch.cat([path_distances, headings], dim=1) # (B, num_points_forward * 2)
+    return torch.cat([path_distances, headings], dim=1)  # (B, num_points_forward * 2)
 
 
 def get_previous_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:
     env: MyEnv = env.unwrapped
     if not hasattr(env, "_action_buffer"):
         return torch.zeros((env.num_envs, 5 * 3), device=env.device)
-    return env._action_buffer.reshape(env.num_envs, -1)     
+    return env._action_buffer.reshape(env.num_envs, -1)
+
 
 def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
     env: MyEnv = env.unwrapped
@@ -217,14 +225,15 @@ def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
         return torch.zeros((env.num_envs, 10 * 3), device=env.device)
     return env._velocity_buffer.reshape(env.num_envs, -1)
 
+
 def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
     # same logic as in the nominal action computation
     if isinstance(env, RslRlVecEnvWrapper):
         env: MyEnv = env.unwrapped
 
-    if not hasattr(env, "_path_tensors") :
+    if not hasattr(env, "_path_tensors"):
         return torch.zeros((env.num_envs, 3), device=env.device)
-    
+
     robot = env.scene["unitree_go2"]
     robot_pos_local = robot.data.root_com_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     goal_pos_local = torch.zeros((env.num_envs, 2), device=env.device)
@@ -234,12 +243,12 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
             goal_pos_local[i] = torch.zeros(2, device=env.device)
             continue
         closest = torch.argmin(torch.norm(path - robot_pos_local[i], dim=-1))
-        forward_point = path[closest: closest + 4][-1] # last point in my horizon
+        forward_point = path[closest : closest + 4][-1]  # last point in my horizon
         goal_pos_local[i] = forward_point
 
-    goal_pos_w = goal_pos_local + env.scene.env_origins[:, :2]  # (B, 2) 
+    goal_pos_w = goal_pos_local + env.scene.env_origins[:, :2]  # (B, 2)
     padded_goal = torch.cat([goal_pos_w, torch.zeros((env.num_envs, 1), device=env.device)], dim=-1)  # (B, 3)
-    
+
     # Now goal positions are in robot frame
     goal_pos_r, _ = subtract_frame_transforms(
         robot.data.root_com_pos_w,
@@ -250,4 +259,4 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
     goal_rot = torch.atan2(goal_pos_r[:, 1], goal_pos_r[:, 0])  # angle to goal in robot frame
     goal_displacement_vector = torch.cat([goal_pos_r[:, :2], goal_rot.unsqueeze(-1)], dim=-1)  # (B, 3)
 
-    return torch.clamp(goal_displacement_vector, -1.0, 1.0)  
+    return torch.clamp(goal_displacement_vector, -1.0, 1.0)

@@ -1,22 +1,25 @@
 from pathlib import Path
+
 import timm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from cfg.CFG import VINT_MODEL_WEIGHTS
-from loguru import logger   
-from vint_train.models.vint.vint import ViNT
-from efficientnet_pytorch import EfficientNet
 import yaml
+from efficientnet_pytorch import EfficientNet
+from loguru import logger
+from vint_train.models.vint.vint import ViNT
+
+from cfg.CFG import VINT_MODEL_WEIGHTS
+
 
 class ViTEncoder(nn.Module):
     def __init__(self):
         super().__init__()
         self.vit = timm.create_model(
-            'efficientvit_m3.r224_in1k',
+            "efficientvit_m3.r224_in1k",
             pretrained=True,
             num_classes=0,  # remove classifier nn.Linear
-            cache_dir=Path('~/.cache/torch/hub/timm').expanduser()
+            cache_dir=Path("~/.cache/torch/hub/timm").expanduser(),
         ).eval()
         data_config = timm.data.resolve_model_data_config(self.vit)
         self.transforms = timm.data.create_transform(**data_config, is_training=False)
@@ -27,11 +30,12 @@ class ViTEncoder(nn.Module):
         # NOTE: model output is not normalized, consider adding normalization
         return self.vit(self.transforms(x))
 
+
 class ViNTVisionEncoder(nn.Module):
     def __init__(self):
         super().__init__()
         vint_full_model: nn.Module = ViNT(mha_num_attention_heads=4, mha_num_attention_layers=4)
-        checkpoint = torch.load(VINT_MODEL_WEIGHTS, weights_only=False)['model']
+        checkpoint = torch.load(VINT_MODEL_WEIGHTS, weights_only=False)["model"]
         vint_full_model.load_state_dict(checkpoint.state_dict())
 
         self.encoder: EfficientNet = vint_full_model.obs_encoder.eval()
@@ -49,6 +53,7 @@ class ViNTVisionEncoder(nn.Module):
         obs_encoding = self.encoder_head(obs_encoding)
         # currently the size is [batch_size, self.obs_encoding_size = 512]
         return obs_encoding
+
 
 if __name__ == "__main__":
     encoder = ViNTVisionEncoder()

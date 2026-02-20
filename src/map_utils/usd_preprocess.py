@@ -1,16 +1,22 @@
-import os
 import argparse
+import os
+
+from isaaclab.app import AppLauncher
 
 # -------------------------------------------------
 # Launch Isaac Sim headless
 # -------------------------------------------------
 
-from isaaclab.app import AppLauncher
 
-simulation_app = AppLauncher({"headless": True,}).app
+simulation_app = AppLauncher(
+    {
+        "headless": True,
+    }
+).app
 
-from pxr import Usd, UsdPhysics, Sdf, UsdGeom
 import re
+
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
 
 def is_under_looks(prim: Usd.Prim) -> bool:
@@ -95,7 +101,7 @@ def apply_mesh_merge_collision_to_door_groups(
         # Optional: ensure collision API is present on the group container.
         UsdPhysics.CollisionAPI.Apply(child)
 
-        mc = UsdPhysics.MeshCollisionAPI.Apply(child)  
+        mc = UsdPhysics.MeshCollisionAPI.Apply(child)
         mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexDecomposition)
 
         modified += 1
@@ -126,7 +132,6 @@ def preprocess_usd(
     disabled_rb = 0
     deactivated_invisible = 0
 
-
     for prim in Usd.PrimRange(root):
         if not prim.IsValid() or is_under_looks(prim):
             continue
@@ -139,9 +144,8 @@ def preprocess_usd(
             if is_invisible(prim):
                 prim.SetActive(False)
                 deactivated_invisible += 1
-    
-    
-    door_re = re.compile(r"\/Meshes\/door_\d+$") # root Xform for mesh groups of door prims 
+
+    door_re = re.compile(r"\/Meshes\/door_\d+$")  # root Xform for mesh groups of door prims
     is_door_mesh = lambda p: door_re.search(p.GetPath().pathString) is not None
     for prim in Usd.PrimRange(root):
         if is_door_mesh(prim):

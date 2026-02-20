@@ -38,7 +38,3 @@ pip install torch-scatter -f https://data.pyg.org/whl/torch-2.7.0+cu128.html
 git clone https://github.com/robodhruv/visualnav-transformer.git
 cd visualnav-transformer/train
 pip install -e .
-
-
-
-

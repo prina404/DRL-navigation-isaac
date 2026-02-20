@@ -2,6 +2,7 @@ import time
 
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
+import torch
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import ActionTermCfg
@@ -12,22 +13,24 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.managers.manager_term_cfg import EventTermCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, MultiMeshRayCasterCfg, RayCasterCfg, patterns
+from isaaclab.sensors import (
+    ContactSensorCfg,
+    MultiMeshRayCasterCfg,
+    RayCasterCfg,
+    patterns,
+)
 from isaaclab.sensors.camera import TiledCameraCfg
-from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.sim.schemas import CollisionPropertiesCfg
+from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.utils import configclass
 from loguru import logger
 
 import lab.helpers.action_helpers as actions
+import lab.helpers.event_helpers as events
 import lab.helpers.observation_helpers as observations
 import lab.helpers.reward_helpers as rewards
-import lab.helpers.event_helpers as events
-
 from cfg.CFG import SCENE_USD_PATH
-
 from go2.go2_articulation_cfg import UNITREE_GO2_CFG
-import torch
 
 
 @configclass
@@ -60,8 +63,8 @@ class Go2SimCfg(InteractiveSceneCfg):
     #     width=128,
     #     height=128,
     #     offset=TiledCameraCfg.OffsetCfg(
-    #         pos=(0.4, 0.0, 0.0),  
-    #         convention="world",  
+    #         pos=(0.4, 0.0, 0.0),
+    #         convention="world",
     #     ),
     #     data_types=["rgb"],
     #     spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
@@ -89,7 +92,7 @@ class Go2SimCfg(InteractiveSceneCfg):
             ),
             MultiMeshRayCasterCfg.RaycastTargetCfg(
                 prim_expr="{ENV_REGEX_NS}/environment/Meshes/static_objects",
-                is_shared=True, 
+                is_shared=True,
                 track_mesh_transforms=False,
             ),
         ],
@@ -135,7 +138,7 @@ class ObservationsCfg:
                 "normalize": True,
             },
         )
-    
+
     @configclass
     class GoalGroup(ObsGroup):
         goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position)
@@ -143,7 +146,7 @@ class ObservationsCfg:
     action_buffer = ActionGroup()
     velocity_buffer = VelocityGroup()
     goal_relative_pos = GoalGroup()
-    #vision = VisionGroup()
+    # vision = VisionGroup()
     lidar = LidarGroup()
     # global_plan = GlobalPlanGroup()
 
@@ -237,12 +240,7 @@ class EventsCfg:
         mode="reset",
     )
 
-    replan = EventTermCfg(
-        func=events.replan_global_plan,
-        mode="interval",
-        interval_range_s=(2.0, 2.0)
-    )
-
+    replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
 
 
 @configclass
@@ -269,7 +267,7 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
             dlss_mode="3",  # defaults to 1 in performance mode
         )
         self.episode_length_s = 15.0
-        
+
         self.decimation = 16
         self.sim.render_interval = self.decimation
 

@@ -2,18 +2,15 @@ import argparse
 import os
 import sys
 import traceback
-from isaaclab.app import AppLauncher
+
 import yaml
+from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="")
 AppLauncher.add_app_launcher_args(parser)
 args, hydra_argv = parser.parse_known_args()
 args.headless = True
-args.kit_args = (
-    (args.kit_args or "")
-    + " --enable isaacsim.asset.gen.omap"
-    + " --headless"
-)
+args.kit_args = (args.kit_args or "") + " --enable isaacsim.asset.gen.omap" + " --headless"
 
 simulation_app = AppLauncher(args).app
 sys.argv = [sys.argv[0]] + hydra_argv
@@ -22,18 +19,17 @@ import time
 from pathlib import Path
 
 import numpy as np
-from loguru import logger
+import omni
+import omni.usd
 import scipy.ndimage as sp
 import torch
-
-import omni
-from isaacsim.asset.gen.omap.bindings import _omap
 from carb import Float2, Float3
-from pxr import Usd, UsdGeom
-import omni.usd
+from isaacsim.asset.gen.omap.bindings import _omap
 from isaacsim.core.api import World
-from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.prims import XFormPrim
+from isaacsim.core.utils.stage import add_reference_to_stage
+from loguru import logger
+from pxr import Usd, UsdGeom
 
 # try:
 
@@ -52,7 +48,11 @@ def compute_scene_bbox(
 
     bbox = UsdGeom.BBoxCache(
         Usd.TimeCode.Default(),
-        includedPurposes=[UsdGeom.Tokens.default_, UsdGeom.Tokens.proxy, UsdGeom.Tokens.render],
+        includedPurposes=[
+            UsdGeom.Tokens.default_,
+            UsdGeom.Tokens.proxy,
+            UsdGeom.Tokens.render,
+        ],
         useExtentsHint=False,
     )
 
@@ -64,7 +64,7 @@ def compute_scene_bbox(
             continue
 
         img = UsdGeom.Imageable(prim)
-        try:    # skip invisible meshes
+        try:  # skip invisible meshes
             if img.ComputeVisibility(Usd.TimeCode.Default()) == UsdGeom.Tokens.invisible:
                 continue
         except Exception:
@@ -92,7 +92,10 @@ def compute_scene_bbox(
 def _get_omap_generator(
     env_bb: tuple[Float2, Float2],
     center_coord: Float2 = Float2(0, 0),
-    scan_height_range: tuple = (0.1, 0.4),  # Should be set to the height range occupied by the robot
+    scan_height_range: tuple = (
+        0.1,
+        0.4,
+    ),  # Should be set to the height range occupied by the robot
     resolution: float = 0.05,
 ) -> _omap.Generator:
 
@@ -123,7 +126,7 @@ def _get_omap_generator(
 
 
 def create_occupancy_map(scene_prim: Usd.Prim, map_name: str, save_folder: str | Path) -> None:
-    
+
     bbox = compute_scene_bbox(scene_prim, padding_size=0.25)
     gen = _get_omap_generator(bbox, resolution=0.05)
 
@@ -134,14 +137,15 @@ def create_occupancy_map(scene_prim: Usd.Prim, map_name: str, save_folder: str |
     origin = gen.get_min_bound()
     map_yaml = {
         "image": f"{map_name}.png",
-        "resolution": 0.05, 
+        "resolution": 0.05,
         "origin": [origin.x, origin.y, 0.0],
         "negate": 0,
         "occupied_thresh": 0.65,
         "free_thresh": 0.196,
     }
-    #plot binary map
+    # plot binary map
     from PIL import Image
+
     img = Image.fromarray(np.array(buf, dtype=np.uint8).reshape(dims[1], dims[0]))
     img.save(Path(save_folder) / f"{map_name}.png")
     logger.info(f"Saved occupancy map image to {Path(save_folder) / f'{map_name}.png'}")
@@ -159,7 +163,7 @@ def main():
     usd_path = os.path.abspath(args.usd)
 
     my_world = World(stage_units_in_meters=1.0)
-    my_world.scene.add_default_ground_plane() 
+    my_world.scene.add_default_ground_plane()
 
     add_reference_to_stage(usd_path=usd_path, prim_path="/World/environment")
 
@@ -178,7 +182,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
     finally:
         simulation_app.close()

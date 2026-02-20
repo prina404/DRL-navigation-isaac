@@ -1,0 +1,17 @@
+kujiale_0003:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0004"
+    - "door_0006"
+    - "door_0007"
+    - "door_0008"
+    - "door_0009"
+    - "door_0011"
+  disabled_doors:
+    - "door_0002"
+    - "door_0003"
+    - "door_0005"
+    - "door_0012"
+  entrance:
+    - "door_0010"

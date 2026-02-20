@@ -1,12 +1,13 @@
-from loguru import logger
 import isaaclab.sim as sim_utils
+import omni
 from isaaclab.actuators import DCMotorCfg
 from isaaclab.assets.articulation import ArticulationCfg
-from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 from isaaclab.sim.schemas import CollisionPropertiesCfg, modify_collision_properties
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+from loguru import logger
+
 from cfg.CFG import ASSET_DIR
-import omni
 
 no_collision = CollisionPropertiesCfg(collision_enabled=False)
 
@@ -25,9 +26,11 @@ UNITREE_GO2_CFG = ArticulationCfg(
             max_depenetration_velocity=1.0,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False, solver_position_iteration_count=4, solver_velocity_iteration_count=0
+            enabled_self_collisions=False,
+            solver_position_iteration_count=4,
+            solver_velocity_iteration_count=0,
         ),
-        #collision_props = CollisionPropertiesCfg(collision_enabled=False)
+        # collision_props = CollisionPropertiesCfg(collision_enabled=False)
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.6),

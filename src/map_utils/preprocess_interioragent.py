@@ -1,19 +1,23 @@
 from isaaclab.app import AppLauncher
 
-simulation_app = AppLauncher({
-    "headless": True,
-}).app
+simulation_app = AppLauncher(
+    {
+        "headless": True,
+    }
+).app
 
-from pxr import Usd, UsdPhysics, Sdf, UsdGeom, PhysxSchema, Gf
-from omni.usd.commands import MovePrimCommand, MovePrimsCommand
-import omni.usd
-import re
-from cfg.CFG import INTERIOR_AGENT_DIR, CFG_DIR
-from loguru import logger
-import os
-import yaml
 import argparse
+import os
+import re
+
 import isaaclab.sim as sim_utils
+import omni.usd
+import yaml
+from loguru import logger
+from omni.usd.commands import MovePrimCommand, MovePrimsCommand
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
+
+from cfg.CFG import CFG_DIR, INTERIOR_AGENT_DIR
 
 parser = argparse.ArgumentParser(description="Preprocess USD for InteriorAgent.")
 parser.add_argument(
@@ -23,7 +27,10 @@ parser.add_argument(
     help="Path to the USD file to preprocess. If not provided, will preprocess all USDs in the INTERIOR_AGENT_DIR.",
 )
 parser.add_argument(
-    "--all", action="store_true", default=False, help="Preprocess all USD files in the INTERIOR_AGENT_DIR."
+    "--all",
+    action="store_true",
+    default=False,
+    help="Preprocess all USD files in the INTERIOR_AGENT_DIR.",
 )
 
 
@@ -85,9 +92,7 @@ def set_hinge_joint_state(joint_prim: Usd.Prim, angle_deg: float):
 
 def create_hinge_constraint(hinge_xform: Usd.Prim, frame_prim: Usd.Prim, body_prim: Usd.Prim) -> Usd.Prim:
     # TODO: joint position has to be inherited from hinge_xform
-    joint_prim = hinge_xform.GetStage().DefinePrim(
-        hinge_xform.GetPath().AppendChild("hinge_constraint"), "PhysicsRevoluteJoint"
-    )
+    joint_prim = hinge_xform.GetStage().DefinePrim(hinge_xform.GetPath().AppendChild("hinge_constraint"), "PhysicsRevoluteJoint")
 
     constraint_api = UsdPhysics.RevoluteJoint(joint_prim)
 
@@ -152,9 +157,7 @@ def load_door_cfg(env_name: str = None) -> dict:
     cfg = cfg_dict[env_name]
     assert "entrance" in cfg, "Door config must specify entrance group index."
     if "normal_doors" not in cfg:
-        logger.warning(
-            "No normal door configuration found in interioragent_doors.yaml, no dynamic door will be set up."
-        )
+        logger.warning("No normal door configuration found in interioragent_doors.yaml, no dynamic door will be set up.")
         cfg["normal_doors"] = []
     if "disabled_doors" not in cfg:
         logger.warning("No disabled door configuration found in interioragent_doors.yaml, no doors will be disabled.")
@@ -241,8 +244,7 @@ def set_door_physics(root: Usd.Prim, door_cfg: dict) -> list[Usd.Prim]:
 
         else:
             logger.warning(
-                f"Found door {door_name} in USD but it is not specified in the config. It will be left as static by"
-                " default."
+                f"Found door {door_name} in USD but it is not specified in the config. It will be left as static by" " default."
             )
 
     return dynamic_doors

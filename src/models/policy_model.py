@@ -1,13 +1,12 @@
-from typing import Any
+from typing import Any, Literal
+
 import torch
 import torch.nn as nn
+from loguru import logger
+from rsl_rl.modules.actor_critic import ActorCritic
+from rsl_rl.networks import MLP, EmpiricalNormalization
 from tensordict import TensorDict
 from torch.distributions import Normal
-from loguru import logger
-
-from rsl_rl.networks import MLP, EmpiricalNormalization
-from rsl_rl.modules.actor_critic import ActorCritic
-from typing import Literal
 
 
 class ActorCriticWithEncoders(ActorCritic):
@@ -45,10 +44,22 @@ class ActorCriticWithEncoders(ActorCritic):
         # Actor
         self.state_dependent_std = state_dependent_std
         if self.state_dependent_std:
-            self.actor = MLP(actor_input_dim, [2, num_actions], actor_hidden_dims, activation, last_activation="tanh")
+            self.actor = MLP(
+                actor_input_dim,
+                [2, num_actions],
+                actor_hidden_dims,
+                activation,
+                last_activation="tanh",
+            )
         else:
-            self.actor = MLP(actor_input_dim, num_actions, actor_hidden_dims, activation, last_activation="tanh")
-        
+            self.actor = MLP(
+                actor_input_dim,
+                num_actions,
+                actor_hidden_dims,
+                activation,
+                last_activation="tanh",
+            )
+
         # Critic
         self.critic = MLP(critic_input_dim, 1, critic_hidden_dims, activation)
 
@@ -65,7 +76,8 @@ class ActorCriticWithEncoders(ActorCritic):
                 torch.nn.init.constant_(self.actor[-2].bias[num_actions:], init_noise_std)
             elif self.noise_std_type == "log":
                 torch.nn.init.constant_(
-                    self.actor[-2].bias[num_actions:], torch.log(torch.tensor(init_noise_std + 1e-7))
+                    self.actor[-2].bias[num_actions:],
+                    torch.log(torch.tensor(init_noise_std + 1e-7)),
                 )
             else:
                 raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}. Should be 'scalar' or 'log'")
@@ -76,7 +88,7 @@ class ActorCriticWithEncoders(ActorCritic):
                 self.log_std = nn.Parameter(torch.log(init_noise_std * torch.ones(num_actions)))
             else:
                 raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}. Should be 'scalar' or 'log'")
-            
+
         # Action distribution
         # Note: Populated in update_distribution
         self.distribution = None
@@ -85,7 +97,11 @@ class ActorCriticWithEncoders(ActorCritic):
         Normal.set_default_validate_args(False)
 
     def _init_encoder_modules(
-        self, obs: TensorDict, group_name: str, activation: str, encoder_cfg: dict | None
+        self,
+        obs: TensorDict,
+        group_name: str,
+        activation: str,
+        encoder_cfg: dict | None,
     ) -> tuple[nn.ModuleDict, int]:
         encoders = nn.ModuleDict()
         input_dim = 0
@@ -94,13 +110,19 @@ class ActorCriticWithEncoders(ActorCritic):
             obs_size = obs_tensor.shape[-1]
             if encoder_cfg is not None and obs_name in encoder_cfg:  # initialize an encoder for this observation term
                 hidden_dims = encoder_cfg[obs_name]
-                encoders[obs_name] = MLP(obs_size, hidden_dims[-1], hidden_dims[:-1], activation, last_activation='sigmoid')
+                encoders[obs_name] = MLP(
+                    obs_size,
+                    hidden_dims[-1],
+                    hidden_dims[:-1],
+                    activation,
+                    last_activation="sigmoid",
+                )
                 input_dim += hidden_dims[-1]
             else:
                 encoders[obs_name] = nn.Identity()
                 input_dim += obs_size
         return encoders, input_dim
-    
+
     def _get_encoded_obs(self, obs: TensorDict, group_name: Literal["policy", "critic"]) -> torch.Tensor:
         encoder_outputs = []
         encoders = self.actor_encoders if group_name == "policy" else self.critic_encoders
@@ -108,9 +130,9 @@ class ActorCriticWithEncoders(ActorCritic):
             encoder = encoders[obs_name]
             encoder_outputs.append(encoder(obs[obs_name]))
         return torch.cat(encoder_outputs, dim=-1)
-    
+
     def get_actor_obs(self, obs: TensorDict) -> torch.Tensor:
         return self._get_encoded_obs(obs, "policy")
-    
+
     def get_critic_obs(self, obs: TensorDict) -> torch.Tensor:
         return self._get_encoded_obs(obs, "critic")
