@@ -16,6 +16,7 @@ import scipy.ndimage as sp
 from isaaclab.envs.ui import ViewportCameraController
 from isaaclab.envs import ViewerCfg
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 class MyEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
@@ -193,17 +194,23 @@ class MyEnv(ManagerBasedRLEnv):
         robot_pos_w = robot.data.root_com_pos_w[env_ids]
         robot_pos_local = robot_pos_w - self.scene.env_origins[env_ids]  # convert to local coordinates
         robot_pos_map = self._local_to_map(robot_pos_local[:, :2])  # (num_envs, 2)
+
+        paths = []
+        with ThreadPoolExecutor() as executor: # compute paths in parallel, this should yield 5-10x speedup
+            for idx, env_id in enumerate(env_ids):
+                goal_node_id = self.goal_ids[env_id]
+                goal_pos_map = self.nodes[goal_node_id]
+
+                r1, c1 = robot_pos_map[idx].int().cpu().numpy()
+                r2, c2 = goal_pos_map.int().cpu().numpy()
+                paths.append(executor.submit(pyastar2d.astar_path, self._costmap, (r1, c1), (r2, c2), allow_diagonal=True))
+
         for idx, env_id in enumerate(env_ids):
-            goal_node_id = self.goal_ids[env_id]
-            goal_pos_map = self.nodes[goal_node_id]
-
-            r1, c1 = robot_pos_map[idx].int().cpu().numpy()
-            r2, c2 = goal_pos_map.int().cpu().numpy()
-
-            path = pyastar2d.astar_path(self._costmap, (r1, c1), (r2, c2), allow_diagonal=True)
+            path = paths[idx].result()
+            goal_pos_map = self.nodes[self.goal_ids[env_id]]
             if path is None or len(path) <= 1:
-                logger.warning(f"No path found from {r1}, {c1} to {r2}, {c2}!\nReturning empty path tensor")
-                self._path_tensors[env_id] = torch.tensor([[r2, c2]], device=self.device)  # just return the goal as the path
+                logger.warning(f"No path found for robot {env_id}! Returning empty path tensor")
+                self._path_tensors[env_id] = goal_pos_map.unsqueeze(0)  # just return the goal as the path
                 continue
 
             point_dist = 0.3  # meters
@@ -211,13 +218,11 @@ class MyEnv(ManagerBasedRLEnv):
 
             path_tensor = torch.zeros((len(path_subsampled)+1, 2), device=self.device)
             path_tensor[:-1] = torch.tensor(path_subsampled, device=self.device)
-            path_tensor[-1] = torch.tensor([r2, c2], device=self.device)  # ensure goal is included
+            path_tensor[-1] = goal_pos_map  # ensure goal is included
 
             world_path = self._map_to_local(path_tensor)  # (num_path_points, 2)
             self._path_tensors[env_id] = world_path  
-        
-        logger.debug(f"Computed global plans for envs {env_ids.size(0)} in {time.time() - start:.4f} seconds")
-
+            
     
     def update_follow_camera(self):
         robot_pos = self.scene["unitree_go2"].data.root_pos_w[0]
