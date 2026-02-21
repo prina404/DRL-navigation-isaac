@@ -1,11 +1,9 @@
 import re
 
-import yaml
 from loguru import logger
 from pxr import Gf, PhysxSchema, Usd, UsdGeom, UsdPhysics
 
 import preprocessing.interioragent_utils.physics as physics
-from cfg.CFG import CFG_DIR
 
 
 def _local_translation(prim: Usd.Prim) -> Gf.Vec3d:

@@ -1,34 +1,17 @@
-import argparse
 import os
-import sys
-import time
-import traceback
 from pathlib import Path
 
 import numpy as np
 import omni
 import omni.usd
-import scipy.ndimage as sp
-import torch
 import yaml
 from carb import Float2, Float3
 from isaacsim.asset.gen.omap.bindings import _omap
 from isaacsim.core.api import World
-from isaacsim.core.prims import XFormPrim
 from isaacsim.core.utils.stage import add_reference_to_stage
 from loguru import logger
+from PIL import Image
 from pxr import Usd, UsdGeom
-
-# from isaaclab.app import AppLauncher
-
-# parser = argparse.ArgumentParser(description="")
-# AppLauncher.add_app_launcher_args(parser)
-# args, hydra_argv = parser.parse_known_args()
-# args.headless = True
-# args.kit_args = (args.kit_args or "") + " --enable isaacsim.asset.gen.omap" + " --headless"
-
-# simulation_app = AppLauncher(args).app
-# sys.argv = [sys.argv[0]] + hydra_argv
 
 
 def compute_scene_bbox(
@@ -137,9 +120,8 @@ def compute_and_save_map(scene_prim: Usd.Prim, map_name: str, save_folder: str |
         "occupied_thresh": 0.65,
         "free_thresh": 0.196,
     }
-    # plot binary map
-    from PIL import Image
 
+    # plot binary map
     img = Image.fromarray(np.array(buf, dtype=np.uint8).reshape(dims[1], dims[0]))
     img.save(Path(save_folder) / f"{map_name}.png")
     logger.info(f"Saved map image to {Path(save_folder) / f'{map_name}.png'}")
