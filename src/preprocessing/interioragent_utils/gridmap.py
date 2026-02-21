@@ -1,21 +1,8 @@
 import argparse
 import os
 import sys
-import traceback
-
-import yaml
-from isaaclab.app import AppLauncher
-
-parser = argparse.ArgumentParser(description="")
-AppLauncher.add_app_launcher_args(parser)
-args, hydra_argv = parser.parse_known_args()
-args.headless = True
-args.kit_args = (args.kit_args or "") + " --enable isaacsim.asset.gen.omap" + " --headless"
-
-simulation_app = AppLauncher(args).app
-sys.argv = [sys.argv[0]] + hydra_argv
-
 import time
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +10,7 @@ import omni
 import omni.usd
 import scipy.ndimage as sp
 import torch
+import yaml
 from carb import Float2, Float3
 from isaacsim.asset.gen.omap.bindings import _omap
 from isaacsim.core.api import World
@@ -31,14 +19,16 @@ from isaacsim.core.utils.stage import add_reference_to_stage
 from loguru import logger
 from pxr import Usd, UsdGeom
 
-# try:
+# from isaaclab.app import AppLauncher
 
-# except ImportError:
-#     logger.error(
-#         "SimulationApp is not initialized. Ensure an instance of Isaac Sim is launched before importing module"
-#         f" {__file__.split('/')[-1]}."
-#     )
-#     exit(1)
+# parser = argparse.ArgumentParser(description="")
+# AppLauncher.add_app_launcher_args(parser)
+# args, hydra_argv = parser.parse_known_args()
+# args.headless = True
+# args.kit_args = (args.kit_args or "") + " --enable isaacsim.asset.gen.omap" + " --headless"
+
+# simulation_app = AppLauncher(args).app
+# sys.argv = [sys.argv[0]] + hydra_argv
 
 
 def compute_scene_bbox(
@@ -85,7 +75,6 @@ def compute_scene_bbox(
     min_local = Float2(wmin.x - padding_size, wmin.y - padding_size)
     max_local = Float2(wmax.x + padding_size, wmax.y + padding_size)
 
-    logger.info(f"Computed {root_prim.GetPath().pathString} bbox min: {min_local}, max: {max_local}")
     return min_local, max_local
 
 
@@ -125,10 +114,15 @@ def _get_omap_generator(
     return gen
 
 
-def create_occupancy_map(scene_prim: Usd.Prim, map_name: str, save_folder: str | Path) -> None:
-
+def compute_and_save_map(scene_prim: Usd.Prim, map_name: str, save_folder: str | Path, env_cfg: dict) -> None:
     bbox = compute_scene_bbox(scene_prim, padding_size=0.25)
-    gen = _get_omap_generator(bbox, resolution=0.05)
+
+    if "map_origin" in env_cfg:
+        map_origin = Float2(env_cfg["map_origin"]["x"], env_cfg["map_origin"]["y"])
+    else:
+        map_origin = Float2((bbox[0].x + bbox[1].x) / 2, (bbox[0].y + bbox[1].y) / 2)
+
+    gen = _get_omap_generator(bbox, center_coord=map_origin, resolution=0.05)
 
     gen.generate2d()
     dims = tuple(gen.get_dimensions())  # (W, H, C)
@@ -148,19 +142,14 @@ def create_occupancy_map(scene_prim: Usd.Prim, map_name: str, save_folder: str |
 
     img = Image.fromarray(np.array(buf, dtype=np.uint8).reshape(dims[1], dims[0]))
     img.save(Path(save_folder) / f"{map_name}.png")
-    logger.info(f"Saved occupancy map image to {Path(save_folder) / f'{map_name}.png'}")
+    logger.info(f"Saved map image to {Path(save_folder) / f'{map_name}.png'}")
 
     with open(Path(save_folder) / f"{map_name}.yaml", "w") as f:
         yaml.dump(map_yaml, f)
-    logger.info(f"Saved occupancy map YAML to {Path(save_folder) / f'{map_name}.yaml'}")
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--usd", help="Path to source USD file")
-    args = parser.parse_args()
-
-    usd_path = os.path.abspath(args.usd)
+def create_map_from_file(filepath: str | Path, env_cfg: dict):
+    usd_path = os.path.abspath(str(filepath))
 
     my_world = World(stage_units_in_meters=1.0)
     my_world.scene.add_default_ground_plane()
@@ -172,17 +161,9 @@ def main():
     for _ in range(100):
         my_world.step(render=False)  # step a few more times to ensure doors reach their final positions
 
-    create_occupancy_map(
+    compute_and_save_map(
         scene_prim=my_world.stage.GetPrimAtPath("/World/environment"),
         map_name=Path(usd_path).stem + "_map",
         save_folder=Path(usd_path).parent,
+        env_cfg=env_cfg,
     )
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        traceback.print_exc()
-    finally:
-        simulation_app.close()

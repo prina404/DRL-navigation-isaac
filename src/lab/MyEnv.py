@@ -14,7 +14,7 @@ from isaaclab.envs.ui import ViewportCameraController
 from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_from_euler_xyz
 from loguru import logger
 
-import map_utils.voronoi as voronoi
+import preprocessing.voronoi as voronoi
 import pyastar2d
 from cfg.CFG import SCENE_USD_PATH
 
