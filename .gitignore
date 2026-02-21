@@ -212,3 +212,4 @@ logs/
 wandb/
 ckpts/
 IsaacLab/
+.vscode/
