@@ -18,7 +18,7 @@ def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
     env.compute_goals_on_reset(env_ids)
 
     # Reset joints to default state after teleporting root poses.
-    robot: Articulation = env.scene["unitree_go2"]
+    robot: Articulation = env.scene["robot"]
     default_pos = robot.data.default_joint_pos[env_ids]
     default_vel = robot.data.default_joint_vel[env_ids]
     robot.set_joint_position_target(default_pos, None, env_ids)

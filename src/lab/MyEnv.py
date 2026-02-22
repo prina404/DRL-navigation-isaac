@@ -17,18 +17,16 @@ from loguru import logger
 import preprocessing.voronoi as voronoi
 import pyastar2d
 from cfg.CFG import SCENE_USD_PATH
+from lab.managers.camera_manager import CameraManager
 
 
 class MyEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self.camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
-        self.old_eye_pos = None
-        self.old_lookat_pos = None
-        # Camera and lookat settings for video recording
-        self.camera_offset = torch.tensor([-1, 0.0, 1.0], device=self.device)
-        self.lookat_offset = torch.tensor([1.8, 0.0, -0.8], device=self.device)
+        self.camera_manager = CameraManager(
+            self, camera_relative_pos=torch.tensor([-1, 0.0, 1.0]), camera_lookat=torch.tensor([1.8, 0.0, -0.8])
+        )
 
         map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
         map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
@@ -71,7 +69,7 @@ class MyEnv(ManagerBasedRLEnv):
         self._action_buffer[:, 0, :] = action.to(self.device)
 
         ## Update linear velocity
-        robot: Articulation = self.scene["unitree_go2"]
+        robot: Articulation = self.scene["robot"]
         self._velocity_buffer = torch.roll(self._velocity_buffer, shifts=1, dims=1)
         # store only x, y linear velocity
         self._velocity_buffer[:, 0, :2] = robot.data.root_com_lin_vel_w[:, :2].to(self.device)
@@ -142,7 +140,7 @@ class MyEnv(ManagerBasedRLEnv):
         ## set cartesian position, quaternion orientation in (w, x, y, z), and linear and angular velocity
         ## reset positions only for specified env indices
 
-        robot: Articulation = self.scene["unitree_go2"]
+        robot: Articulation = self.scene["robot"]
         num_pos = node_ids.shape[0]
 
         positions = self.nodes[node_ids]  # map coordinates of node_ids
@@ -183,11 +181,11 @@ class MyEnv(ManagerBasedRLEnv):
         self.compute_global_plan(env_ids)
 
     def compute_global_plan(self, env_ids: torch.Tensor) -> None:
-        robot: Articulation = self.scene["unitree_go2"]
+        robot: Articulation = self.scene["robot"]
         robot_pos_w = robot.data.root_com_pos_w[env_ids]
         robot_pos_local = robot_pos_w - self.scene.env_origins[env_ids]  # convert to local coordinates
         robot_pos_map = self._local_to_map(robot_pos_local[:, :2])  # (num_envs, 2)
-
+        t0 = time.time()
         paths = []
         with ThreadPoolExecutor() as executor:  # compute paths in parallel, this should yield 5-10x speedup
             for idx, env_id in enumerate(env_ids):
@@ -223,29 +221,14 @@ class MyEnv(ManagerBasedRLEnv):
 
             world_path = self._map_to_local(path_tensor)  # (num_path_points, 2)
             self._path_tensors[env_id] = world_path
+        logger.debug(f"Computed global plans for {len(env_ids)} envs in {time.time() - t0:.4f} seconds")
+
+    def update_lidar_buffer(self, lidar_obs: torch.Tensor) -> None:
+        # store only the last lidar scan
+        pass
 
     def update_follow_camera(self):
-        robot_pos = self.scene["unitree_go2"].data.root_pos_w[0]
-        robot_quat = self.scene["unitree_go2"].data.root_quat_w[0]
+        robot_pos = self.scene["robot"].data.root_pos_w[0]
+        robot_quat = self.scene["robot"].data.root_quat_w[0]
 
-        camera_offset_w = quat_apply(robot_quat, self.camera_offset)
-        lookat_offset_w = quat_apply(robot_quat, self.lookat_offset)
-
-        if self.old_eye_pos is None:
-            self.old_eye_pos = robot_pos + camera_offset_w
-            self.old_lookat_pos = robot_pos + lookat_offset_w
-        else:  # smooth camera movement by interpolating between old and new positions
-            alpha = 0.3  # smoothing factor
-            new_eye_pos = robot_pos + camera_offset_w
-            new_lookat_pos = robot_pos + lookat_offset_w
-
-            smoothed_eye_pos = (1 - alpha) * self.old_eye_pos + alpha * new_eye_pos
-            smoothed_lookat_pos = (1 - alpha) * self.old_lookat_pos + alpha * new_lookat_pos
-
-            self.camera_controller.update_view_location(
-                eye=smoothed_eye_pos.cpu().numpy(),
-                lookat=smoothed_lookat_pos.cpu().numpy(),
-            )
-
-            self.old_eye_pos = smoothed_eye_pos
-            self.old_lookat_pos = smoothed_lookat_pos
+        self.camera_manager.update(robot_pos, robot_quat, smoothing_factor=0.3)

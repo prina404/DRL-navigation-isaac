@@ -48,7 +48,7 @@ class Go2SimCfg(InteractiveSceneCfg):
     )
 
     # Go2 Robot
-    unitree_go2: ArticulationCfg = UNITREE_GO2_CFG.replace(
+    robot: ArticulationCfg = UNITREE_GO2_CFG.replace(
         prim_path="{ENV_REGEX_NS}/Go2",
     )
 
@@ -155,7 +155,7 @@ class ObservationsCfg:
 class ActionsCfg:
     mpc_cmd = ActionTermCfg(
         class_type=actions.Go2MPCPolicyAction,
-        asset_name="unitree_go2",
+        asset_name="robot",
     )
 
 
@@ -229,7 +229,7 @@ class EventsCfg:
         func=mdp.reset_joints_by_scale,
         mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg(name="unitree_go2"),
+            "asset_cfg": SceneEntityCfg(name="robot"),
             "position_range": (0.0, 0.0),
             "velocity_range": (0.0, 0.0),
         },

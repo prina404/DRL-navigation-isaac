@@ -18,7 +18,7 @@ class MyEnvDebuggingVis(MyEnv):
         return retVal
 
     def _visualize_markers(self):
-        robot = self.scene["unitree_go2"]
+        robot = self.scene["robot"]
         self.marker_locations = robot.data.root_pos_w  # (B, 3)
 
         # robot position in local (env) frame for path math

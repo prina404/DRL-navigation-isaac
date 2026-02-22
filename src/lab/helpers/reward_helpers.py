@@ -11,7 +11,7 @@ from lab.MyEnv import MyEnv
 
 
 def dist_to_goal_xy(env: MyEnv) -> torch.Tensor:
-    robot: Articulation = env.scene["unitree_go2"]
+    robot: Articulation = env.scene["robot"]
     pos_w = robot.data.root_com_pos_w
     goal_local = env.goal_pos
     goal_w = goal_local + env.scene.env_origins[:, :2]
@@ -31,7 +31,7 @@ def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> torch.Tensor:
 def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
     # find the closest point on the path and compute distance from that point to goal.
     env: MyEnv = env.unwrapped
-    local_robot_coords = env.scene["unitree_go2"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     res = torch.zeros((env.num_envs), device=env.device)
     for id in range(env.num_envs):
         path_points = env._path_tensors[id]  # (num_path_points, 2)
@@ -46,7 +46,7 @@ def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
 
 
 def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2) -> torch.Tensor:
-    v = mdp.base_lin_vel(env, asset_cfg=SceneEntityCfg(name="unitree_go2"))
+    v = mdp.base_lin_vel(env, asset_cfg=SceneEntityCfg(name="robot"))
     speed_xy = torch.linalg.norm(v[:, 0:2], dim=-1)
     return torch.where(
         speed_xy < speed_thresh,
