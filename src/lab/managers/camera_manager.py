@@ -1,5 +1,4 @@
 import torch
-from isaaclab.envs import ManagerBasedRLEnv, ViewerCfg
 from isaaclab.envs.ui import ViewportCameraController
 from isaaclab.utils.math import quat_apply
 

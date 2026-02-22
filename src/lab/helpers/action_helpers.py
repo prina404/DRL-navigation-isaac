@@ -1,11 +1,7 @@
-import time
-
 import isaaclab.envs.mdp as mdp
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.managers import ActionTerm, SceneEntityCfg
-from isaaclab.utils.math import subtract_frame_transforms
-from loguru import logger
 from rsl_rl.modules import ActorCritic
 
 from lab.helpers.observation_helpers import get_goal_relative_position

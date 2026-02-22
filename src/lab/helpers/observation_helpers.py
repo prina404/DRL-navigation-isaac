@@ -2,7 +2,6 @@ import math
 from typing import Literal
 
 import torch
-import torch.nn as nn
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.sensors import MultiMeshRayCaster
 from isaaclab.utils.math import (
@@ -11,7 +10,6 @@ from isaaclab.utils.math import (
     wrap_to_pi,
 )
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-from loguru import logger
 
 from cfg.CFG import DEVICE
 from lab.MyEnv import MyEnv

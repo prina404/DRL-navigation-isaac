@@ -3,7 +3,7 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from rsl_rl.modules import ActorCritic
 
 from cfg.CFG import CHECKPOINT_DIR
-from go2.go2_mpc_cfg import unitree_go2_flat_cfg, unitree_go2_rough_cfg
+from go2.go2_mpc_cfg import unitree_go2_flat_cfg
 
 
 def get_mpc_policy():

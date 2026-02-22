@@ -3,8 +3,6 @@ import random
 import omni.usd
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
-from isaaclab.envs import ManagerBasedRLEnv
-from loguru import logger
 from pxr import Usd, UsdPhysics
 
 from lab.MyEnv import MyEnv

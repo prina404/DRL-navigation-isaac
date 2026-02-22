@@ -1,6 +1,4 @@
 import argparse
-import contextlib
-import signal
 import sys
 
 from isaaclab.app import AppLauncher

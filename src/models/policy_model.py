@@ -2,7 +2,6 @@ from typing import Any, Literal
 
 import torch
 import torch.nn as nn
-from loguru import logger
 from rsl_rl.modules.actor_critic import ActorCritic
 from rsl_rl.networks import MLP, EmpiricalNormalization
 from tensordict import TensorDict

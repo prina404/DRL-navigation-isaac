@@ -30,8 +30,6 @@ import traceback
 import gymnasium as gym
 import hydra
 import torch
-from isaaclab.envs import ViewerCfg
-from isaaclab.envs.ui import ViewportCameraController
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from loguru import logger
 from omegaconf import DictConfig

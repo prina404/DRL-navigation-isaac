@@ -1,11 +1,7 @@
 import isaaclab.sim as sim_utils
-import omni
 from isaaclab.actuators import DCMotorCfg
 from isaaclab.assets.articulation import ArticulationCfg
-from isaaclab.sim.schemas import CollisionPropertiesCfg, modify_collision_properties
-from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
-from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-from loguru import logger
+from isaaclab.sim.schemas import CollisionPropertiesCfg
 
 from cfg.CFG import ASSET_DIR
 

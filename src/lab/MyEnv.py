@@ -1,21 +1,10 @@
-import random
-import time
-from concurrent.futures import ThreadPoolExecutor
-
-import cv2
-import numpy as np
-import scipy.ndimage as sp
 import torch
-import yaml
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.envs.common import VecEnvStepReturn
 from isaaclab.envs.ui import ViewportCameraController
-from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_from_euler_xyz
-from loguru import logger
+from isaaclab.utils.math import euler_xyz_from_quat
 
-import preprocessing.voronoi as voronoi
-import pyastar2d
 from cfg.CFG import SCENE_USD_PATH
 from lab.managers.camera_manager import CameraManager
 from lab.managers.path_manager import PathManager
@@ -38,6 +27,11 @@ class MyEnv(ManagerBasedRLEnv):
         # Store past 10 robot linear + angular velocity (x,y,theta)
         self._velocity_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)
         self._old_yaw = torch.zeros((self.num_envs), dtype=torch.float32, device=self.device)
+
+        self._lidar_buffer = None
+
+        # TODO: create costmap manager that is called here to update the costmap with local lidar data,
+        # and it is shared with the path manager for replanning
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         retVal = super().step(action)
@@ -85,7 +79,7 @@ class MyEnv(ManagerBasedRLEnv):
 
     def update_lidar_buffer(self, lidar_obs: torch.Tensor) -> None:
         # store only the last lidar scan
-        pass
+        self._lidar_buffer = lidar_obs.clone()
 
     def update_follow_camera(self):
         robot_pos = self.scene["robot"].data.root_pos_w[0]

@@ -1,10 +1,7 @@
 import isaaclab.envs.mdp as mdp
 import torch
 from isaaclab.assets.articulation import Articulation
-from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import quat_apply
-from loguru import logger
 
 from lab.helpers.observation_helpers import get_lidar, get_path_obs
 from lab.MyEnv import MyEnv

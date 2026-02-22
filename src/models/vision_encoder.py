@@ -3,8 +3,6 @@ from pathlib import Path
 import timm
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import yaml
 from efficientnet_pytorch import EfficientNet
 from loguru import logger
 from vint_train.models.vint.vint import ViNT
