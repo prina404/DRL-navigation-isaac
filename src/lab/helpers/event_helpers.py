@@ -12,9 +12,7 @@ from lab.MyEnv import MyEnv
 
 def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
     # on reset, sample new start positions,
-    n_samples = env_ids.shape[0]
-    sampled_node_id = env.sample_node_ids(n_samples)  # (num_envs_to_reset, 1)
-    env.teleport_robots(env_ids, sampled_node_id)
+    env.teleport_robots(env_ids)
     env.compute_goals_on_reset(env_ids)
 
     # Reset joints to default state after teleporting root poses.
@@ -26,7 +24,7 @@ def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
 
 
 def replan_global_plan(env: MyEnv, env_ids: torch.Tensor) -> None:
-    env.compute_global_plan(env_ids)
+    env.manual_replan(env_ids)
 
 
 def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:

@@ -152,8 +152,9 @@ def plot_voronoi(
             )
         else:
             ax.scatter(coordinates[node][1], coordinates[node][0])
-    print("Plotting voronoi graph in: ", filepath + name + ".png")
-    plt.savefig(filepath + name + ".png")
+    file_dir = Path(filepath).parent
+    print("Plotting voronoi graph in: ", file_dir / (name + ".png"))
+    plt.savefig(file_dir / (name + ".png"))
 
 
 def evaluate_distance(node1, node2):

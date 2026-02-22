@@ -27,10 +27,10 @@ class MyEnvDebuggingVis(MyEnv):
         # reward heading: 3rd point forward along path (closer to goal than robot)
         reward_yaw = torch.zeros((self.num_envs,), device=self.device)
         for i in range(self.num_envs):
-            path_points = self._path_tensors[i]
+            path_points = self.path_manager.path_tensors[i]
 
             if path_points is None or path_points.numel() == 0:
-                target = self.goal_pos[i]
+                target = self.path_manager.goal_pos_local[i]
             else:
                 # Find closest point on trajectory
                 distances = torch.norm(path_points - robot_pos_local[i], dim=-1)
@@ -59,25 +59,25 @@ class MyEnvDebuggingVis(MyEnv):
         loc = torch.vstack((loc, loc + torch.tensor([0.0, 0.0, 0.15], device=self.device)))  # (2B, 3)
         rots = torch.vstack((self.reward_marker_orientations, self.command_marker_orientations))  # (2B, 4)
 
-        all_envs = torch.arange(self.cfg.scene.num_envs, device=self.device)
+        all_envs = torch.arange(self.num_envs, device=self.device)
         indices = torch.hstack((torch.zeros_like(all_envs), torch.ones_like(all_envs)))  # (2B,)
         # goal marker
         goal_locs = torch.cat(
             (
-                self.goal_pos + self.scene.env_origins[:, :2],
-                torch.zeros((self.cfg.scene.num_envs, 1), device=self.device),
+                self.path_manager.goal_pos_local + self.scene.env_origins[:, :2],
+                torch.zeros((self.num_envs, 1), device=self.device),
             ),
             dim=-1,
         )
-        goal_rots = torch.zeros((self.cfg.scene.num_envs, 4), device=self.device)
+        goal_rots = torch.zeros((self.num_envs, 4), device=self.device)
         goal_rots[:, 0] = 1.0  # identity quaternion
-        goal_indices = torch.full((self.cfg.scene.num_envs,), 3, device=self.device, dtype=torch.int64)
+        goal_indices = torch.full((self.num_envs,), 3, device=self.device, dtype=torch.int64)
 
         # --- path points (one every 30cm) ---
         step = 0.3
         path_loc_list = []
         for i in range(self.num_envs):
-            path_points = self._path_tensors[i]
+            path_points = self.path_manager.path_tensors[i]
             if path_points is None or path_points.numel() == 0:
                 continue
 
@@ -135,8 +135,8 @@ class MyEnvDebuggingVis(MyEnv):
         )
         # setting aside useful variables for later
         self.up_dir = torch.tensor([0.0, 0.0, 1.0]).cuda()
-        self.yaws = torch.zeros((self.cfg.scene.num_envs, 1)).cuda()
-        self.commands = torch.randn((self.cfg.scene.num_envs, 3)).cuda()
+        self.yaws = torch.zeros((self.num_envs, 1)).cuda()
+        self.commands = torch.randn((self.num_envs, 3)).cuda()
         self.commands[:, -1] = 0.0
         self.commands = self.commands / torch.linalg.norm(self.commands, dim=1, keepdim=True)
 
@@ -149,9 +149,9 @@ class MyEnvDebuggingVis(MyEnv):
         offsets = torch.pi * plus - torch.pi * minus
         self.yaws = torch.atan(ratio).reshape(-1, 1) + offsets.reshape(-1, 1)
 
-        self.marker_locations = torch.zeros((self.cfg.scene.num_envs, 3)).cuda()
-        self.marker_offset = torch.zeros((self.cfg.scene.num_envs, 3)).cuda()
+        self.marker_locations = torch.zeros((self.num_envs, 3)).cuda()
+        self.marker_offset = torch.zeros((self.num_envs, 3)).cuda()
         self.marker_offset[:, -1] = 0.5
-        self.reward_marker_orientations = torch.zeros((self.cfg.scene.num_envs, 4)).cuda()
-        self.command_marker_orientations = torch.zeros((self.cfg.scene.num_envs, 4)).cuda()
+        self.reward_marker_orientations = torch.zeros((self.num_envs, 4)).cuda()
+        self.command_marker_orientations = torch.zeros((self.num_envs, 4)).cuda()
         return VisualizationMarkers(heading_marker)

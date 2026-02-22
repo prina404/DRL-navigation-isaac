@@ -13,7 +13,7 @@ from lab.MyEnv import MyEnv
 def dist_to_goal_xy(env: MyEnv) -> torch.Tensor:
     robot: Articulation = env.scene["robot"]
     pos_w = robot.data.root_com_pos_w
-    goal_local = env.goal_pos
+    goal_local = env.path_manager.goal_pos_local
     goal_w = goal_local + env.scene.env_origins[:, :2]
     delta_xy = goal_w[:, 0:2] - pos_w[:, 0:2]
     return torch.linalg.norm(delta_xy, dim=-1)
@@ -34,7 +34,7 @@ def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
     local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     res = torch.zeros((env.num_envs), device=env.device)
     for id in range(env.num_envs):
-        path_points = env._path_tensors[id]  # (num_path_points, 2)
+        path_points = env.path_manager.path_tensors[id]  # (num_path_points, 2)
         closest_idx = torch.argmin(torch.norm(path_points - local_robot_coords[id], dim=-1))
         closest_point_dist = torch.norm(path_points[closest_idx] - local_robot_coords[id])
         remaining_points = path_points.size(dim=0) - closest_idx

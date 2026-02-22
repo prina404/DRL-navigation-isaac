@@ -5,13 +5,13 @@ from isaaclab.utils.math import quat_apply
 
 
 class CameraManager:
-    def __init__(self, env: ManagerBasedRLEnv, camera_relative_pos: torch.Tensor, camera_lookat: torch.Tensor):
-        self.camera = ViewportCameraController(env, cfg=ViewerCfg(origin_type="world"))
+    def __init__(self, controller: ViewportCameraController, camera_relative_pos: torch.Tensor, camera_lookat: torch.Tensor):
+        self.camera = controller
         self.old_eye_pos = None
         self.old_lookat_pos = None
         # Camera and lookat settings for video recording
-        self.camera_offset = camera_relative_pos.to(env.device)
-        self.lookat_offset = camera_lookat.to(env.device)
+        self.camera_offset = camera_relative_pos.to(controller._env.device)
+        self.lookat_offset = camera_lookat.to(controller._env.device)
 
     def update(self, robot_pos_w: torch.Tensor, robot_rot_w: torch.Tensor, smoothing_factor: float = 0.3):
         camera_offset_w = quat_apply(robot_rot_w, self.camera_offset)
