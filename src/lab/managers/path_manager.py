@@ -50,7 +50,7 @@ class PathManager:
         self.goal_pos_local = torch.zeros((num_envs, 2), dtype=torch.float32, device=device)
         self.path_tensors: list[torch.Tensor | None] = [None] * num_envs  # each: (K,2) in local (x,y)
 
-        self._executor = ThreadPoolExecutor()
+        self._executor = ThreadPoolExecutor(max_workers=16)
 
     def _create_inflated_costmap(self, inflation_scale: int) -> torch.Tensor:
         binary_img = self.map_img == 0  # occupied=True
