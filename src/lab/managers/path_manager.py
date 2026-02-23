@@ -2,15 +2,12 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import cv2
-import numpy as np
-import scipy.ndimage as sp
 import torch
-import yaml
 from isaaclab.utils.math import quat_from_euler_xyz
 from loguru import logger
 
 import pyastar2d
+from lab.managers.map_manager import MapManager
 from preprocessing import voronoi
 
 
@@ -18,31 +15,23 @@ class PathManager:
     def __init__(
         self,
         scene_path: str | Path,
+        map_mgr: MapManager,
         num_envs: int,
         device: torch.device,
     ):
         self.device = device
         self.scene_usd_path = Path(scene_path)
 
-        map_png = str(self.scene_usd_path.parent / self.scene_usd_path.stem) + "_map.png"
-        map_yaml = str(self.scene_usd_path.parent / self.scene_usd_path.stem) + "_map.yaml"
-
-        with open(map_yaml, "r") as f:
-            self.img_meta = yaml.safe_load(f)
+        self.map_manager = map_mgr
 
         self.graph, coords = voronoi.compute_voronoi_graph(
-            map_path=map_png,
+            map_path=map_mgr.map_img_path,
             blur_radius=15,
             min_node_distance=15,
             plot_graph=True,
             filepath=str(self.scene_usd_path),
         )
 
-        self.map_img = cv2.imread(map_png, cv2.IMREAD_GRAYSCALE)
-        if self.map_img is None:
-            raise FileNotFoundError(f"Failed to read map image: {map_png}")
-
-        self.costmap = self._create_inflated_costmap(inflation_scale=2)
         self.nodes = torch.Tensor([coords[idx] for idx in self.graph.nodes]).to(device)
 
         self.start_node_idx = torch.zeros((num_envs,), dtype=torch.int64, device=device)
@@ -52,42 +41,11 @@ class PathManager:
 
         self._executor = ThreadPoolExecutor(max_workers=16)
 
-    def _create_inflated_costmap(self, inflation_scale: int) -> torch.Tensor:
-        binary_img = self.map_img == 0  # occupied=True
-        dist_transform = sp.distance_transform_edt(~binary_img)
-        costmap = np.clip(np.max(dist_transform) - (dist_transform * inflation_scale), 0, 255).astype(np.float32)
-        max_value = costmap.max()
-        costmap[costmap >= max_value] = float("inf")
-        return costmap + 1.0  # min_cost = 1.0 for A*
-
     def map_to_local_coords(self, map_coords: torch.Tensor) -> torch.Tensor:
-        map_coords = map_coords.clone()
-        _, W = self.map_img.shape
-        map_coords[:, 1] = W - map_coords[:, 1]  # flip x axis
-        map_xy = map_coords[:, [1, 0]]  # swap from (row,col) to (x, y)
-
-        x, y = self.img_meta["origin"][:2]
-
-        origin = torch.tensor([x, y], device=self.device)
-
-        scaled = map_xy * self.img_meta["resolution"]  # (N, 2)
-        return scaled + origin  # (N, 2)
+        return self.map_manager.map_to_local_coords(map_coords)
 
     def local_to_map_coords(self, local_coords: torch.Tensor) -> torch.Tensor:
-        if local_coords.size(1) > 2:
-            local_coords = local_coords[:, :2]  # only consider x, y
-
-        local_xy = local_coords.clone()
-
-        x, y = self.img_meta["origin"][:2]
-        origin = torch.tensor([x, y], device=self.device)
-
-        scaled = (local_xy - origin) / self.img_meta["resolution"]
-
-        _, W = self.map_img.shape
-        scaled[:, 0] = W - scaled[:, 0]  # flip x axis
-        map_coords = scaled[:, [1, 0]]  # swap to (row, col)
-        return map_coords
+        return self.map_manager.local_to_map_coords(local_coords)
 
     def sample_node_ids(self, num_samples: int) -> torch.Tensor:
         return torch.randint(0, self.nodes.shape[0], (num_samples,), device=self.device)
@@ -119,6 +77,8 @@ class PathManager:
         robot_pos_local = robot_pos_w - env_origins
         robot_map_coords = self.local_to_map_coords(robot_pos_local)
 
+        costmap_cpu = self.map_manager.global_costmap[env_ids].squeeze(1).cpu().numpy()  # (num_envs, H, W)
+
         paths = []
         for idx, env_id in enumerate(env_ids):
             goal_node_id = self.goal_node_idx[env_id]
@@ -129,7 +89,7 @@ class PathManager:
             paths.append(
                 self._executor.submit(
                     pyastar2d.astar_path,
-                    self.costmap,
+                    costmap_cpu[idx],
                     (r1, c1),
                     (r2, c2),
                     allow_diagonal=True,
@@ -145,7 +105,7 @@ class PathManager:
                 continue
 
             point_dist = 0.3  # meters
-            path_subsampled = path[:: int(point_dist / self.img_meta["resolution"])]
+            path_subsampled = path[:: int(point_dist / self.map_manager.resolution)]
 
             path_tensor = torch.zeros((len(path_subsampled) + 1, 2), device=self.device)
             path_tensor[:-1] = torch.tensor(path_subsampled, device=self.device)

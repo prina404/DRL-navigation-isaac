@@ -21,6 +21,10 @@ def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
     robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
 
 
+def clear_costmaps_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
+    env._map_manager.reset_costmaps(env_ids)
+
+
 def replan_global_plan(env: MyEnv, env_ids: torch.Tensor) -> None:
     env.manual_replan(env_ids)
 

@@ -3,6 +3,8 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+from cfg.CFG import SCENE_USD_PATH
+
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
@@ -105,6 +107,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="lab.MyEnv:MyEnv" if not args_cli.debug_vis else "lab.MyEnvDebuggingVis:MyEnvDebuggingVis",
         disable_env_checker=True,
+        kwargs={"scene_path": SCENE_USD_PATH},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",

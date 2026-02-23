@@ -95,7 +95,6 @@ class Go2SimCfg(InteractiveSceneCfg):
         ],
     )
 
-    # # TODO: static env loading ok, check if setting a subset of kinematic objects is possible
     environment = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/environment",
         spawn=sim_utils.UsdFileCfg(
@@ -238,6 +237,8 @@ class EventsCfg:
     )
 
     replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
+
+    clear_costmaps = EventTermCfg(func=events.clear_costmaps_on_reset, mode="reset")
 
 
 @configclass

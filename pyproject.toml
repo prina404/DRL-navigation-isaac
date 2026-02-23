@@ -23,6 +23,7 @@ dependencies = [
     "rsl-rl-lib==3.3.0",
     "efficientnet-pytorch",
     "warmup-scheduler",
+    "kornia",
 ]
 
 [tool.setuptools]

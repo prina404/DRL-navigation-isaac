@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, ViewerCfg
@@ -5,8 +7,8 @@ from isaaclab.envs.common import VecEnvStepReturn
 from isaaclab.envs.ui import ViewportCameraController
 from isaaclab.utils.math import euler_xyz_from_quat
 
-from cfg.CFG import SCENE_USD_PATH
 from lab.managers.camera_manager import CameraManager
+from lab.managers.map_manager import MapManager
 from lab.managers.path_manager import PathManager
 
 
@@ -14,12 +16,15 @@ class MyEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
-        self.camera_manager = CameraManager(
-            camera_controller, camera_relative_pos=torch.tensor([-1, 0.0, 1.0]), camera_lookat=torch.tensor([1.8, 0.0, -0.8])
-        )
+        assert "scene_path" in kwargs, "Must provide scene_path as a keyword argument"
+        scene_path = Path(kwargs["scene_path"])
+        map_img_path = str(scene_path.parent / (scene_path.stem + "_map.png"))
+        map_yaml_path = str(scene_path.parent / (scene_path.stem + "_map.yaml"))
+        self._map_manager = MapManager(map_img_path, map_yaml_path, self.num_envs, device=self.device)
 
-        self.path_manager = PathManager(scene_path=SCENE_USD_PATH, num_envs=self.num_envs, device=self.device)
+        self.path_manager = PathManager(
+            scene_path=scene_path, map_mgr=self._map_manager, num_envs=self.num_envs, device=self.device
+        )
 
         # Action buffer with the past 5 actions (Δx, Δy, Δtheta)
         self._action_buffer = torch.zeros((self.num_envs, 5, 3), dtype=torch.float32, device=self.device)
@@ -30,8 +35,12 @@ class MyEnv(ManagerBasedRLEnv):
 
         self._lidar_buffer = None
 
-        # TODO: create costmap manager that is called here to update the costmap with local lidar data,
-        # and it is shared with the path manager for replanning
+        camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
+        self.camera_manager = CameraManager(
+            camera_controller,
+            camera_relative_pos=torch.tensor([-1, 0.0, 1.0]),
+            camera_lookat=torch.tensor([1.8, 0.0, -0.8]),
+        )
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         retVal = super().step(action)
@@ -53,6 +62,7 @@ class MyEnv(ManagerBasedRLEnv):
         self._old_yaw = new_yaw
 
         self.update_follow_camera()
+        self._update_lidar_buffer()
 
         return retVal
 
@@ -77,9 +87,12 @@ class MyEnv(ManagerBasedRLEnv):
         robot = self.scene["robot"]
         self.path_manager.compute_global_plan(env_ids, robot.data.root_com_pos_w[env_ids], self.scene.env_origins[env_ids])
 
-    def update_lidar_buffer(self, lidar_obs: torch.Tensor) -> None:
+    def _update_lidar_buffer(self) -> None:
         # store only the last lidar scan
-        self._lidar_buffer = lidar_obs.clone()
+        # TODO: do I need a buffer?
+        # self._lidar_buffer = lidar_obs.clone()
+        lidar = self.scene.sensors["lidar"]
+        self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
 
     def update_follow_camera(self):
         robot_pos = self.scene["robot"].data.root_pos_w[0]
