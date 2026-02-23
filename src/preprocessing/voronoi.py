@@ -155,6 +155,7 @@ def plot_voronoi(
     file_dir = Path(filepath).parent
     print("Plotting voronoi graph in: ", file_dir / (name + ".png"))
     plt.savefig(file_dir / (name + ".png"))
+    plt.close()  # clear buffer
 
 
 def evaluate_distance(node1, node2):

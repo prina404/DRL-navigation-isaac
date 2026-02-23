@@ -35,7 +35,6 @@ def set_hinge_joint_state(joint_prim: Usd.Prim, angle_deg: float):
 
 
 def create_hinge_constraint(hinge_xform: Usd.Prim, frame_prim: Usd.Prim, body_prim: Usd.Prim) -> Usd.Prim:
-    # TODO: joint position has to be inherited from hinge_xform
     joint_prim = hinge_xform.GetStage().DefinePrim(hinge_xform.GetPath().AppendChild("hinge_constraint"), "PhysicsRevoluteJoint")
 
     constraint_api = UsdPhysics.RevoluteJoint(joint_prim)

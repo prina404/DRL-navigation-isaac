@@ -33,8 +33,8 @@ other/
 └── door_00xx/                      (has RigidBodyAPI)
     └── Meshes/
         └── door_00xx/
-            ├── constraint_1/        
-            ├── constraint_2/        
+            ├── constraint_1/
+            ├── constraint_2/
             ├── group_0000/         (Has RigidBodyAPI with kinematic=True)
             │   └── <frame meshes>
             └── group_000x/
@@ -49,9 +49,9 @@ other/
 └── door_00xx/                       (no physics API applied)
     └── Meshes/
         └── door_00xx/
-            ├── constraint_1/        
+            ├── constraint_1/
             │   └── RevoluteJoint    (RevoluteJointAPI + DriveAPI)
-            ├── constraint_2/        
+            ├── constraint_2/
             │   └── RevoluteJoint    (RevoluteJointAPI + DriveAPI)
             ├── group_0000/          (Has RigidBodyAPI with kinematic=True)
             │   └── <frame meshes>
