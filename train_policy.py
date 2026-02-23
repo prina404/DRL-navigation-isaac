@@ -128,7 +128,6 @@ def run_simulator(cfg: DictConfig):
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     env = RslRlVecEnvWrapper(env)
-    env.reset()
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
     # Navigation Policy setup

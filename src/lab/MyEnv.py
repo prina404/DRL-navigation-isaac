@@ -43,6 +43,9 @@ class MyEnv(ManagerBasedRLEnv):
         )
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
+        if "log" in self.extras:  # Fixes wrong logging of rewards and dones in the first step after reset
+            self.extras.pop("log", None)
+
         retVal = super().step(action)
 
         # Update action buffer
