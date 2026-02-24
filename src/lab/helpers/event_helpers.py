@@ -1,7 +1,6 @@
-import random
-
 import omni.usd
 import torch
+import torch.distributions as distributions
 from isaaclab.assets.articulation.articulation import Articulation
 from pxr import Usd, UsdPhysics
 
@@ -40,11 +39,36 @@ def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
     return joint_prims
 
 
+def door_distribution(num_envs: int, num_doors: int, open_door_prob: float) -> distributions.Distribution:
+    alpha = 1
+    beta = 15
+    closed_door_dist = distributions.Beta(alpha, beta)
+
+    sigma = 0.25
+    open_door_dist = distributions.HalfNormal(sigma)
+
+    closed_value = closed_door_dist.sample((num_envs, num_doors)) * 90.0
+
+    open_angles_clamped = torch.clamp(open_door_dist.sample((num_envs, num_doors)), 0.0, 1.0)
+    open_value = (1 - open_angles_clamped) * 90.0
+
+    # sample from 'open' distribution with probability 'open_door_prob'
+    is_open = torch.bernoulli(torch.full((num_envs, num_doors), open_door_prob)).to(torch.bool)
+
+    return torch.where(is_open, open_value, closed_value)
+
+
 def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
     stage = omni.usd.get_context().get_stage()
 
     if not hasattr(env, "_door_prim_paths"):
         env._door_prim_paths = {}
+
+    if not hasattr(env, "num_doors"):
+        env_ns = "/World/envs/env_0"
+        env.num_doors = len(_collect_door_prims(stage, env_ns))
+
+    door_positions = door_distribution(env.num_envs, env.num_doors, open_door_prob=0.7)
 
     for env_id in env_ids.cpu().numpy():
         env_ns = f"/World/envs/env_{env_id}"
@@ -53,8 +77,8 @@ def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
             door_prims = _collect_door_prims(stage, env_ns)
             env._door_prim_paths[env_id] = door_prims
 
-        for door_prim in door_prims:
-            angle = random.uniform(0, 90)
+        for door_id, door_prim in enumerate(door_prims):
+            angle = door_positions[env_id, door_id].item()
             door_drive = UsdPhysics.DriveAPI.Apply(door_prim, UsdPhysics.Tokens.angular)
             door_drive.CreateTargetPositionAttr().Set(angle)
             door_drive.CreateTargetVelocityAttr().Set(0)

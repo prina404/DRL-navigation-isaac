@@ -55,8 +55,8 @@ def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2)
 def penalty_collision_base(env: MyEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> torch.Tensor:
     sensor = env.scene["body_collision_sensor"]
     forces = sensor.data.net_forces_w  # (N, bodies, 3)
-    mag = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
-    return torch.where(mag > force_thresh, torch.full_like(mag, penalty), torch.zeros_like(mag))
+    magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
+    return torch.where(magnitude > force_thresh, torch.full_like(magnitude, penalty), torch.zeros_like(magnitude))
 
 
 def penalty_obstacle_proximity(env: MyEnv, max_penalty: float = -2.0) -> torch.Tensor:
@@ -69,11 +69,11 @@ def robot_heading_reward(env: MyEnv) -> torch.Tensor:
     # Returns 1 if robot is heading in the correct direction, 0 otherwise
     # We compute the alignment wrt to the direction of the last point of the path in hour horizon.
     obs_tensor = get_path_obs(env, num_points_forward=10, normalize=True)  # (B, 20)
-    headings = obs_tensor[:, 10:]  # (B, 10), (B, 10)
-    next_heading = headings[:, 2]  # I extract the heading of 3rd point forward (approx 1m ahead)
+    headings = obs_tensor[:, 10:]  # (B, 10)
+    next_heading = headings[:, 2]  # I extract the heading of 2nd point forward (approx 60cm ahead)
     # if next_heading == 0.5 -> robot is facing the correct direction. Max reward.
     heading_delta = torch.abs(0.5 - next_heading)
-    return 1.0 - heading_delta * 2.0  # normalize to [0, 1]
+    return 1.0 - heading_delta * 2.0  # normalize to [0, 1], 1 = perfect alignment, 0 = opposite direction
 
 
 def action_smoothness_penalty(env: MyEnv) -> torch.Tensor:

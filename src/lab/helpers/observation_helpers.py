@@ -164,13 +164,12 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     env: MyEnv = env.unwrapped
     local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
-    res += env.goal_pos.unsqueeze(1)  # default to goal pos
+    res += env.path_manager.goal_pos_local.unsqueeze(1)  # default to goal pos
     for id in range(env.num_envs):
-        path_points = env._path_tensors[id]
+        path_points = env.path_manager.path_tensors[id]
         closest_idx = torch.argmin(torch.norm(path_points - local_robot_coords[id], dim=-1))
         n_forward = min(path_points.shape[0] - closest_idx, num_points_forward + 1)
         res[id, :n_forward] = path_points[closest_idx : closest_idx + n_forward]
-
     return res
 
 
@@ -181,7 +180,7 @@ def get_path_obs(
     debug_vis: bool = False,
 ) -> torch.Tensor:
     env: MyEnv = env.unwrapped
-    if getattr(env, "goal_pos", None) is None:  # this is needed because this is called before env is fully initialized
+    if getattr(env, "path_manager", None) is None:  # this is needed because this is called before env is fully initialized
         return torch.zeros((env.num_envs, num_points_forward * 2), device=env.device)
 
     # returns a 1D tensor of size (B*num_points_forward*2) with distance and heading to each path point
@@ -228,14 +227,14 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
     if isinstance(env, RslRlVecEnvWrapper):
         env: MyEnv = env.unwrapped
 
-    if not hasattr(env, "_path_tensors"):
+    if not hasattr(env, "path_manager"):
         return torch.zeros((env.num_envs, 3), device=env.device)
 
     robot = env.scene["robot"]
     robot_pos_local = robot.data.root_com_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     goal_pos_local = torch.zeros((env.num_envs, 2), device=env.device)
 
-    for i, path in enumerate(env._path_tensors):
+    for i, path in enumerate(env.path_manager.path_tensors):
         if path is None:
             goal_pos_local[i] = torch.zeros(2, device=env.device)
             continue
