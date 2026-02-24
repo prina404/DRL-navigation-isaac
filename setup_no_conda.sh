@@ -1,7 +1,8 @@
-USE_PIP_ISAAC=true
+USE_PIP_ISAAC=false
 
 if [ -z ${ISAACSIM_PATH+x} ]; then
     echo "ISAACSIM_PATH is not set, assuming IsaacSim is not pre-installed."
+    USE_PIP_ISAAC=true
 else
     ISAACSIM_VERSION=$(cat ${ISAACSIM_PATH}/VERSION | awk -F='-' '{print $1}')
     if [ "$ISAACSIM_VERSION" != "5.1.0" ]; then
@@ -31,6 +32,8 @@ else
 fi
 
 ./IsaacLab/isaaclab.sh -i
+echo "source ${ISAACSIM_PATH}/setup_conda_env.sh" >> .venv/bin/activate
+
 pip install -e .
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.7.0+cu128.html
 
