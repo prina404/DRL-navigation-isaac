@@ -28,16 +28,15 @@ def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> torch.Tensor:
 def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
     # find the closest point on the path and compute distance from that point to goal.
     env: MyEnv = env.unwrapped
-    local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     res = torch.zeros((env.num_envs), device=env.device)
     for id in range(env.num_envs):
         path_points = env.path_manager.path_tensors[id]  # (num_path_points, 2)
-        closest_idx = torch.argmin(torch.norm(path_points - local_robot_coords[id], dim=-1))
-        closest_point_dist = torch.norm(path_points[closest_idx] - local_robot_coords[id])
-        remaining_points = path_points.size(dim=0) - closest_idx
+        remaining_points = path_points.size(dim=0)
+        if remaining_points <= 1:
+            res[id] = 0.0
         # note that I'm measuring the number of remaining points on the subsampled path
         # so the distance is approximately remaining_path * point_dist.
-        remaining_distance = remaining_points * 0.3 + closest_point_dist
+        remaining_distance = remaining_points * 0.3
         res[id] = -remaining_distance
     return res
 

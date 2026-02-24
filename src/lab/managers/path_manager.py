@@ -100,8 +100,9 @@ class PathManager:
             path = paths[idx].result()
             goal_pos_map = self.nodes[self.goal_node_idx[env_id]]
             if path is None or len(path) <= 1:
-                logger.warning(f"No path found for robot {env_id}! Returning empty path tensor")
-                self.path_tensors[env_id] = goal_pos_map.unsqueeze(0)  # just return the goal as the path
+                logger.warning(f"No path found for robot {env_id}! Using previous path if exists, otherwise empty path.")
+                if self.path_tensors[env_id] is None:
+                    self.path_tensors[env_id] = torch.empty((0, 2), device=self.device)  # empty path
                 continue
 
             point_dist = 0.3  # meters

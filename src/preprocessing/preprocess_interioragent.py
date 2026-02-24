@@ -164,10 +164,8 @@ def main(args_cli: argparse.Namespace):
         )
 
         directories = sorted(os.listdir(CFG.INTERIOR_AGENT_DIR))
-        for directory in tqdm(directories, desc="Preprocessing InteriorAgent scenes", leave=False):
-            if not directory.startswith("kujiale_") or not os.path.isdir(os.path.join(CFG.INTERIOR_AGENT_DIR, directory)):
-                continue
-
+        env_dir = [d for d in directories if d.startswith("kujiale_") and os.path.isdir(os.path.join(CFG.INTERIOR_AGENT_DIR, d))]
+        for directory in tqdm(env_dir, desc="Preprocessing InteriorAgent scenes", leave=False):
             scene_dir = os.path.join(CFG.INTERIOR_AGENT_DIR, directory)
             usd_path = os.path.join(scene_dir, f"{directory}.usda")
             if not os.path.exists(usd_path):

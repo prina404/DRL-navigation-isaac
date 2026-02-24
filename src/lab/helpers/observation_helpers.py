@@ -235,8 +235,7 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
     goal_pos_local = torch.zeros((env.num_envs, 2), device=env.device)
 
     for i, path in enumerate(env.path_manager.path_tensors):
-        if path is None:
-            goal_pos_local[i] = torch.zeros(2, device=env.device)
+        if path is None or path.shape[0] == 0:
             continue
         closest = torch.argmin(torch.norm(path - robot_pos_local[i], dim=-1))
         forward_point = path[closest : closest + 4][-1]  # last point in my horizon

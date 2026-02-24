@@ -271,10 +271,10 @@ kujiale_0066:
 
 kujiale_0067:
   normal_doors:
-    - "door_0001"
     - "door_0002"
     - "door_0003"
   disabled_doors:
+    - "door_0001"
     - "door_0000"
   entrance:
     - "door_0004"
