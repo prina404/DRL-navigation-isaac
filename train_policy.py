@@ -11,13 +11,13 @@ parser.add_argument("--video", action="store_true", default=False, help="Record 
 parser.add_argument(
     "--video_length",
     type=int,
-    default=200,
+    default=300,
     help="Length of the recorded video (in steps).",
 )
 parser.add_argument(
     "--video_interval",
     type=int,
-    default=2000,
+    default=3000,
     help="Interval between video recordings (in steps).",
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
@@ -135,7 +135,7 @@ def run_simulator(cfg: DictConfig):
     if args_cli.wandb:
         load_dotenv()
         agent_cfg["logger"] = "wandb"
-        agent_cfg["wandb_project"] = "LearningForPlanning-lidar-with-doors"
+        agent_cfg["wandb_project"] = "LearningForPlanning-lidar-costmap-updated"
 
     agent_cfg["num_envs"] = cfg.num_envs
     ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=log_dir, device=agent_cfg["device"])

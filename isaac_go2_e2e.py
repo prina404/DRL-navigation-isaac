@@ -3,6 +3,8 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+from cfg.CFG import SCENE_USD_PATH
+
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
@@ -61,6 +63,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="lab.MyEnv:MyEnv",
         disable_env_checker=True,
+        kwargs={"scene_path": SCENE_USD_PATH},
     )
 
     env = gym.make("Isaac-indoor-navigation-go2-v0", cfg=go2_env_cfg)

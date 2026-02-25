@@ -38,8 +38,8 @@ class MyEnv(ManagerBasedRLEnv):
         camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
         self.camera_manager = CameraManager(
             camera_controller,
-            camera_relative_pos=torch.tensor([-1, 0.0, 1.0]),
-            camera_lookat=torch.tensor([1.8, 0.0, -0.8]),
+            camera_relative_pos=torch.tensor([-0.8, 0.0, 0.6]),
+            camera_lookat=torch.tensor([1.7, 0.0, -0.8]),
         )
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:

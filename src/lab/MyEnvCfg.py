@@ -17,7 +17,6 @@ from isaaclab.sensors import (
     patterns,
 )
 from isaaclab.sensors.camera import TiledCameraCfg
-from isaaclab.sim.schemas import CollisionPropertiesCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.utils import configclass
 from loguru import logger
@@ -99,10 +98,6 @@ class Go2SimCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/environment",
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(SCENE_USD_PATH),
-            # rigid_props=sim_utils.RigidBodyPropertiesCfg( # should be handled in preprocessing
-            #     kinematic_enabled=True
-            # ),  # Big impact on performance if True, but env is now static
-            collision_props=CollisionPropertiesCfg(collision_enabled=True),
         ),
     )
 
@@ -123,7 +118,7 @@ class ObservationsCfg:
 
     @configclass
     class LidarGroup(ObsGroup):
-        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 50})
+        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 64})
 
     @configclass
     class GlobalPlanGroup(ObsGroup):
@@ -163,10 +158,10 @@ class RewardsCfg:
     #     params={"threshold_m": 0.3},
     # )
 
-    # distance_to_goal = RewTerm(
-    #     func=rewards.reward_distance_to_goal,
-    #     weight=1.0,
-    # )
+    distance_to_goal = RewTerm(
+        func=rewards.reward_distance_to_goal,
+        weight=1.0,
+    )
 
     # penalty_still = RewTerm(
     #     func=rewards.penalty_still,
@@ -174,10 +169,7 @@ class RewardsCfg:
     #     params={"speed_thresh": 0.2, "penalty": -0.1},
     # )
 
-    # heading = RewTerm(
-    #     func=rewards.robot_heading_reward,
-    #     weight=3.0,
-    # )
+    heading = RewTerm(func=rewards.robot_heading_reward, weight=0.5)
 
     collision = RewTerm(
         func=rewards.penalty_collision_base,
@@ -187,12 +179,12 @@ class RewardsCfg:
 
     action_smoothness = RewTerm(
         func=rewards.action_smoothness_penalty,
-        weight=0.4,
+        weight=0.5,
     )
 
     time_penalty = RewTerm(
         func=rewards.time_penalty,
-        weight=0.2,
+        weight=0.5,
     )
 
     # obstacle_proximity = RewTerm(
@@ -212,7 +204,7 @@ class TerminationsCfg:
     )
     timeout = DoneTerm(
         func=mdp.time_out,
-        time_out=True,
+        # time_out=True,
     )
 
 

@@ -13,6 +13,6 @@ INTERIOR_AGENT_DIR = ROOT_DIR.parent / "InteriorAgent"
 print(f"INTERIOR_AGENT_DIR set to: {INTERIOR_AGENT_DIR}")
 
 # TODO: fix hardcoded scene path
-SCENE_USD_PATH = INTERIOR_AGENT_DIR / "kujiale_0003/kujiale_0003_baked.usda"
+SCENE_USD_PATH = INTERIOR_AGENT_DIR / "kujiale_0067/kujiale_0067_baked.usda"
 
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"

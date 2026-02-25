@@ -56,7 +56,7 @@ class MyEnvDebuggingVis(MyEnv):
 
         # offset markers above robot and render both prototypes
         loc = self.marker_locations + self.marker_offset  # (B, 3)
-        loc = torch.vstack((loc, loc + torch.tensor([0.0, 0.0, 0.15], device=self.device)))  # (2B, 3)
+        loc = torch.vstack((loc, loc + torch.tensor([0.0, 0.0, 0.1], device=self.device)))  # (2B, 3)
         rots = torch.vstack((self.reward_marker_orientations, self.command_marker_orientations))  # (2B, 4)
 
         all_envs = torch.arange(self.num_envs, device=self.device)
@@ -113,12 +113,12 @@ class MyEnvDebuggingVis(MyEnv):
             markers={
                 "reward_heading": sim_utils.UsdFileCfg(
                     usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
-                    scale=(0.1, 0.1, 0.35),
+                    scale=(0.075, 0.075, 0.25),
                     visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.3)),
                 ),
                 "command": sim_utils.UsdFileCfg(
                     usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
-                    scale=(0.1, 0.1, 0.35),
+                    scale=(0.075, 0.075, 0.25),
                     visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
                 ),
                 "path_point": sim_utils.UsdFileCfg(
@@ -151,7 +151,7 @@ class MyEnvDebuggingVis(MyEnv):
 
         self.marker_locations = torch.zeros((self.num_envs, 3)).cuda()
         self.marker_offset = torch.zeros((self.num_envs, 3)).cuda()
-        self.marker_offset[:, -1] = 0.5
+        self.marker_offset[:, -1] = 0.2
         self.reward_marker_orientations = torch.zeros((self.num_envs, 4)).cuda()
         self.command_marker_orientations = torch.zeros((self.num_envs, 4)).cuda()
         return VisualizationMarkers(heading_marker)

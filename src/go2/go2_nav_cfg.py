@@ -1,16 +1,18 @@
+import math
+
 from models.policy_model import ActorCriticWithEncoders
 
 go2_policy_cfg = {
     # Training loop parameters
-    "num_steps_per_env": int((15 * (1 / 0.005)) / 16),  # 15 seconds per episode, converted to steps (with decimation)
+    "num_steps_per_env": math.ceil((15 / (16 * 0.005))),  # 15 seconds per episode, converted to steps (with decimation)
     "save_interval": 100,
     "max_iterations": 1000,
     "device": "cuda:0",
     "empirical_normalization": False,
     # Observation routing
     "obs_groups": {
-        "policy": ["velocity_buffer", "goal_relative_pos", "lidar"],
-        "critic": ["velocity_buffer", "goal_relative_pos", "lidar"],
+        "policy": ["velocity_buffer", "action_buffer", "goal_relative_pos", "lidar"],
+        "critic": ["velocity_buffer", "action_buffer", "goal_relative_pos", "lidar"],
     },
     # Policy architecture
     "policy": {
@@ -19,10 +21,12 @@ go2_policy_cfg = {
         "critic_hidden_dims": [256, 128, 128],
         "activation": "elu",
         "init_noise_std": 1.0,
+        "noise_std_type": "log",
         "encoders_hidden_dims": {
             "velocity_buffer": [128, 128],
+            "action_buffer": [128, 128],
             "goal_relative_pos": [128, 128],
-            "lidar": [128, 128],
+            "lidar": [128, 256],
         },
     },
     # PPO algorithm parameters
