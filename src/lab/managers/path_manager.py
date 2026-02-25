@@ -4,7 +4,6 @@ from pathlib import Path
 
 import torch
 from isaaclab.utils.math import quat_from_euler_xyz
-from loguru import logger
 
 import pyastar2d
 from lab.managers.map_manager import MapManager
@@ -13,16 +12,12 @@ from preprocessing import voronoi
 
 class PathManager:
     def __init__(
-        self,
-        scene_path: str | Path,
-        map_mgr: MapManager,
-        num_envs: int,
-        device: torch.device,
+        self, scene_path: str | Path, map_mgr: MapManager, num_envs: int, device: torch.device, subgoal_dist: float = 0.3
     ):
         self.device = device
         self.scene_usd_path = Path(scene_path)
-
         self.map_manager = map_mgr
+        self.point_dist = subgoal_dist
 
         self.graph, coords = voronoi.compute_voronoi_graph(
             map_path=map_mgr.map_img_path,
@@ -39,6 +34,10 @@ class PathManager:
         self.goal_pos_local = torch.zeros((num_envs, 2), dtype=torch.float32, device=device)
         self.path_tensors: list[torch.Tensor | None] = [None] * num_envs  # each: (K,2) in local (x,y)
 
+        # on each reset store the initial path length for reward normalization
+        self.path_lengths = torch.full((num_envs, 1), subgoal_dist, dtype=torch.float32, device=device)
+
+        # A* threads
         self._executor = ThreadPoolExecutor(max_workers=16)
 
     def map_to_local_coords(self, map_coords: torch.Tensor) -> torch.Tensor:
@@ -67,9 +66,10 @@ class PathManager:
             goal_pos_map = self.nodes[random_node].clone()
             self.goal_pos_local[id] = self.map_to_local_coords(goal_pos_map.unsqueeze(0))[0]
 
-    def compute_global_plan(
-        self, env_ids: torch.Tensor, robot_pos_w: torch.Tensor, env_origins: torch.Tensor, point_dist: float = 0.3
-    ) -> None:
+        # set length buffers to minimum on reset, they will be updated together with the global plan
+        self.path_lengths[env_ids] = self.point_dist
+
+    def compute_global_plan(self, env_ids: torch.Tensor, robot_pos_w: torch.Tensor, env_origins: torch.Tensor) -> None:
         assert (
             robot_pos_w.shape[0] == env_ids.shape[0] == env_origins.shape[0]
         ), "Batch size of robot positions, env origins, and env_ids must match"
@@ -100,13 +100,12 @@ class PathManager:
             path = paths[idx].result()
             goal_pos_map = self.nodes[self.goal_node_idx[env_id]]
             if path is None or len(path) <= 1:
-                logger.warning(f"No path found for robot {env_id}! Using previous path if exists, otherwise empty path.")
+                # logger.warning(f"No path found for robot {env_id}! Using previous path if exists, otherwise empty path.")
                 if self.path_tensors[env_id] is None:
                     self.path_tensors[env_id] = torch.empty((0, 2), device=self.device)  # empty path
                 continue
 
-            point_dist = 0.3  # meters
-            path_subsampled = path[:: int(point_dist / self.map_manager.resolution)]
+            path_subsampled = path[:: int(self.point_dist / self.map_manager.resolution)]
 
             path_tensor = torch.zeros((len(path_subsampled) + 1, 2), device=self.device)
             path_tensor[:-1] = torch.tensor(path_subsampled, device=self.device)
@@ -114,6 +113,11 @@ class PathManager:
 
             world_path = self.map_to_local_coords(path_tensor)  # (num_path_points, 2)
             self.path_tensors[env_id] = world_path
+
+            # update path length buffer for reward normalization
+            path_len_m = world_path.size(0) * self.point_dist
+            if path_len_m > self.path_lengths[env_id]:
+                self.path_lengths[env_id] = path_len_m
 
     def compute_robot_teleport_state(
         self,

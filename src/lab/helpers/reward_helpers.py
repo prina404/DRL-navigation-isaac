@@ -36,8 +36,10 @@ def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
             res[id] = 0.0
         # note that I'm measuring the number of remaining points on the subsampled path
         # so the distance is approximately remaining_path * point_dist.
-        remaining_distance = remaining_points * 0.3
-        res[id] = -remaining_distance
+        remaining_distance = remaining_points * env.path_manager.point_dist
+        normalized_distance = remaining_distance / env.path_manager.path_lengths[id]
+
+        res[id] = -normalized_distance
     return res
 
 
