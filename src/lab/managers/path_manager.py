@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 from isaaclab.utils.math import quat_from_euler_xyz
+from loguru import logger
 
 import pyastar2d
 from lab.managers.map_manager import MapManager
@@ -35,7 +36,8 @@ class PathManager:
         self.path_tensors: list[torch.Tensor | None] = [None] * num_envs  # each: (K,2) in local (x,y)
 
         # on each reset store the initial path length for reward normalization
-        self.path_lengths = torch.full((num_envs, 1), subgoal_dist, dtype=torch.float32, device=device)
+        self.initial_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
+        self.current_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
 
         # A* threads
         self._executor = ThreadPoolExecutor(max_workers=16)
@@ -67,7 +69,8 @@ class PathManager:
             self.goal_pos_local[id] = self.map_to_local_coords(goal_pos_map.unsqueeze(0))[0]
 
         # set length buffers to minimum on reset, they will be updated together with the global plan
-        self.path_lengths[env_ids] = self.point_dist
+        self.initial_path_length[env_ids] = self.point_dist
+        self.current_path_length[env_ids] = self.point_dist
 
     def compute_global_plan(self, env_ids: torch.Tensor, robot_pos_w: torch.Tensor, env_origins: torch.Tensor) -> None:
         assert (
@@ -98,17 +101,24 @@ class PathManager:
 
         for idx, env_id in enumerate(env_ids):
             path = paths[idx].result()
-            goal_pos_map = self.nodes[self.goal_node_idx[env_id]]
-            if path is None or len(path) <= 1:
-                # logger.warning(f"No path found for robot {env_id}! Using previous path if exists, otherwise empty path.")
-                if self.path_tensors[env_id] is None:
-                    self.path_tensors[env_id] = torch.empty((0, 2), device=self.device)  # empty path
+            r, c = robot_map_coords[idx].int()
+            if path is None or len(path) == 0:
+                # if I am in a valid cell, but no path is found, I just stand still
+                if self._valid_map_coords((r, c), env_id):
+                    # logger.info(f"No path found for robot {env_id}! (likely due to dynamic obstacle)")
+                    self.path_tensors[env_id] = None
+                # if previous path exists keep it (this will happen when robot pos is mapped onto an occupied cell)
+                if self.path_tensors[env_id] is None:  # set to current location
+                    robot_pos_local = self.map_to_local_coords(robot_map_coords[idx].unsqueeze(0))
+                    self.path_tensors[env_id] = robot_pos_local
                 continue
 
             path_subsampled = path[:: int(self.point_dist / self.map_manager.resolution)]
 
             path_tensor = torch.zeros((len(path_subsampled) + 1, 2), device=self.device)
             path_tensor[:-1] = torch.tensor(path_subsampled, device=self.device)
+
+            goal_pos_map = self.nodes[self.goal_node_idx[env_id]]
             path_tensor[-1] = goal_pos_map  # ensure goal is included
 
             world_path = self.map_to_local_coords(path_tensor)  # (num_path_points, 2)
@@ -116,8 +126,14 @@ class PathManager:
 
             # update path length buffer for reward normalization
             path_len_m = world_path.size(0) * self.point_dist
-            if path_len_m > self.path_lengths[env_id]:
-                self.path_lengths[env_id] = path_len_m
+            self.current_path_length[env_id] = path_len_m
+
+            if path_len_m > self.initial_path_length[env_id]:
+                self.initial_path_length[env_id] = path_len_m
+
+    def _valid_map_coords(self, map_coords: tuple, env_id: int) -> bool:
+        r, c = map_coords
+        return self.map_manager.global_costmap[env_id, 0, r, c] < torch.inf
 
     def compute_robot_teleport_state(
         self,

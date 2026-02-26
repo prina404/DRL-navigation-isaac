@@ -21,8 +21,9 @@ def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> torch.Tensor:
     return dist_to_goal < threshold_m
 
 
-# def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
-#     return -dist_to_goal_xy(env)  # Reward is higher when closer to goal
+def distance_traveled_termination(env: MyEnv, max_distance: float = 5.0) -> torch.Tensor:
+    res = env.path_manager.initial_path_length - env.path_manager.current_path_length >= max_distance
+    return res
 
 
 def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
@@ -37,7 +38,7 @@ def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
         # note that I'm measuring the number of remaining points on the subsampled path
         # so the distance is approximately remaining_path * point_dist.
         remaining_distance = remaining_points * env.path_manager.point_dist
-        normalized_distance = remaining_distance / env.path_manager.path_lengths[id]
+        normalized_distance = remaining_distance / env.path_manager.initial_path_length[id]
 
         res[id] = -normalized_distance
     return res

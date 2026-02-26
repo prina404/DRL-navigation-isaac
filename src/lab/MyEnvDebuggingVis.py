@@ -19,18 +19,18 @@ class MyEnvDebuggingVis(MyEnv):
 
     def _visualize_markers(self):
         robot = self.scene["robot"]
-        self.marker_locations = robot.data.root_pos_w  # (B, 3)
 
         # robot position in local (env) frame for path math
         robot_pos_local = robot.data.root_link_pos_w[:, :2] - self.scene.env_origins[:, :2]  # (B, 2)
 
         # reward heading: 3rd point forward along path (closer to goal than robot)
         reward_yaw = torch.zeros((self.num_envs,), device=self.device)
+        null_target = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
         for i in range(self.num_envs):
             path_points = self.path_manager.path_tensors[i]
 
-            if path_points is None or path_points.numel() == 0:
-                target = self.path_manager.goal_pos_local[i]
+            if path_points is None or path_points.size(0) <= 1:
+                null_target[i] = True
             else:
                 # Find closest point on trajectory
                 distances = torch.norm(path_points - robot_pos_local[i], dim=-1)
@@ -43,6 +43,7 @@ class MyEnvDebuggingVis(MyEnv):
                 delta = target - robot_pos_local[i]
                 reward_yaw[i] = torch.atan2(delta[1], delta[0])
 
+        self.marker_locations = robot.data.root_pos_w  # (B, 3)
         self.reward_marker_orientations = quat_from_angle_axis(reward_yaw, self.up_dir)
 
         # command heading: from action (x, y) only
@@ -55,8 +56,12 @@ class MyEnvDebuggingVis(MyEnv):
         self.command_marker_orientations = quat_from_angle_axis(command_world_yaw, self.up_dir)
 
         # offset markers above robot and render both prototypes
-        loc = self.marker_locations + self.marker_offset  # (B, 3)
-        loc = torch.vstack((loc, loc + torch.tensor([0.0, 0.0, 0.1], device=self.device)))  # (2B, 3)
+        target_loc = self.marker_locations + self.marker_offset  # (B, 3)
+        cmd_loc = target_loc + torch.tensor([0.0, 0.0, 0.1], device=self.device)  # (B, 3)
+
+        target_loc[null_target] += torch.tensor([0.0, 0.0, -1.0], device=self.device)  # if no target, hide the arrow
+
+        loc = torch.vstack((target_loc, cmd_loc))  # (2B, 3)
         rots = torch.vstack((self.reward_marker_orientations, self.command_marker_orientations))  # (2B, 4)
 
         all_envs = torch.arange(self.num_envs, device=self.device)

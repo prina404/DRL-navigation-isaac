@@ -54,17 +54,17 @@ class Go2SimCfg(InteractiveSceneCfg):
         track_air_time=False,
     )
 
-    camera = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-        width=128,
-        height=128,
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.4, 0.0, 0.0),
-            convention="world",
-        ),
-        data_types=["rgb"],
-        spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
-    )
+    # camera = TiledCameraCfg(
+    #     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
+    #     width=128,
+    #     height=128,
+    #     offset=TiledCameraCfg.OffsetCfg(
+    #         pos=(0.4, 0.0, 0.0),
+    #         convention="world",
+    #     ),
+    #     data_types=["rgb"],
+    #     spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
+    # )
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
@@ -158,10 +158,10 @@ class RewardsCfg:
     #     params={"threshold_m": 0.3},
     # )
 
-    distance_to_goal = RewTerm(
-        func=rewards.reward_distance_to_goal,
-        weight=1.0,
-    )
+    # distance_to_goal = RewTerm(
+    #     func=rewards.reward_distance_to_goal,
+    #     weight=1.0,
+    # )
 
     # penalty_still = RewTerm(
     #     func=rewards.penalty_still,
@@ -179,12 +179,12 @@ class RewardsCfg:
 
     action_smoothness = RewTerm(
         func=rewards.action_smoothness_penalty,
-        weight=0.5,
+        weight=1.0,
     )
 
     time_penalty = RewTerm(
         func=rewards.time_penalty,
-        weight=0.5,
+        weight=0.3,
     )
 
     # obstacle_proximity = RewTerm(
@@ -198,10 +198,21 @@ class RewardsCfg:
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
+    # Since we are learning a local planner, we want to keep the episode lenght relatively short,
+    # so we set a short spatial horizon where we terminate if the robot traversed 'max_distance' meters
+    # of our global plan
+    distance_traveled = DoneTerm(
+        func=rewards.distance_traveled_termination,
+        params={"max_distance": 5.0},
+    )
+
+    # If the global path is shorter than distance_traveled termination threshold,
+    # we terminate on goal reached condition
     goal_reached = DoneTerm(
         func=rewards.is_goal_reached,
         params={"threshold_m": 0.3},
     )
+
     timeout = DoneTerm(
         func=mdp.time_out,
         # time_out=True,
@@ -228,9 +239,9 @@ class EventsCfg:
         mode="reset",
     )
 
-    replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
-
     clear_costmaps = EventTermCfg(func=events.clear_costmaps_on_reset, mode="reset")
+
+    replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
 
 
 @configclass
