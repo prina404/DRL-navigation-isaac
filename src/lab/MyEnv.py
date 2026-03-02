@@ -74,17 +74,22 @@ class MyEnv(ManagerBasedRLEnv):
         ## reset positions only for specified env indices
         robot: Articulation = self.scene["robot"]
 
-        node_ids = self.path_manager.sample_node_ids(env_ids.shape[0])
         state = self.path_manager.compute_robot_teleport_state(
-            env_ids, node_ids, self.scene.env_origins, robot.data.default_root_state[0, 2]
+            env_ids, self.scene.env_origins, robot.data.default_root_state[0, 2]
         )
-        self.path_manager.set_start_nodes(env_ids, node_ids)
 
         robot.write_root_com_state_to_sim(state, env_ids)
 
-    def compute_goals_on_reset(self, env_ids: torch.Tensor) -> None:
-        self.path_manager.sample_goals(env_ids)
-        self.manual_replan(env_ids)
+        # reset joints to default state after teleporting root poses
+        default_pos = robot.data.default_joint_pos[env_ids]
+        default_vel = robot.data.default_joint_vel[env_ids]
+        robot.set_joint_position_target(default_pos, None, env_ids)
+        robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
+
+        self._map_manager.reset_costmaps(env_ids)  # clear costmaps on teleport to avoid stale obstacle data
+
+    def sample_task_on_reset(self, env_ids: torch.Tensor) -> None:
+        self.path_manager.sample_nav_task(env_ids)
 
     def manual_replan(self, env_ids: torch.Tensor) -> None:
         robot = self.scene["robot"]

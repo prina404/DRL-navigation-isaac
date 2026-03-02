@@ -174,7 +174,7 @@ class RewardsCfg:
     collision = RewTerm(
         func=rewards.penalty_collision_base,
         weight=1.0,
-        params={"force_thresh": 1.0, "penalty": -10.0},
+        params={"force_thresh": 1.0, "penalty": -5.0},
     )
 
     action_smoothness = RewTerm(
@@ -184,7 +184,7 @@ class RewardsCfg:
 
     time_penalty = RewTerm(
         func=rewards.time_penalty,
-        weight=0.3,
+        weight=1.0,
     )
 
     # obstacle_proximity = RewTerm(
@@ -201,10 +201,10 @@ class TerminationsCfg:
     # Since we are learning a local planner, we want to keep the episode lenght relatively short,
     # so we set a short spatial horizon where we terminate if the robot traversed 'max_distance' meters
     # of our global plan
-    distance_traveled = DoneTerm(
-        func=rewards.distance_traveled_termination,
-        params={"max_distance": 5.0},
-    )
+    # distance_traveled = DoneTerm(
+    #     func=rewards.distance_traveled_termination,
+    #     params={"max_distance": 5.0},
+    # )
 
     # If the global path is shorter than distance_traveled termination threshold,
     # we terminate on goal reached condition
@@ -238,8 +238,6 @@ class EventsCfg:
         func=events.randomize_door_positions,
         mode="reset",
     )
-
-    clear_costmaps = EventTermCfg(func=events.clear_costmaps_on_reset, mode="reset")
 
     replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
 

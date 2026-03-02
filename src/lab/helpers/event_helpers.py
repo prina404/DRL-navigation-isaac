@@ -1,27 +1,16 @@
 import omni.usd
 import torch
 import torch.distributions as distributions
-from isaaclab.assets.articulation.articulation import Articulation
 from pxr import Usd, UsdPhysics
 
 from lab.MyEnv import MyEnv
 
 
 def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
-    # on reset, sample new start positions,
+    # on reset, sample new start/goal positions,
+    env.sample_task_on_reset(env_ids)
     env.teleport_robots(env_ids)
-    env.compute_goals_on_reset(env_ids)
-
-    # Reset joints to default state after teleporting root poses.
-    robot: Articulation = env.scene["robot"]
-    default_pos = robot.data.default_joint_pos[env_ids]
-    default_vel = robot.data.default_joint_vel[env_ids]
-    robot.set_joint_position_target(default_pos, None, env_ids)
-    robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
-
-
-def clear_costmaps_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
-    env._map_manager.reset_costmaps(env_ids)
+    env.manual_replan(env_ids)
 
 
 def replan_global_plan(env: MyEnv, env_ids: torch.Tensor) -> None:
@@ -68,7 +57,7 @@ def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
         env_ns = "/World/envs/env_0"
         env.num_doors = len(_collect_door_prims(stage, env_ns))
 
-    door_positions = door_distribution(env.num_envs, env.num_doors, open_door_prob=0.7)
+    door_positions = door_distribution(env.num_envs, env.num_doors, open_door_prob=0.8)
 
     for env_id in env_ids.cpu().numpy():
         env_ns = f"/World/envs/env_{env_id}"

@@ -24,6 +24,8 @@ dependencies = [
     "efficientnet-pytorch",
     "warmup-scheduler",
     "kornia",
+    "ipywidgets",
+    "ipympl",
 ]
 
 [tool.setuptools]
