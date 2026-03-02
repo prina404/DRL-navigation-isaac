@@ -90,11 +90,16 @@ def is_hinge(prim: Usd.Prim) -> bool:
     return re.search(r"/door_\d+/physics_constraint_000[0-9][/]*$", prim.GetPath().pathString) is not None
 
 
+def is_doorsill(prim: Usd.Prim) -> bool:
+    # usually mesh_0017 is the doorsill, TODO: check if this applies to all doors
+    return re.search(r"/group_0000/mesh_0017[/]*$", prim.GetPath().pathString) is not None
+
+
 def _process_disabled_doors(root: Usd.Prim):
     for prim in Usd.PrimRange(root):
-        if not prim.IsValid() or not is_door_root_mesh_xform(prim):
+        if not prim.IsValid() or not is_door_root_mesh_xform(prim):  # or not is_doorsill(prim):
             continue
-        # prim is root door xform under /Meshes
+        # prim is root door xform under /Meshes, disable also doorsills to avoid collisions with invisible geometry
         physics.set_rigid_body_API(prim, False)  # disable rigid body API on root xform, making it static
         prim.SetActive(False)  # disable root xform, making it invisible and non-collidable
 
@@ -117,6 +122,11 @@ def _process_normal_doors(root: Usd.Prim):
             mc.GetApproximationAttr().Set(UsdPhysics.Tokens.convexDecomposition)
             last_frame_mesh = prim.GetAllChildren()[-1]
             last_frame_mesh.SetActive(False)  # last mesh in group is floor, and should not have collisions
+
+            doorsill = [mesh for mesh in prim.GetAllChildren() if is_doorsill(mesh)]
+            if len(doorsill) > 0:
+                doorsill[0].SetActive(False)  # disable doorsill mesh to avoid collisions with invisible geometry
+
             door_frame = prim
 
         elif is_door_body(prim):
