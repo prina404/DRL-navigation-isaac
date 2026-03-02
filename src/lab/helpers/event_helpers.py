@@ -1,6 +1,5 @@
 import omni.usd
 import torch
-import torch.distributions as distributions
 from pxr import Usd, UsdPhysics
 
 from lab.MyEnv import MyEnv
@@ -28,23 +27,18 @@ def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
     return joint_prims
 
 
-def door_distribution(num_envs: int, num_doors: int, open_door_prob: float) -> distributions.Distribution:
-    alpha = 1
-    beta = 15
-    closed_door_dist = distributions.Beta(alpha, beta)
+def door_distribution(num_envs: int, num_doors: int, p_open: float = 0.80, p_closed: float = 0.15) -> torch.Tensor:
+    randoms = torch.rand((num_envs, num_doors))
+    is_open = randoms < p_open
+    is_closed = (randoms >= p_open) & (randoms < p_open + p_closed)
+    is_half = randoms >= (p_open + p_closed)
 
-    sigma = 0.25
-    open_door_dist = distributions.HalfNormal(sigma)
+    door_positions = torch.empty((num_envs, num_doors), dtype=torch.float32)
+    door_positions[is_open] = 0.85 + 0.15 * torch.rand(is_open.sum())
+    door_positions[is_closed] = 0.0 + 0.15 * torch.rand(is_closed.sum())
+    door_positions[is_half] = 0.15 + 0.70 * torch.rand(is_half.sum())
+    return door_positions * 90.0  # scale to [0, 90] degrees
 
-    closed_value = closed_door_dist.sample((num_envs, num_doors)) * 90.0
-
-    open_angles_clamped = torch.clamp(open_door_dist.sample((num_envs, num_doors)), 0.0, 1.0)
-    open_value = (1 - open_angles_clamped) * 90.0
-
-    # sample from 'open' distribution with probability 'open_door_prob'
-    is_open = torch.bernoulli(torch.full((num_envs, num_doors), open_door_prob)).to(torch.bool)
-
-    return torch.where(is_open, open_value, closed_value)
 
 
 def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
@@ -57,7 +51,7 @@ def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
         env_ns = "/World/envs/env_0"
         env.num_doors = len(_collect_door_prims(stage, env_ns))
 
-    door_positions = door_distribution(env.num_envs, env.num_doors, open_door_prob=0.8)
+    door_positions = door_distribution(env.num_envs, env.num_doors, p_open=0.8)
 
     for env_id in env_ids.cpu().numpy():
         env_ns = f"/World/envs/env_{env_id}"
