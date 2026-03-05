@@ -54,6 +54,12 @@ class Go2SimCfg(InteractiveSceneCfg):
         track_air_time=False,
     )
 
+    hip_collision_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/.*_thigh_protector",
+        history_length=1,
+        track_air_time=False,
+    )
+
     # camera = TiledCameraCfg(
     #     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
     #     width=128,
@@ -68,7 +74,7 @@ class Go2SimCfg(InteractiveSceneCfg):
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
-        update_period=0.02,
+        update_period=0.05,  # 20Hz
         offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
         ray_alignment="yaw",
         pattern_cfg=patterns.LidarPatternCfg(
@@ -132,14 +138,14 @@ class ObservationsCfg:
 
     @configclass
     class GoalGroup(ObsGroup):
-        goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position)
+        goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position, params={"local_goal_points_forward": 4})
 
     action_buffer = ActionGroup()
     velocity_buffer = VelocityGroup()
-    goal_relative_pos = GoalGroup()
+    # goal_relative_pos = GoalGroup()
     # vision = VisionGroup()
     lidar = LidarGroup()
-    # global_plan = GlobalPlanGroup()
+    global_plan = GlobalPlanGroup()
 
 
 @configclass
@@ -201,10 +207,10 @@ class TerminationsCfg:
     # Since we are learning a local planner, we want to keep the episode lenght relatively short,
     # so we set a short spatial horizon where we terminate if the robot traversed 'max_distance' meters
     # of our global plan
-    # distance_traveled = DoneTerm(
-    #     func=rewards.distance_traveled_termination,
-    #     params={"max_distance": 5.0},
-    # )
+    distance_traveled = DoneTerm(
+        func=rewards.distance_traveled_termination,
+        params={"max_distance": 5.0},
+    )
 
     # If the global path is shorter than distance_traveled termination threshold,
     # we terminate on goal reached condition

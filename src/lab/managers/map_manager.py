@@ -78,7 +78,7 @@ class MapManager:
         dist_transform = kornia.distance_transform((binary_img).float(), h=0.5)
         costmap = torch.clamp(torch.max(dist_transform) - (dist_transform * inflation_scale), min=0, max=255)
         max_value = costmap.max()
-        costmap[costmap >= max_value] = float("inf")
+        costmap[costmap >= max_value - 1] = float("inf")  # use max_value - n to introduce and solid "inflation" around obstacles
         return costmap + 1.0  # min_cost = 1.0 for A*
 
     def reset_costmaps(self, env_ids: torch.Tensor):

@@ -18,12 +18,13 @@ def dist_to_goal_xy(env: MyEnv) -> torch.Tensor:
 
 def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> torch.Tensor:
     dist_to_goal = dist_to_goal_xy(env)
-    return dist_to_goal < threshold_m
+    path_len = env.path_manager.current_path_length - env.path_manager.point_dist
+    return (dist_to_goal < threshold_m) | (path_len < threshold_m)
 
 
 def distance_traveled_termination(env: MyEnv, max_distance: float = 5.0) -> torch.Tensor:
-    res = env.path_manager.initial_path_length - env.path_manager.current_path_length >= max_distance
-    return res
+    traveled_dist = env.path_manager.initial_path_length - env.path_manager.current_path_length
+    return traveled_dist >= max_distance
 
 
 def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
@@ -55,9 +56,15 @@ def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2)
 
 
 def penalty_collision_base(env: MyEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> torch.Tensor:
-    sensor = env.scene["body_collision_sensor"]
-    forces = sensor.data.net_forces_w  # (N, bodies, 3)
-    magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
+    base_sensor = env.scene["body_collision_sensor"]
+    base_forces = base_sensor.data.net_forces_w  # (N, bodies, 3)
+    base_magnitude = torch.linalg.norm(base_forces, dim=-1).max(dim=-1).values
+
+    hip_sensor = env.scene["hip_collision_sensor"]
+    hip_forces = hip_sensor.data.net_forces_w  # (N, bodies, 3)
+    hip_magnitude = torch.linalg.norm(hip_forces, dim=-1).max(dim=-1).values
+
+    magnitude = torch.max(base_magnitude, hip_magnitude)
     return torch.where(magnitude > force_thresh, torch.full_like(magnitude, penalty), torch.zeros_like(magnitude))
 
 

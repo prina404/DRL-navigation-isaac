@@ -84,4 +84,4 @@ class Go2MPCPolicyAction(ActionTerm):
         robot.set_joint_position_target(q_des)
 
     def nominal_action(self) -> torch.Tensor:
-        return get_goal_relative_position(self._env)
+        return get_goal_relative_position(self._env, local_goal_points_forward=4)

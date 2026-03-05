@@ -5,7 +5,6 @@ from pathlib import Path
 import torch
 import yaml
 from isaaclab.utils.math import quat_from_euler_xyz
-from loguru import logger
 
 import pyastar2d
 from lab.managers.map_manager import MapManager
@@ -62,7 +61,7 @@ class PathManager:
     def sample_node_ids(self, num_samples: int) -> torch.Tensor:
         return torch.randint(0, self.nodes.shape[0], (num_samples,), device=self.device)
 
-    def sample_nav_task(self, env_ids: torch.Tensor, use_voronoi: bool = False) -> None:
+    def sample_nav_task(self, env_ids: torch.Tensor, use_voronoi: bool = True) -> None:
         # TODO: add distance_based sampling. For the time being,
         # just select a random node and navigate towards it
         for id in env_ids:
@@ -100,7 +99,6 @@ class PathManager:
             raise ValueError("No manual task file found for this scene!, create it with the task-annotator tool")
         pair_list = self.manual_tasks["pairs"]
         pair = random.choice(pair_list)
-        logger.debug(f"Sampled {pair}")
 
         start, goal = pair["start"], pair["goal"]
 
@@ -148,6 +146,7 @@ class PathManager:
                 if self.path_tensors[env_id] is None:  # set to current location
                     robot_pos_local = self.map_to_local_coords(robot_map_coords[idx].unsqueeze(0))
                     self.path_tensors[env_id] = robot_pos_local
+                    self.current_path_length[env_id] = 0.0
                 continue
 
             path_subsampled = path[:: int(self.point_dist / self.map_manager.resolution)]

@@ -177,7 +177,6 @@ def get_path_obs(
     env: RslRlVecEnvWrapper,
     num_points_forward: int,
     normalize: bool = True,
-    debug_vis: bool = False,
 ) -> torch.Tensor:
     env: MyEnv = env.unwrapped
     if getattr(env, "path_manager", None) is None:  # this is needed because this is called before env is fully initialized
@@ -201,7 +200,7 @@ def get_path_obs(
     headings = -wrap_to_pi(path_angles - robot_yaw.unsqueeze(1))  # (B, num_points_forward)
 
     if normalize:
-        max_horizon_dist = 2  # horizon distance for normalization (in m)
+        max_horizon_dist = num_points_forward * 0.3  # horizon distance for normalization (in m)
         path_distances = torch.clamp(path_distances / max_horizon_dist, 0.0, 1.0)
         headings = (headings + math.pi) / (2 * math.pi)  # normalize yaw to [0, 1]
 
@@ -222,7 +221,7 @@ def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
     return env._velocity_buffer.reshape(env.num_envs, -1)
 
 
-def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
+def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv, local_goal_points_forward: int) -> torch.Tensor:
     # same logic as in the nominal action computation
     if isinstance(env, RslRlVecEnvWrapper):
         env: MyEnv = env.unwrapped
@@ -239,7 +238,7 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv) -> torch.Tensor:
             goal_pos_local[i] = robot_pos_local[i]  # if no path, set current pos as goal
             continue
         closest = torch.argmin(torch.norm(path - robot_pos_local[i], dim=-1))
-        forward_point = path[closest : closest + 4][-1]  # last point in my horizon
+        forward_point = path[closest : closest + local_goal_points_forward][-1]  # last point in my horizon
         goal_pos_local[i] = forward_point
 
     goal_pos_w = goal_pos_local + env.scene.env_origins[:, :2]  # (B, 2)

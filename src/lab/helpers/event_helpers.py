@@ -28,6 +28,8 @@ def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
 
 
 def door_distribution(num_envs: int, num_doors: int, p_open: float = 0.80, p_closed: float = 0.15) -> torch.Tensor:
+    assert p_open + p_closed <= 1.0, "Probabilities must sum to 1 or less"
+
     randoms = torch.rand((num_envs, num_doors))
     is_open = randoms < p_open
     is_closed = (randoms >= p_open) & (randoms < p_open + p_closed)
@@ -40,7 +42,6 @@ def door_distribution(num_envs: int, num_doors: int, p_open: float = 0.80, p_clo
     return door_positions * 90.0  # scale to [0, 90] degrees
 
 
-
 def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
     stage = omni.usd.get_context().get_stage()
 
@@ -51,7 +52,7 @@ def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
         env_ns = "/World/envs/env_0"
         env.num_doors = len(_collect_door_prims(stage, env_ns))
 
-    door_positions = door_distribution(env.num_envs, env.num_doors, p_open=0.8)
+    door_positions = door_distribution(env.num_envs, env.num_doors, p_open=0.8, p_closed=0.15)
 
     for env_id in env_ids.cpu().numpy():
         env_ns = f"/World/envs/env_{env_id}"
