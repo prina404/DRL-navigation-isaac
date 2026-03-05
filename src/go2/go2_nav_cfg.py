@@ -11,8 +11,8 @@ go2_policy_cfg = {
     "empirical_normalization": False,
     # Observation routing
     "obs_groups": {
-        "policy": ["velocity_buffer", "action_buffer", "goal_relative_pos", "lidar"],
-        "critic": ["velocity_buffer", "action_buffer", "goal_relative_pos", "lidar"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
     },
     # Policy architecture
     "policy": {
@@ -25,7 +25,8 @@ go2_policy_cfg = {
         "encoders_hidden_dims": {
             "velocity_buffer": [128, 128],
             "action_buffer": [128, 128],
-            "goal_relative_pos": [128, 128],
+            # "goal_relative_pos": [128, 128],
+            "global_plan": [128, 128],
             "lidar": [128, 256],
         },
     },
@@ -46,5 +47,5 @@ go2_policy_cfg = {
         "max_grad_norm": 1.0,
     },
     "load_run": "unitree_go2_nav",
-    "load_checkpoint": "linear_attractor_simple.pt",
+    "load_checkpoint": "short_horizon.pt",
 }

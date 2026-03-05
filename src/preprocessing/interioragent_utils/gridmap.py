@@ -66,7 +66,7 @@ def _get_omap_generator(
     center_coord: Float2 = Float2(0, 0),
     scan_height_range: tuple = (
         0.1,
-        0.4,
+        0.5,
     ),  # Should be set to the height range occupied by the robot
     resolution: float = 0.05,
 ) -> _omap.Generator:

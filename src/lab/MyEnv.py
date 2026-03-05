@@ -87,6 +87,7 @@ class MyEnv(ManagerBasedRLEnv):
         robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
 
         self._map_manager.reset_costmaps(env_ids)  # clear costmaps on teleport to avoid stale obstacle data
+        self.update_follow_camera(smoothing=1.0)  # snap camera to new position on reset
 
     def sample_task_on_reset(self, env_ids: torch.Tensor) -> None:
         self.path_manager.sample_nav_task(env_ids)
@@ -102,8 +103,8 @@ class MyEnv(ManagerBasedRLEnv):
         lidar = self.scene.sensors["lidar"]
         self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
 
-    def update_follow_camera(self):
+    def update_follow_camera(self, smoothing: float = 0.3):
         robot_pos = self.scene["robot"].data.root_pos_w[0]
         robot_quat = self.scene["robot"].data.root_quat_w[0]
 
-        self.camera_manager.update(robot_pos, robot_quat, smoothing_factor=0.3)
+        self.camera_manager.update(robot_pos, robot_quat, smoothing_factor=smoothing)
