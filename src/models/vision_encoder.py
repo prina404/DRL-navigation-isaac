@@ -53,6 +53,24 @@ class ViNTVisionEncoder(nn.Module):
         return obs_encoding
 
 
+class DepthResNetEncoder(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        self.resnet = None
+        self.device = device
+
+    def _ensure_model(self):
+        if self.resnet is None:
+            self.resnet = torch.hub.load("leggedrobotics/defm:main", "defm_resnet18", pretrained=True)
+            self.resnet.eval().to(self.device)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        self._ensure_model()
+        # x is expected to be (B, 1, H, W) normalized depth batch
+        embedding = self.resnet.forward_no_bifpn(x)["global_backbone"]
+        return embedding
+
+
 if __name__ == "__main__":
     encoder = ViNTVisionEncoder()
     sample_input = torch.randn((2, 3, 224, 224))  # batch of 2 RGB images of size 224x224

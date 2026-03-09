@@ -12,8 +12,9 @@ from isaaclab.utils.math import (
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
 from cfg.CFG import DEVICE
+from defm.utils import preprocess_depth_batch
 from lab.MyEnv import MyEnv
-from models.vision_encoder import ViNTVisionEncoder, ViTEncoder
+from models.vision_encoder import DepthResNetEncoder, ViNTVisionEncoder, ViTEncoder
 
 
 class VisionEncoder:
@@ -35,6 +36,31 @@ class VisionEncoder:
         embedding = self.encoder(rgb)
         if self.normalize:
             embedding = torch.sigmoid(embedding)
+        return embedding
+
+
+class DepthEncoder:
+    def __init__(self, encoder: Literal["resnet"], device=DEVICE):
+        # TODO: support more models, right now, only resnets are supported
+        if encoder == "resnet":
+            self.model = DepthResNetEncoder(device=device)
+        elif encoder == "vit":
+            raise NotImplementedError("ViT depth encoder not implemented yet")
+        else:
+            raise ValueError(f"Unknown encoder type: {encoder}")
+        self.device = device
+
+    @torch.no_grad()
+    def __call__(self, env: RslRlVecEnvWrapper) -> torch.Tensor:
+        cam = env.scene["camera"]
+        depth = cam.data.output["depth"]  # (B, H, W, 1)
+        depth = depth.permute(0, 3, 1, 2)  # (B, 1, H, W)
+
+        normalized_depth = preprocess_depth_batch(depth, target_size=768, device=self.device)
+        embedding = self.model(normalized_depth)
+        from loguru import logger
+
+        logger.debug(f"Depth_data = {depth[0]}")
         return embedding
 
 

@@ -68,7 +68,7 @@ class Go2SimCfg(InteractiveSceneCfg):
     #         pos=(0.4, 0.0, 0.0),
     #         convention="world",
     #     ),
-    #     data_types=["rgb"],
+    #     data_types=["rgb", "depth"],
     #     spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
     # )
 
@@ -123,8 +123,16 @@ class ObservationsCfg:
         vision = ObsTerm(func=observations.VisionEncoder(encoder="vit"))
 
     @configclass
+    class DepthGroup(ObsGroup):
+        depth = ObsTerm(func=observations.DepthEncoder(encoder="resnet"))
+
+    @configclass
     class LidarGroup(ObsGroup):
         lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 64})
+
+    @configclass
+    class GoalGroup(ObsGroup):
+        goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position, params={"local_goal_points_forward": 4})
 
     @configclass
     class GlobalPlanGroup(ObsGroup):
@@ -136,16 +144,18 @@ class ObservationsCfg:
             },
         )
 
-    @configclass
-    class GoalGroup(ObsGroup):
-        goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position, params={"local_goal_points_forward": 4})
-
+    # Past data
     action_buffer = ActionGroup()
     velocity_buffer = VelocityGroup()
-    # goal_relative_pos = GoalGroup()
+
+    # Camera data
     # vision = VisionGroup()
+    # depth = DepthGroup()
+
+    # 2D lidar + plan information
     lidar = LidarGroup()
     global_plan = GlobalPlanGroup()
+    # goal_relative_pos = GoalGroup()
 
 
 @configclass
