@@ -107,7 +107,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="lab.MyEnv:MyEnv" if not args_cli.debug_vis else "lab.MyEnvDebuggingVis:MyEnvDebuggingVis",
         disable_env_checker=True,
-        kwargs={"scene_path": SCENE_USD_PATH},
+        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": False},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -153,7 +153,7 @@ def run_simulator(cfg: DictConfig):
             go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
         ),
     )
-    # ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
+    ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
     env.close()
 
 

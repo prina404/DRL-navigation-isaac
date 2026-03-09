@@ -1,11 +1,11 @@
 import argparse
 import sys
 
+import torch
+import tqdm
 from isaaclab.app import AppLauncher
 
 from cfg.CFG import SCENE_USD_PATH
-import torch
-import tqdm
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
@@ -45,7 +45,7 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_argv = parser.parse_known_args()
 args_cli.enable_cameras = True  # always true for go2 cfg
 
-args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx" 
+args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx"
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -57,7 +57,6 @@ from datetime import datetime
 
 import gymnasium as gym
 import hydra
-from dotenv import load_dotenv
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
@@ -102,7 +101,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="lab.MyEnv:MyEnv" if not args_cli.debug_vis else "lab.MyEnvDebuggingVis:MyEnvDebuggingVis",
         disable_env_checker=True,
-        kwargs={"scene_path": SCENE_USD_PATH},
+        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": True},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -141,10 +140,9 @@ def run_simulator(cfg: DictConfig):
 
     policy = ppo_runner.get_inference_policy(env.device)
 
-
     termination_rates = []
-    collisions = [] # track average num of collisions per episode
-    
+    collisions = []  # track average num of collisions per episode
+
     for iteration in tqdm.tqdm(range(args_cli.max_iterations), desc="Evaluating policy"):
         obs, _ = env.reset()
         total_collisions = 0
@@ -162,15 +160,16 @@ def run_simulator(cfg: DictConfig):
             collision_tensor = magnitude > 1.0
             total_collisions += collision_tensor.sum().cpu()
 
-        
         num_timeout = info["time_outs"].sum()
         num_env_terminated = terminated.sum() - num_timeout
-        termination_rates.append(num_env_terminated / cfg.num_envs)
+        termination_rates.append(num_env_terminated / env.num_envs)
 
-        collisions.append(total_collisions.item() / cfg.num_envs)
+        collisions.append(total_collisions.item() / env.num_envs)
     env.close()
 
-    logger.info(f"Average termination rate over {args_cli.max_iterations} episodes: {sum(termination_rates) / len(termination_rates):.3f}")
+    logger.info(
+        f"Average termination rate over {args_cli.max_iterations} episodes: {sum(termination_rates) / len(termination_rates):.3f}"
+    )
     logger.info(f"Average collisions per episode: {sum(collisions) / len(collisions):.3f}")
 
 

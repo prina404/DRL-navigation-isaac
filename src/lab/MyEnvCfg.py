@@ -2,7 +2,7 @@ import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
-from isaaclab.managers import ActionTermCfg
+from isaaclab.managers import ActionTermCfg, CurriculumTermCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
@@ -179,7 +179,7 @@ class RewardsCfg:
 
     collision = RewTerm(
         func=rewards.penalty_collision_base,
-        weight=1.0,
+        weight=0.5,
         params={"force_thresh": 1.0, "penalty": -5.0},
     )
 
@@ -249,6 +249,36 @@ class EventsCfg:
 
 
 @configclass
+class CurriculumCfg:
+    obstacle_01 = CurriculumTermCfg(
+        func=mdp.modify_reward_weight,
+        params={
+            "term_name": "collision",
+            "weight": 1.0,
+            "num_steps": 187 * 75,  # After 75 episodes increase collision penalty to 1.0
+        },
+    )
+
+    obstacle_02 = CurriculumTermCfg(
+        func=mdp.modify_reward_weight,
+        params={
+            "term_name": "collision",
+            "weight": 2.0,
+            "num_steps": 187 * 150,  # After 150 episodes increase collision penalty to 2.0
+        },
+    )
+
+    obstacle_03 = CurriculumTermCfg(
+        func=mdp.modify_reward_weight,
+        params={
+            "term_name": "collision",
+            "weight": 4.0,
+            "num_steps": 187 * 250,  # After 250 episodes increase collision penalty to 4.0
+        },
+    )
+
+
+@configclass
 class Go2EnvCfg(ManagerBasedRLEnvCfg):
 
     scene = Go2SimCfg(num_envs=1, env_spacing=18.0)
@@ -258,6 +288,7 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
     rewards = RewardsCfg()
     terminations = TerminationsCfg()
     events = EventsCfg()
+    curriculum = CurriculumCfg()
 
     def __post_init__(self) -> None:
         self.sim.dt = 0.005

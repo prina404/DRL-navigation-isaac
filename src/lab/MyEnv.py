@@ -42,6 +42,8 @@ class MyEnv(ManagerBasedRLEnv):
             camera_lookat=torch.tensor([1.7, 0.0, -0.8]),
         )
 
+        self.sample_voronoi = kwargs.get("use_long_horizon", False)
+
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         if "log" in self.extras:  # Fixes wrong logging of rewards and dones in the first step after reset
             self.extras.pop("log", None)
@@ -90,7 +92,7 @@ class MyEnv(ManagerBasedRLEnv):
         self.update_follow_camera(smoothing=1.0)  # snap camera to new position on reset
 
     def sample_task_on_reset(self, env_ids: torch.Tensor) -> None:
-        self.path_manager.sample_nav_task(env_ids)
+        self.path_manager.sample_nav_task(env_ids, use_voronoi=self.sample_voronoi)
 
     def manual_replan(self, env_ids: torch.Tensor) -> None:
         robot = self.scene["robot"]
