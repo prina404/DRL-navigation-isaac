@@ -5,14 +5,14 @@ from models.policy_model import ActorCriticWithEncoders
 go2_policy_cfg = {
     # Training loop parameters
     "num_steps_per_env": math.ceil((15 / (16 * 0.005))),  # 15 seconds per episode, converted to steps (with decimation)
-    "save_interval": 100,
+    "save_interval": 50,  # Save a checkpoint every 50 iterations
     "max_iterations": 1000,
     "device": "cuda:0",
     "empirical_normalization": False,
     # Observation routing
     "obs_groups": {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],  # "depth"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],  # "depth"],
     },
     # Policy architecture
     "policy": {
@@ -27,7 +27,6 @@ go2_policy_cfg = {
             "action_buffer": [128, 128],
             # "goal_relative_pos": [128, 128],
             "global_plan": [128, 128],
-            "lidar": [128, 256],
         },
     },
     # PPO algorithm parameters

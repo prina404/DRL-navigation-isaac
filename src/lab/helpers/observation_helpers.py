@@ -99,15 +99,15 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
 
     # Voxelize pointcloud
 
-    VOXEL_SIZE = 0.1  # 16k voxels
-    VOLUME_DIMS = torch.tensor((4, 4, 1), device=env.device, dtype=torch.float32)
+    VOXEL_SIZE = 0.05  # 64k voxels
+    VOLUME_DIMS = torch.tensor((4, 4, 0.5), device=env.device, dtype=torch.float32)
     MAX_POINT_DIST = torch.norm(VOLUME_DIMS)
 
     origin = torch.tensor(
         [
             VOLUME_DIMS[0] / 2,
             VOLUME_DIMS[1] / 2,
-            0.5,
+            0.0,
         ],
         device=env.device,
     )

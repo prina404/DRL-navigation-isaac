@@ -128,7 +128,7 @@ class ObservationsCfg:
 
     @configclass
     class LidarGroup(ObsGroup):
-        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 64})
+        lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 256})
 
     @configclass
     class GoalGroup(ObsGroup):
