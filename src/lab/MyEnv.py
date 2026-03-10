@@ -89,7 +89,9 @@ class MyEnv(ManagerBasedRLEnv):
         robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
 
         self._map_manager.reset_costmaps(env_ids)  # clear costmaps on teleport to avoid stale obstacle data
-        self.update_follow_camera(smoothing=1.0)  # snap camera to new position on reset
+
+        if env_ids[0] == 0:  # only update camera on the first env for now
+            self.update_follow_camera(smoothing=1.0)  # snap camera to new position on reset
 
     def sample_task_on_reset(self, env_ids: torch.Tensor) -> None:
         self.path_manager.sample_nav_task(env_ids, use_voronoi=self.sample_voronoi)
