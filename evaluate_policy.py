@@ -101,7 +101,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="lab.MyEnv:MyEnv" if not args_cli.debug_vis else "lab.MyEnvDebuggingVis:MyEnvDebuggingVis",
         disable_env_checker=True,
-        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": True},
+        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": True, "sample_voronoi": False},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -157,7 +157,7 @@ def run_simulator(cfg: DictConfig):
             sensor = env.unwrapped.scene["body_collision_sensor"]
             forces = sensor.data.net_forces_w  # (N, bodies, 3)
             magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
-            collision_tensor = magnitude > 1.0
+            collision_tensor = magnitude > 2.0
             total_collisions += collision_tensor.sum().cpu()
 
         num_timeout = info["time_outs"].sum()

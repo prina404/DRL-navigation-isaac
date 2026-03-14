@@ -3,6 +3,7 @@ import torch
 from isaaclab.assets.articulation import Articulation
 from isaaclab.managers import SceneEntityCfg
 
+import lab.helpers.termination_helpers as termination
 from lab.helpers.observation_helpers import get_lidar, get_path_obs
 from lab.MyEnv import MyEnv
 
@@ -19,12 +20,10 @@ def dist_to_goal_xy(env: MyEnv) -> torch.Tensor:
 def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> torch.Tensor:
     dist_to_goal = dist_to_goal_xy(env)
     path_len = env.path_manager.current_path_length - env.path_manager.point_dist
-    return (dist_to_goal < threshold_m) | (path_len < threshold_m)
-
-
-def distance_traveled_termination(env: MyEnv, max_distance: float = 5.0) -> torch.Tensor:
-    traveled_dist = env.path_manager.initial_path_length - env.path_manager.current_path_length
-    return traveled_dist >= max_distance
+    result = (dist_to_goal < threshold_m) | (path_len < threshold_m)
+    if env.long_horizon is False:
+        result = result | termination.distance_traveled_termination(env)
+    return result
 
 
 def reward_distance_to_goal(env: MyEnv) -> torch.Tensor:
@@ -55,7 +54,7 @@ def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2)
     )
 
 
-def penalty_collision_base(env: MyEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> torch.Tensor:
+def has_collided(env: MyEnv, force_thresh: float = 3.0) -> torch.Tensor:
     base_sensor = env.scene["body_collision_sensor"]
     base_forces = base_sensor.data.net_forces_w  # (N, bodies, 3)
     base_magnitude = torch.linalg.norm(base_forces, dim=-1).max(dim=-1).values
@@ -65,7 +64,13 @@ def penalty_collision_base(env: MyEnv, force_thresh: float = 3.0, penalty: float
     hip_magnitude = torch.linalg.norm(hip_forces, dim=-1).max(dim=-1).values
 
     magnitude = torch.max(base_magnitude, hip_magnitude)
-    return torch.where(magnitude > force_thresh, torch.full_like(magnitude, penalty), torch.zeros_like(magnitude))
+    return magnitude > force_thresh
+
+
+def penalty_collision_base(env: MyEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> torch.Tensor:
+    # boolean tensor indicating whether a collision has occurred
+    collisions = has_collided(env, force_thresh)
+    return collisions.to(torch.float32) * penalty
 
 
 def penalty_obstacle_proximity(env: MyEnv, max_penalty: float = -2.0) -> torch.Tensor:
@@ -79,9 +84,11 @@ def robot_heading_reward(env: MyEnv) -> torch.Tensor:
     # We compute the alignment wrt to the direction of the last point of the path in hour horizon.
     obs_tensor = get_path_obs(env, num_points_forward=10, normalize=True)  # (B, 20)
     headings = obs_tensor[:, 10:]  # (B, 10)
-    next_heading = headings[:, 2]  # I extract the heading of 2nd point forward (approx 60cm ahead)
+    next_heading = headings[:, 3]  # I extract the heading of 3rd point forward (approx 90cm ahead)
     # if next_heading == 0.5 -> robot is facing the correct direction. Max reward.
     heading_delta = torch.abs(0.5 - next_heading)
+    # from loguru import logger
+    # logger.debug(f"Heading reward: {1.0 - heading_delta[0].cpu().item() * 2.:.2f}")
     return 1.0 - heading_delta * 2.0  # normalize to [0, 1], 1 = perfect alignment, 0 = opposite direction
 
 
@@ -94,3 +101,11 @@ def action_smoothness_penalty(env: MyEnv) -> torch.Tensor:
 def time_penalty(env: MyEnv) -> torch.Tensor:
     # Small penalty at each timestep to encourage faster completion
     return -1.0
+
+
+def collision_after_threshold_reward(env: MyEnv, penalty: float = -20.0) -> torch.Tensor:
+    return torch.where(
+        termination.collision_after_threshold_termination(env),
+        torch.full((env.num_envs,), penalty, device=env.device),
+        torch.zeros((env.num_envs,), device=env.device),
+    )

@@ -5,10 +5,11 @@ from isaaclab.managers import ActionTerm, SceneEntityCfg
 from rsl_rl.modules import ActorCritic
 
 from lab.helpers.observation_helpers import get_goal_relative_position
+from lab.MyEnv import MyEnv
 
 
 class Go2MPCPolicyAction(ActionTerm):
-    def __init__(self, cfg, env):
+    def __init__(self, cfg, env: MyEnv):
         super().__init__(cfg, env)
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
         self.null_cmd = torch.zeros((self.num_envs, 3), device=self.device)
@@ -47,7 +48,7 @@ class Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self.nominal_action() + self._last_action_received
+        base_vel_cmd = self._last_action_received + self.nominal_action()
         # logger.debug(f"Nominal action: {self.nominal_action()[0]}")
         # logger.debug(f"Policy command: {self._last_action_received[0]}")
         # logger.debug(f"Final cmd (nominal + action): {base_vel_cmd[0]}")
@@ -84,4 +85,9 @@ class Go2MPCPolicyAction(ActionTerm):
         robot.set_joint_position_target(q_des)
 
     def nominal_action(self) -> torch.Tensor:
-        return get_goal_relative_position(self._env, local_goal_points_forward=4)
+        if not hasattr(self._env, "nominal_weight"):
+            weight = 0.0
+        else:
+            weight = self._env.nominal_weight
+
+        return weight * get_goal_relative_position(self._env, local_goal_points_forward=4)

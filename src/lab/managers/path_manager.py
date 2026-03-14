@@ -49,6 +49,9 @@ class PathManager:
         self.initial_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
         self.current_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
 
+        # store duration of each episode (in steps)
+        self.duration_history = torch.zeros((num_envs, 20), dtype=torch.float32, device=device)
+
         # A* threads
         self._executor = ThreadPoolExecutor(max_workers=16)
 
@@ -77,6 +80,11 @@ class PathManager:
         # set length buffers to minimum on reset, they will be updated together with the global plan
         self.initial_path_length[env_ids] = self.point_dist
         self.current_path_length[env_ids] = self.point_dist
+
+    def update_episode_durations(self, env_ids: torch.Tensor, ep_length: torch.Tensor) -> None:
+        self.duration_history[env_ids] = self.duration_history[env_ids].roll(shifts=1, dims=1)
+        normalized_durations = ep_length.to(torch.float32) / self.initial_path_length[env_ids]  # normalize by initial path length
+        self.duration_history[env_ids, 0] = normalized_durations
 
     def sample_voronoi_task(self, env_id: int) -> tuple[torch.Tensor, torch.Tensor]:
         random_node = random.randint(0, self.nodes.shape[0] - 1)
@@ -146,7 +154,7 @@ class PathManager:
                 if self.path_tensors[env_id] is None:  # set to current location
                     robot_pos_local = self.map_to_local_coords(robot_map_coords[idx].unsqueeze(0))
                     self.path_tensors[env_id] = robot_pos_local
-                    self.current_path_length[env_id] = 0.0
+                    self.current_path_length[env_id] = 0.0  # reset
                 continue
 
             path_subsampled = path[:: int(self.point_dist / self.map_manager.resolution)]

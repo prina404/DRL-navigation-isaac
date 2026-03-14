@@ -38,11 +38,14 @@ class MyEnv(ManagerBasedRLEnv):
         camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
         self.camera_manager = CameraManager(
             camera_controller,
-            camera_relative_pos=torch.tensor([-0.8, 0.0, 0.6]),
-            camera_lookat=torch.tensor([1.7, 0.0, -0.8]),
+            camera_relative_pos=torch.tensor([-0.6, 0.0, 0.8]),
+            camera_lookat=torch.tensor([1.6, 0.0, -1.0]),
         )
 
-        self.sample_voronoi = kwargs.get("use_long_horizon", False)
+        self.long_horizon = kwargs.get("use_long_horizon", False)
+        self.sample_voronoi = kwargs.get("sample_voronoi", False)
+        self.collision_termination_thresh = 1.0
+        self.nominal_weight = 0.0  # scale for nominal action
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         if "log" in self.extras:  # Fixes wrong logging of rewards and dones in the first step after reset

@@ -22,9 +22,11 @@ from isaaclab.utils import configclass
 from loguru import logger
 
 import lab.helpers.action_helpers as actions
+import lab.helpers.curriculum_helpers as curriculum
 import lab.helpers.event_helpers as events
 import lab.helpers.observation_helpers as observations
 import lab.helpers.reward_helpers as rewards
+import lab.helpers.termination_helpers as termination
 from cfg.CFG import SCENE_USD_PATH
 from go2.go2_articulation_cfg import UNITREE_GO2_CFG
 
@@ -168,28 +170,17 @@ class ActionsCfg:
 
 @configclass
 class RewardsCfg:
-    # goal_reached = RewTerm(
-    #     func=rewards.is_goal_reached,
-    #     weight=50.0,
-    #     params={"threshold_m": 0.3},
-    # )
+    goal_reached = RewTerm(
+        func=rewards.is_goal_reached,
+        weight=200.0,
+        params={"threshold_m": 0.3},
+    )
 
-    # distance_to_goal = RewTerm(
-    #     func=rewards.reward_distance_to_goal,
-    #     weight=1.0,
-    # )
-
-    # penalty_still = RewTerm(
-    #     func=rewards.penalty_still,
-    #     weight=0.5,
-    #     params={"speed_thresh": 0.2, "penalty": -0.1},
-    # )
-
-    heading = RewTerm(func=rewards.robot_heading_reward, weight=0.5)
+    heading = RewTerm(func=rewards.robot_heading_reward, weight=1.0)
 
     collision = RewTerm(
         func=rewards.penalty_collision_base,
-        weight=0.5,
+        weight=0.2,
         params={"force_thresh": 1.0, "penalty": -5.0},
     )
 
@@ -198,10 +189,16 @@ class RewardsCfg:
         weight=1.0,
     )
 
-    time_penalty = RewTerm(
-        func=rewards.time_penalty,
+    collision_after_threshold = RewTerm(
+        func=rewards.collision_after_threshold_reward,
         weight=1.0,
+        params={"penalty": -10.0},
     )
+
+    # time_penalty = RewTerm(
+    #     func=rewards.time_penalty,
+    #     weight=1.0,
+    # )
 
     # obstacle_proximity = RewTerm(
     #     func=rewards.penalty_obstacle_proximity,
@@ -214,14 +211,6 @@ class RewardsCfg:
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
-    # Since we are learning a local planner, we want to keep the episode lenght relatively short,
-    # so we set a short spatial horizon where we terminate if the robot traversed 'max_distance' meters
-    # of our global plan
-    distance_traveled = DoneTerm(
-        func=rewards.distance_traveled_termination,
-        params={"max_distance": 5.0},
-    )
-
     # If the global path is shorter than distance_traveled termination threshold,
     # we terminate on goal reached condition
     goal_reached = DoneTerm(
@@ -233,6 +222,8 @@ class TerminationsCfg:
         func=mdp.time_out,
         # time_out=True,
     )
+
+    collision_after_threshold = DoneTerm(func=termination.collision_after_threshold_termination)
 
 
 @configclass
@@ -260,31 +251,22 @@ class EventsCfg:
 
 @configclass
 class CurriculumCfg:
-    obstacle_01 = CurriculumTermCfg(
-        func=mdp.modify_reward_weight,
+    obstacle_weight = CurriculumTermCfg(
+        func=curriculum.update_collision_weight,
         params={
             "term_name": "collision",
-            "weight": 1.0,
-            "num_steps": 187 * 75,  # After 75 episodes increase collision penalty to 1.0
+            "weight_step_size": 0.1,
+            "max_weight": 8.0,
         },
     )
 
-    obstacle_02 = CurriculumTermCfg(
-        func=mdp.modify_reward_weight,
-        params={
-            "term_name": "collision",
-            "weight": 2.0,
-            "num_steps": 187 * 150,  # After 150 episodes increase collision penalty to 2.0
-        },
+    collision_thresh = CurriculumTermCfg(
+        func=curriculum.collision_termination_threshold,
     )
 
-    obstacle_03 = CurriculumTermCfg(
-        func=mdp.modify_reward_weight,
-        params={
-            "term_name": "collision",
-            "weight": 4.0,
-            "num_steps": 187 * 250,  # After 250 episodes increase collision penalty to 4.0
-        },
+    nominal_weight = CurriculumTermCfg(
+        func=curriculum.nominal_policy_weight,
+        params={"max_step": 150 * 300},  # after ~150 episodes, nominal policy weight is zero
     )
 
 
