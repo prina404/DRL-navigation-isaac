@@ -84,18 +84,29 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
     robot_pos = lidar.data.pos_w  # (B, 3)
 
     scan_w: torch.Tensor = lidar.data.ray_hits_w  # (B, N_rays, 3)
-    scan = scan_w - robot_pos.unsqueeze(1)  # (B, N_rays, 3) in robot frame
+    scan = scan_w - robot_pos.unsqueeze(1)  # (B, N_rays, 3) relative vec in world frame
 
     B, N_rays, _ = scan.shape
 
+    # Sensor yaw (keep existing convention: invert lidar direction)
+    _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1) or (B,)
+    sensor_yaw = robot_yaw.squeeze(-1) + math.pi      # (B,)
+
+    # Rotate relative hit vectors from world into sensor-yaw frame for voxelization
+    # world->local inverse yaw rotation
+    cos_yaw = torch.cos(sensor_yaw).unsqueeze(1)  # (B, 1)
+    sin_yaw = torch.sin(sensor_yaw).unsqueeze(1)  # (B, 1)
+    scan_local = torch.empty_like(scan)
+    scan_local[..., 0] = cos_yaw * scan[..., 0] + sin_yaw * scan[..., 1]
+    scan_local[..., 1] = -sin_yaw * scan[..., 0] + cos_yaw * scan[..., 1]
+    scan_local[..., 2] = scan[..., 2]
+
     # Distance per ray
-    point_dist = torch.norm(scan, dim=-1)  # (B, N_rays)
+    point_dist = torch.norm(scan_local, dim=-1)  # (B, N_rays)
 
     # Yaw per ray
-    yaw_w = torch.atan2(scan[..., 1], scan[..., 0])  # (B, N_rays) yaw angle of each ray (world frame)
-    _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1) robot yaw angles
-    robot_yaw += math.pi  # invert lidar direction
-    yaw = -wrap_to_pi(yaw_w - robot_yaw.unsqueeze(1))  # (B, N_rays) yaw angle in robot frame
+    yaw_w = torch.atan2(scan[..., 1], scan[..., 0])  # (B, N_rays) yaw angle of each ray (world frame)   
+    yaw = -wrap_to_pi(yaw_w - sensor_yaw.unsqueeze(1))  # (B, N_rays) yaw angle in robot frame
 
     # Voxelize pointcloud
 
@@ -112,7 +123,7 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
         device=env.device,
     )
 
-    voxels = torch.floor((scan + origin) / VOXEL_SIZE).to(torch.int32)
+    voxels = torch.floor((scan_local + origin) / VOXEL_SIZE).to(torch.int32)
     Nx, Ny, Nz = (VOLUME_DIMS / VOXEL_SIZE).to(torch.int32)
     V = Nx * Ny * Nz
 

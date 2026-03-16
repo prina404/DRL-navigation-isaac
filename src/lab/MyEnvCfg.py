@@ -192,7 +192,7 @@ class RewardsCfg:
     collision_after_threshold = RewTerm(
         func=rewards.collision_after_threshold_reward,
         weight=1.0,
-        params={"penalty": -10.0},
+        params={"penalty": -20.0},
     )
 
     # time_penalty = RewTerm(
@@ -248,25 +248,34 @@ class EventsCfg:
 
     replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
 
+    update_durations = EventTermCfg(func=events.update_episode_durations, mode="reset")
+
 
 @configclass
 class CurriculumCfg:
     obstacle_weight = CurriculumTermCfg(
         func=curriculum.update_collision_weight,
         params={
-            "term_name": "collision",
             "weight_step_size": 0.1,
             "max_weight": 8.0,
+            "episode_start": 50,  # start curriculum at ~50 episodes
         },
     )
 
     collision_thresh = CurriculumTermCfg(
         func=curriculum.collision_termination_threshold,
+        params={
+            "episode_start": 100,  # start increasing threshold at ~100 episodes
+            "episode_end": 300,  # end increasing threshold at ~300 episodes
+        },
     )
 
     nominal_weight = CurriculumTermCfg(
         func=curriculum.nominal_policy_weight,
-        params={"max_step": 150 * 300},  # after ~150 episodes, nominal policy weight is zero
+        params={
+            "episode_start": 50,  # start decaying at ~50 episodes
+            "episode_end": 300,  # end decaying at ~300 episodes
+        },
     )
 
 
