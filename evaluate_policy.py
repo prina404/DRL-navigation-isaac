@@ -80,6 +80,7 @@ def run_simulator(cfg: DictConfig):
 
     # Go2 Env setup
     go2_env_cfg = Go2EnvCfg()
+    go2_env_cfg.curriculum = None
     go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc  # inject mpc policy
     go2_env_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
     go2_env_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
@@ -140,38 +141,56 @@ def run_simulator(cfg: DictConfig):
 
     policy = ppo_runner.get_inference_policy(env.device)
 
-    termination_rates = []
-    collisions = []  # track average num of collisions per episode
+    obs, _ = env.reset()
 
-    for iteration in tqdm.tqdm(range(args_cli.max_iterations), desc="Evaluating policy"):
-        obs, _ = env.reset()
-        total_collisions = 0
-        for step in range(go2_policy_cfg["num_steps_per_env"]):
+    num_envs = env.num_envs
+    episodes_done = torch.zeros(num_envs, dtype=torch.long, device=env.device)
+    episode_collisions = torch.zeros(num_envs, dtype=torch.float32, device=env.device)
+    termination_flags = []
+    collisions = []  # per-completed-episode collision counts
+
+    avg_episodes = 0.0
+    with tqdm.tqdm(total=args_cli.max_iterations, desc="Evaluating policy") as pbar:
+        while avg_episodes < args_cli.max_iterations:
             with torch.no_grad():
                 action = policy(obs)
-            obs, reward, terminated, info = env.step(action)
-            if terminated.all():
-                break
+            obs, _, dones, info = env.step(action)
 
-            # log collisions at each step
+            dones = dones.bool()
+            time_outs = info.get("time_outs", torch.zeros_like(dones)).bool()
+
+            # log collisions per env at each step
             sensor = env.unwrapped.scene["body_collision_sensor"]
             forces = sensor.data.net_forces_w  # (N, bodies, 3)
             magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
-            collision_tensor = magnitude > 2.0
-            total_collisions += collision_tensor.sum().cpu()
+            collision_tensor = magnitude > 1.0
+            episode_collisions += collision_tensor.float()
 
-        num_timeout = info["time_outs"].sum()
-        num_env_terminated = terminated.sum() - num_timeout
-        termination_rates.append(num_env_terminated / env.num_envs)
+            done_ids = dones.nonzero(as_tuple=False).squeeze(-1)
+            if len(done_ids) > 0:
+                # finalize metrics for each completed env-episode
+                collisions.extend(episode_collisions[done_ids].detach().cpu().tolist())
+                termination_flags.extend((~time_outs[done_ids]).float().detach().cpu().tolist())
 
-        collisions.append(total_collisions.item() / env.num_envs)
+                episodes_done[done_ids] += 1
+                episode_collisions[done_ids] = 0.0
+
+            new_avg_episodes = episodes_done.float().mean().item()
+            new_avg_episodes_clamped = min(new_avg_episodes, float(args_cli.max_iterations))
+            pbar.update(new_avg_episodes_clamped - avg_episodes)
+            avg_episodes = new_avg_episodes_clamped
+
     env.close()
 
-    logger.info(
-        f"Average termination rate over {args_cli.max_iterations} episodes: {sum(termination_rates) / len(termination_rates):.3f}"
+    avg_termination_rate = (
+        sum(termination_flags) / len(termination_flags) if termination_flags else 0.0
     )
-    logger.info(f"Average collisions per episode: {sum(collisions) / len(collisions):.3f}")
+    avg_collisions = sum(collisions) / len(collisions) if collisions else 0.0
 
+    logger.info(
+        f"Average termination rate over {args_cli.max_iterations} avg episodes/env: {avg_termination_rate:.3f}"
+    )
+    logger.info(f"Average collisions per completed episode: {avg_collisions:.3f}")
 
 if __name__ == "__main__":
     try:
