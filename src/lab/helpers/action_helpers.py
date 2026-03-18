@@ -1,8 +1,10 @@
+from typing import Callable
+
 import isaaclab.envs.mdp as mdp
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.managers import ActionTerm, SceneEntityCfg
-from rsl_rl.modules import ActorCritic
+from torch import Tensor
 
 from lab.helpers.observation_helpers import get_goal_relative_position
 from lab.MyEnv import MyEnv
@@ -16,7 +18,7 @@ class Go2MPCPolicyAction(ActionTerm):
         self._last_action_received = self.null_cmd.clone()
         self._last_joint_action = None
 
-        self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
+        self.mpc: Callable[Tensor, Tensor] = getattr(cfg, "mpc_policy", None)  # type: ignore
         if self.mpc is None:
             raise ValueError("MPC policy must be provided in the environment config.")
 
@@ -25,17 +27,17 @@ class Go2MPCPolicyAction(ActionTerm):
         return 3
 
     @property
-    def raw_actions(self) -> torch.Tensor:
+    def raw_actions(self) -> Tensor:
         return self._last_action_received
 
     @property
-    def processed_actions(self) -> torch.Tensor:
+    def processed_actions(self) -> Tensor:
         return self._last_action_received
 
-    def process_actions(self, actions: torch.Tensor):
+    def process_actions(self, actions: Tensor):
         self._last_action_received = actions.clone()
 
-    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+    def reset(self, env_ids: Tensor | None = None) -> None:
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
@@ -43,7 +45,7 @@ class Go2MPCPolicyAction(ActionTerm):
         if self._last_joint_action is not None:
             self._last_joint_action[env_ids] = 0.0
 
-    def _build_low_level_obs(self) -> torch.Tensor:
+    def _build_low_level_obs(self) -> Tensor:
         base_lin_vel = mdp.base_lin_vel(self._env, asset_cfg=self._robot_cfg)
         base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
@@ -84,7 +86,7 @@ class Go2MPCPolicyAction(ActionTerm):
         q_des = q0 + self._last_joint_action * 0.25
         robot.set_joint_position_target(q_des)
 
-    def nominal_action(self) -> torch.Tensor:
+    def nominal_action(self) -> Tensor:
         if not hasattr(self._env, "nominal_weight"):
             weight = 0.0
         else:

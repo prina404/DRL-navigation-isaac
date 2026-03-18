@@ -58,9 +58,6 @@ class DepthEncoder:
 
         normalized_depth = preprocess_depth_batch(depth, target_size=768, device=self.device)
         embedding = self.model(normalized_depth)
-        from loguru import logger
-
-        logger.debug(f"Depth_data = {depth[0]}")
         return embedding
 
 
@@ -90,7 +87,7 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
 
     # Sensor yaw (keep existing convention: invert lidar direction)
     _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1) or (B,)
-    sensor_yaw = robot_yaw.squeeze(-1) + math.pi      # (B,)
+    sensor_yaw = robot_yaw.squeeze(-1) + math.pi  # (B,)
 
     # Rotate relative hit vectors from world into sensor-yaw frame for voxelization
     # world->local inverse yaw rotation
@@ -105,7 +102,7 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
     point_dist = torch.norm(scan_local, dim=-1)  # (B, N_rays)
 
     # Yaw per ray
-    yaw_w = torch.atan2(scan[..., 1], scan[..., 0])  # (B, N_rays) yaw angle of each ray (world frame)   
+    yaw_w = torch.atan2(scan[..., 1], scan[..., 0])  # (B, N_rays) yaw angle of each ray (world frame)
     yaw = -wrap_to_pi(yaw_w - sensor_yaw.unsqueeze(1))  # (B, N_rays) yaw angle in robot frame
 
     # Voxelize pointcloud
