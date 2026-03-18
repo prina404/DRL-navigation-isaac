@@ -3,18 +3,20 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+from cfg.CFG import SCENE_USD_PATH
+
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
+parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+
 AppLauncher.add_app_launcher_args(parser)
 
 # # append AppLauncher cli args
 args_cli, hydra_argv = parser.parse_known_args()
+args_cli.enable_cameras = True
 args_cli.kit_args = (
     (args_cli.kit_args or "")
     + " --enable isaacsim.sensors.rtx"
-    + " --enable omni.isaac.sensor"
-    + " --enable omni.replicator.isaac"
-    + " --enable omni.replicator.core"
     + " --enable isaacsim.asset.gen.omap"
     + " --enable omni.kit.profiler.tracy"
 )
@@ -25,28 +27,19 @@ simulation_app = app_launcher.app
 
 import os
 import time
+import traceback
 
 import gymnasium as gym
 import hydra
-import rsl_rl.runners.on_policy_runner as runner_module
 import torch
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
-import go2.go2_ctrl as go2_ctrl
-import go2.go2_sensors as go2_sensors
-from go2.go2_env import Go2MPCEnvCfg
-from lab.vision_encoder import ViTEncoder
-from lab.managed_env import Go2EnvCfg
-from lab.scene_loaders import load_interiorAgent_env
-
-# from lab.policy_model import NavPolicyAC
-# runner_module.NavPolicyAC = NavPolicyAC
-
-from loguru import logger
-
-from lab.go2_nav_cfg import go2_policy_cfg
+import go2.go2_mpc as go2_mpc
+from go2.go2_nav_cfg import go2_policy_cfg
+from lab.MyEnvCfg import Go2EnvCfg
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
@@ -55,31 +48,27 @@ FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 def run_simulator(cfg: DictConfig):
 
     # Go2 MPC setup
-    go2_mpc_cfg = Go2MPCEnvCfg()
-    go2_mpc_cfg.scene.num_envs = cfg.num_envs
-    mpc = go2_ctrl.get_mpc_policy()
+    mpc = go2_mpc.get_mpc_policy()
 
     # Go2 Env setup
     go2_env_cfg = Go2EnvCfg()
     go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc  # inject mpc policy
-    go2_env_cfg.scene.num_envs = cfg.num_envs
-    go2_env_cfg.decimation = 1
-    go2_env_cfg.renderer_interval = go2_env_cfg.decimation
+    go2_env_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
+    go2_env_cfg.decimation = 16
+    go2_env_cfg.sim.render_interval = go2_env_cfg.decimation
 
     # Create the whole scene
     logger.info("Creating gym environment...")
-    env = gym.make("Isaac-Velocity-Flat-Unitree-Go2-v0", cfg=go2_env_cfg)
+    gym.register(
+        id="Isaac-indoor-navigation-go2-v0",
+        entry_point="lab.MyEnv:MyEnv",
+        disable_env_checker=True,
+        kwargs={"scene_path": SCENE_USD_PATH},
+    )
+
+    env = gym.make("Isaac-indoor-navigation-go2-v0", cfg=go2_env_cfg)
     env = RslRlVecEnvWrapper(env)
     logger.info("RslRlVecEnvWrapper applied to gym environment")
-    
-    # Sensor setup
-    go2_sensors.SensorManager(cfg.num_envs).add_rtx_lidar()
-    logger.info("RTX Lidar sensors added to the environment")
-
-    
-    env.unwrapped.scene.environment_prim_name = cfg.env_name
-    load_interiorAgent_env(cfg, env.unwrapped.scene.env_ns)
-    logger.info("Interior agent environment loaded")
 
     # Navigation Policy setup
     agent_cfg = go2_policy_cfg
@@ -88,56 +77,64 @@ def run_simulator(cfg: DictConfig):
     # ckpt_path = get_checkpoint_path(log_path=os.path.abspath("ckpts"),
     #                                 run_dir=agent_cfg["load_run"],
     #                                 checkpoint=agent_cfg["load_checkpoint"])
-    ppo_runner = OnPolicyRunner(
-        env, agent_cfg, log_dir=None, device=agent_cfg["device"]
-    )
+    ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=None, device=agent_cfg["device"])
     # ppo_runner.load(ckpt_path)
 
     policy = ppo_runner.get_inference_policy(device=agent_cfg["device"])
 
     # Run simulation
-    sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)
     obs, _ = env.reset()
+
+    sim_step_dt = float(go2_env_cfg.sim.dt * go2_env_cfg.decimation)
+
     paused = False
     step_count = 0
+    wall_time_acc = 0.0
     policy_time_acc = 0.0
     env_step_time_acc = 0.0
 
-
     logger.info("Starting simulation loop...")
     while simulation_app.is_running():
-        start_time = time.time()
+        wall_start = time.time()
 
         if paused:
             time.sleep(0.01)
             continue
         with torch.no_grad():
-            # control joints
             policy_start = time.time()
             actions = policy(obs)
             policy_time_acc += time.time() - policy_start
-            # step the environment
+
             env_step_start = time.time()
-            obs, _, _, _ = env.step(actions)
+            obs, reward, terminated, truncated = env.step(actions)
             env_step_time_acc += time.time() - env_step_start
+
+        wall_time_acc += time.time() - wall_start
 
         step_count += 1
         if step_count % 50 == 0:
+            avg_wall_ms = (wall_time_acc / 50) * 1000.0
             avg_policy_ms = (policy_time_acc / 50) * 1000.0
             avg_env_step_ms = (env_step_time_acc / 50) * 1000.0
             print(
-                f"[timing] avg policy={avg_policy_ms:.3f} ms | avg env.step={avg_env_step_ms:.3f} ms"
+                f"[timing] dt={sim_step_dt:.4f}s | wall={avg_wall_ms:.3f} ms | "
+                f"policy={avg_policy_ms:.3f} ms | env.step={avg_env_step_ms:.3f} ms | "
+                f"reward={reward.mean().item():.3f}"
             )
+            wall_time_acc = 0.0
             policy_time_acc = 0.0
             env_step_time_acc = 0.0
-        
-        if step_count % 500 == 0:
+
+        if step_count % 150 == 0:
             env.reset()
-        # elapsed_time = time.time() - start_time
-        # if elapsed_time < sim_step_dt:
-        #     sleep_duration = sim_step_dt - elapsed_time
-        #     time.sleep(sleep_duration)
+            logger.info("Environment reset")
 
 
 if __name__ == "__main__":
-    run_simulator()
+    try:
+        run_simulator()
+
+    except Exception:
+        traceback.print_exc()
+    finally:
+        simulation_app.close()

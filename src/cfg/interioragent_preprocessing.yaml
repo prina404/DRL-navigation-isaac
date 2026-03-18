@@ -1,0 +1,283 @@
+kujiale_0003:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0004"
+    - "door_0006"
+    - "door_0007"
+    - "door_0008"
+    - "door_0009"
+    - "door_0011"
+  disabled_doors:
+    - "door_0002"
+    - "door_0003"
+    - "door_0005"
+    - "door_0012"
+  entrance:
+    - "door_0010"
+  map_origin:
+    x: 0.0
+    y: 0.0
+
+kujiale_0004:
+  normal_doors:
+    - "door_0000"
+    - "door_0002"
+    - "door_0003"
+    - "door_0004"
+    - "door_0006"
+    - "door_0007"
+  disabled_doors:
+    - "door_0005"
+  entrance:
+    - "door_0001"
+
+kujiale_0008:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0002"
+    - "door_0005"
+  disabled_doors:
+    - "door_0004"
+  entrance:
+    - "door_0003"
+
+kujiale_0009:
+  normal_doors:
+    - "door_0000"
+    - "door_0004"
+  disabled_doors:
+    - "door_0001"
+    - "door_0002"
+  entrance:
+    - "door_0003"
+    - "door_0005"
+
+kujiale_0020:
+  normal_doors:
+    - "door_0000"
+    - "door_0004"
+  disabled_doors:
+    - "door_0001"
+    - "door_0002"
+  entrance:
+    - "door_0003"
+
+kujiale_0021:
+  normal_doors:
+    - "door_0000"
+    - "door_0004"
+  disabled_doors:
+    - "door_0001"
+    - "door_0003"
+  entrance:
+    - "door_0002"
+
+kujiale_0022:
+  normal_doors:
+    - "door_0005"
+    - "door_0006"
+    - "door_0008"
+    - "door_0009"
+  disabled_doors:
+    - "door_0004"
+    - "door_0003"
+  entrance:
+    - "door_0007"
+  map_origin:
+    x: 0.0
+    y: 0.0
+
+
+kujiale_0024:
+  normal_doors:
+    - "door_0000"
+    - "door_0002"
+  disabled_doors:
+    - "door_0001"
+    - "door_0004"
+  entrance:
+    - "door_0003"
+
+kujiale_0025:
+  normal_doors:
+    - "door_0001"
+    - "door_0003"
+    - "door_0004"
+  disabled_doors:
+    - "door_0000"
+  entrance:
+    - "door_0002"
+
+
+kujiale_0026:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0003"
+    - "door_0005"
+  disabled_doors:
+    - "door_0004"
+    - "door_0006"
+  entrance:
+    - "door_0002"
+
+kujiale_0030:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0003"
+    - "door_0004"
+  disabled_doors:
+  entrance:
+    - "door_0002"
+
+kujiale_0031:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0002"
+    - "door_0004"
+  disabled_doors:
+  entrance:
+    - "door_0003"
+
+kujiale_0032:
+  normal_doors:
+    - "door_0002"
+    - "door_0003"
+    - "door_0004"
+  disabled_doors:
+    - "door_0000"
+  entrance:
+    - "door_0001"
+
+kujiale_0033:
+  normal_doors:
+    - "door_0001"
+    - "door_0002"
+    - "door_0006"
+    - "door_0007"
+    - "door_0008"
+    - "door_0009"
+  disabled_doors:
+    - "door_0000"
+    - "door_0004"
+    - "door_0005"
+  entrance:
+    - "door_0003"
+
+kujiale_0034:
+  normal_doors:
+    - "door_0000"
+    - "door_0003"
+  disabled_doors:
+    - "door_0001"
+    - "door_0004"
+  entrance:
+    - "door_0002"
+
+kujiale_0035:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0002"
+  disabled_doors:
+  entrance:
+    - "door_0003"
+  map_origin:
+    x: 0.0
+    y: 0.0
+
+kujiale_0036:
+  normal_doors:
+    - "door_0002"
+    - "door_0003"
+    - "door_0004"
+  disabled_doors:
+    - "door_0000"
+  entrance:
+    - "door_0001"
+
+kujiale_0037:
+  normal_doors:
+    - "door_0001"
+    - "door_0002"
+    - "door_0003"
+  disabled_doors:
+    - "door_0000"
+  entrance:
+    - "door_0004"
+
+kujiale_0038:
+  normal_doors:
+    - "door_0000"
+    - "door_0003"
+  disabled_doors:
+    - "door_0001"
+    - "door_0004"
+  entrance:
+    - "door_0002"
+
+kujiale_0040:
+  normal_doors:
+    - "door_0002"
+    - "door_0003"
+    - "door_0004"
+  disabled_doors:
+    - "door_0005"
+  entrance:
+    - "door_0006"
+
+kujiale_0042:
+  normal_doors:
+    - "door_0000"
+    - "door_0001"
+    - "door_0002"
+  disabled_doors:
+    - "door_0004"
+  entrance:
+    - "door_0003"
+
+kujiale_0043:
+  normal_doors:
+    - "door_0000"
+    - "door_0003"
+    - "door_0004"
+  disabled_doors:
+    - "door_0002"
+  entrance:
+    - "door_0001"
+
+kujiale_0065:
+  normal_doors:
+    - "door_0003"
+    - "door_0004"
+  disabled_doors:
+    - "door_0002"
+    - "door_0005"
+  entrance:
+    - "door_0001"
+
+kujiale_0066:
+  normal_doors:
+    - "door_0000"
+    - "door_0002"
+  disabled_doors:
+    - "door_0003"
+  entrance:
+    - "door_0001"
+
+kujiale_0067:
+  normal_doors:
+    - "door_0002"
+    - "door_0003"
+  disabled_doors:
+    - "door_0001"
+    - "door_0000"
+  entrance:
+    - "door_0004"
+  map_origin:
+    x: 0.0
+    y: 0.0

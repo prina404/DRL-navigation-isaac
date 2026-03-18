@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "Isaac Go2 E2E (with cameras)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/isaac_go2_e2e.py",
+            "console": "integratedTerminal",
+            "args": ["--enable_cameras", "--headless", "--device", "cuda", "num_envs=2"]
+        },
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": "${command:pickArgs}"
+        }
+    ]
+}

@@ -1,10 +1,49 @@
 [project]
 name = "isaac-navigation"
+authors = [
+    {name = "Matteo Princisgh", email = "princisgh@gmail.com"},
+    {name = "João Carvalho"}
+    ]
 version = "0.1.0"
 requires-python = "==3.11.*"
 dependencies = [
-    "pyastar2d",
+    "pyastar2d>=1.1.4",
     "loguru",
     "tensordict",
+    "timm",
+    "opencv-python",
+    "matplotlib",
+    "scikit-image",
+    "numpy==1.26.0",
+    "numba==0.59.1",
+    "llvmlite==0.42.0",
+    "networkx",
+    "skan",
+    "torch==2.7.0",
+    "rsl-rl-lib==3.3.0",
+    "efficientnet-pytorch",
+    "warmup-scheduler",
+    "kornia",
+    "ipywidgets",
+    "ipympl",
 ]
 
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "flake8",
+    "pre-commit",
+]
+
+[tool.black]
+line-length = 130
+
+[tool.isort]
+profile = "black"
