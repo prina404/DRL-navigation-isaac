@@ -6,7 +6,7 @@ from lab.MyEnv import MyEnv
 ## Curriculum manager calls this only when one or more envs are reset, so the internal
 ## episode_length_buf contains the lengths of the episodes just before reset.
 def update_collision_weight(
-    env: MyEnv, env_ids: torch.Tensor, term_name: str, weight_step_size: float, max_weight: float
+    env: MyEnv, env_ids: torch.Tensor, weight_step_size: float, max_weight: float, episode_start: int = 0
 ) -> float:
     if not hasattr(env, "_running_mean_var"):  # ensure attribute exists
         env._running_mean_var = 0.0
@@ -15,10 +15,11 @@ def update_collision_weight(
     env.path_manager.update_episode_durations(env_ids, env.episode_length_buf[env_ids])
 
     current_step = env.common_step_counter
-    term_cfg = env.reward_manager.get_term_cfg(term_name)
+    current_episode = env.episode_counter.mean().item()
+    term_cfg = env.reward_manager.get_term_cfg("collision")
 
-    # check curriculum conditions once every 200 steps
-    if current_step - env._last_update_step < 1000 or current_step == 0:
+    # check curriculum conditions once every 1000 steps
+    if current_step - env._last_update_step < 1000 or current_episode < episode_start:
         return term_cfg.weight
     env._last_update_step = current_step
 
@@ -35,7 +36,7 @@ def update_collision_weight(
     else:
         env._running_mean_var = 0.8 * env._running_mean_var + 0.2 * average_variance
 
-    if average_variance < env._running_mean_var * 0.9:
+    if average_variance < env._running_mean_var * 0.95:
         term_cfg.weight += weight_step_size
 
     # Ensure the weight doesn't exceed the maximum allowed value
@@ -44,14 +45,23 @@ def update_collision_weight(
     return term_cfg.weight
 
 
-def collision_termination_threshold(env: MyEnv, env_ids: torch.Tensor) -> float:
-    if env.common_step_counter % 5000 == 0:
-        env.collision_termination_thresh = max(env.collision_termination_thresh - 0.05, 0.1)
+def _progress_coeff(env: MyEnv, episode_start: int, episode_end: int) -> float:
+    current_episode = env.episode_counter.mean().item() * 0.75  # TODO: check correction factor
+    if current_episode < episode_start:
+        return 1.0
+    elif current_episode > episode_end:
+        return 0.0
+    else:
+        return 1.0 - (current_episode - episode_start) / (episode_end - episode_start)
+
+
+def collision_termination_threshold(env: MyEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> float:
+    termination_coeff = _progress_coeff(env, episode_start, episode_end)
+    env.collision_termination_thresh = max(termination_coeff, 0.01)
     return env.collision_termination_thresh
 
 
-def nominal_policy_weight(env: MyEnv, env_ids: torch.Tensor, max_step: int = 150 * 300) -> float:
-    # linearly decay nominal policy weight from 1.0 to 0.0 over max_step steps
-    progress = env.common_step_counter / max_step
-    env.nominal_weight = max(1.0 - progress, 0.0)
+def nominal_policy_weight(env: MyEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> float:
+    # linearly decay nominal policy weight from 1.0 to 0.0 over the ep interval
+    env.nominal_weight = _progress_coeff(env, episode_start, episode_end)
     return env.nominal_weight

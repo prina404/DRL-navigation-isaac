@@ -16,6 +16,13 @@ def replan_global_plan(env: MyEnv, env_ids: torch.Tensor) -> None:
     env.manual_replan(env_ids)
 
 
+def update_episode_counters(env: MyEnv, env_ids: torch.Tensor) -> None:
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+
+    env.episode_counter[env_ids] += 1
+
+
 def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
     root_path = f"{env_ns}/environment/Meshes/dynamic_objects/other"
     root_prim = stage.GetPrimAtPath(root_path)

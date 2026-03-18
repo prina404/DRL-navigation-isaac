@@ -1,0 +1,3 @@
+dataset_folder: "../InteriorAgent"
+env_folder: "kujiale_0003"
+env_name: "kujiale_0003_baked"
