@@ -15,6 +15,7 @@ from cfg.CFG import DEVICE
 from defm.utils import preprocess_depth_batch
 from lab.MyEnv import MyEnv
 from models.vision_encoder import DepthResNetEncoder, ViNTVisionEncoder, ViTEncoder
+import warp as wp
 
 
 class VisionEncoder:
@@ -196,7 +197,7 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     # then use the fact that the path points are ordered and take the next num_points_forward points.
     # If the closest point is the last point, I pad with the goal pos.
     env: MyEnv = env.unwrapped
-    local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    local_robot_coords = wp.to_torch(env.scene["robot"].data.root_link_pos_w)[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
     res += env.path_manager.goal_pos_local.unsqueeze(1)  # default to goal pos
     for id in range(env.num_envs):
@@ -217,7 +218,7 @@ def get_path_obs(
         return torch.zeros((env.num_envs, num_points_forward * 2), device=env.device)
 
     # returns a 1D tensor of size (B*num_points_forward*2) with distance and heading to each path point
-    local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    local_robot_coords = wp.to_torch(env.scene["robot"].data.root_link_pos_w)[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
 
     path_coords = _get_path_coords(env, num_points_forward)  # (B, num_points_forward, 2)
 
@@ -228,7 +229,7 @@ def get_path_obs(
     deltas = path_coords - robot_coords_expanded  # (B, num_points_forward, 2)
     path_angles = torch.atan2(deltas[..., 1], deltas[..., 0])  # angle from robot position to each path point
 
-    robot_rot = env.scene["robot"].data.root_link_quat_w  # (B, 4)
+    robot_rot = wp.to_torch(env.scene["robot"].data.root_link_quat_w )# (B, 4)
     _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1)
 
     headings = -wrap_to_pi(path_angles - robot_yaw.unsqueeze(1))  # (B, num_points_forward)
@@ -264,7 +265,7 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv, local_goal_point
         return torch.zeros((env.num_envs, 3), device=env.device)
 
     robot = env.scene["robot"]
-    robot_pos_local = robot.data.root_com_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    robot_pos_local = wp.to_torch(robot.data.root_com_pos_w)[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     goal_pos_local = torch.zeros((env.num_envs, 2), device=env.device)
 
     for i, path in enumerate(env.path_manager.path_tensors):
@@ -280,8 +281,8 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv, local_goal_point
 
     # Now goal positions are in robot frame
     goal_pos_r, _ = subtract_frame_transforms(
-        robot.data.root_com_pos_w,
-        robot.data.root_link_quat_w,
+        wp.to_torch(robot.data.root_com_pos_w),
+        wp.to_torch(robot.data.root_link_quat_w),
         padded_goal,
     )
 

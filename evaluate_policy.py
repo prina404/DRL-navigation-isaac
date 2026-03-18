@@ -4,6 +4,7 @@ import sys
 import torch
 import tqdm
 from isaaclab.app import AppLauncher
+import warp as wp
 
 from cfg.CFG import SCENE_USD_PATH
 
@@ -161,7 +162,7 @@ def run_simulator(cfg: DictConfig):
 
             # log collisions per env at each step
             sensor = env.unwrapped.scene["body_collision_sensor"]
-            forces = sensor.data.net_forces_w  # (N, bodies, 3)
+            forces = wp.to_torch(sensor.data.net_forces_w)  # (N, bodies, 3)
             magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
             collision_tensor = magnitude > 1.0
             episode_collisions += collision_tensor.float()

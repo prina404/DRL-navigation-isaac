@@ -89,9 +89,8 @@ class Go2SimCfg(InteractiveSceneCfg):
         mesh_prim_paths=[
             "/World/ground",
             MultiMeshRayCasterCfg.RaycastTargetCfg(
-                # TODO check if we can simplify prim_expr
                 prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
-                is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms for accurate raycasting
+                is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms
                 track_mesh_transforms=True,
             ),
             MultiMeshRayCasterCfg.RaycastTargetCfg(
@@ -295,14 +294,14 @@ class Go2EnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.005
         self.sim.device = "cuda:0"
         self.sim.use_fabric = True
-        self.sim.render = sim_utils.RenderCfg(
-            rendering_mode="performance",
-            enable_translucency=True,
-            enable_reflections=True,
-            enable_shadows=True,
-            enable_ambient_occlusion=True,
-            dlss_mode="3",  # defaults to 1 in performance mode
-        )
+        # self.sim.render = sim_utils.RenderCfg( # TODO: update for IsaacLab 3.0 new render configs
+        #     rendering_mode="performance",
+        #     enable_translucency=True,
+        #     enable_reflections=True,
+        #     enable_shadows=True,
+        #     enable_ambient_occlusion=True,
+        #     dlss_mode="3",  # defaults to 1 in performance mode
+        # )
         self.episode_length_s = 15.0
 
         self.decimation = 16
