@@ -4,16 +4,13 @@ defaults:
 num_envs: 2
 freq: 40 # can only be divisible by 200
 camera_follow: True
-# usd_folder: "$HOME/Desktop/isaac_princisgh/InteriorAgent"
-usd_folder: "$HOME/Projects/LearningForPlanning/InteriorAgent"
-env_name: kujiale_0067
 
 sensor:
   enable_lidar: True
   enable_camera: True
   color_image: True
   depth_image: True
-  semantic_segmentation: True
+  semantic_segmentation: False
 
 sim_app:
   anti_aliasing: 0

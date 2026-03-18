@@ -134,7 +134,7 @@ class ObservationsCfg:
 
     @configclass
     class GoalGroup(ObsGroup):
-        goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position, params={"local_goal_points_forward": 4})
+        goal_relative_pos = ObsTerm(func=observations.get_goal_relative_position, params={"local_goal_points_forward": 3})
 
     @configclass
     class GlobalPlanGroup(ObsGroup):
@@ -179,7 +179,7 @@ class RewardsCfg:
     heading = RewTerm(func=rewards.robot_heading_reward, weight=1.0)
 
     collision = RewTerm(
-        func=rewards.penalty_collision_base,
+        func=rewards.penalty_collision,
         weight=0.2,
         params={"force_thresh": 1.0, "penalty": -5.0},
     )
@@ -192,7 +192,7 @@ class RewardsCfg:
     collision_after_threshold = RewTerm(
         func=rewards.collision_after_threshold_reward,
         weight=1.0,
-        params={"penalty": -20.0},
+        params={"penalty": -50.0},
     )
 
     # time_penalty = RewTerm(
@@ -248,7 +248,7 @@ class EventsCfg:
 
     replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
 
-    update_durations = EventTermCfg(func=events.update_episode_durations, mode="reset")
+    update_counters = EventTermCfg(func=events.update_episode_counters, mode="reset")
 
 
 @configclass
@@ -257,24 +257,24 @@ class CurriculumCfg:
         func=curriculum.update_collision_weight,
         params={
             "weight_step_size": 0.1,
-            "max_weight": 8.0,
-            "episode_start": 50,  # start curriculum at ~50 episodes
+            "max_weight": 5.0,
+            "episode_start": 50,  # start curriculum at 50 episodes
         },
     )
 
     collision_thresh = CurriculumTermCfg(
         func=curriculum.collision_termination_threshold,
         params={
-            "episode_start": 100,  # start increasing threshold at ~100 episodes
-            "episode_end": 300,  # end increasing threshold at ~300 episodes
+            "episode_start": 50,  # start increasing threshold at 100 episodes
+            "episode_end": 250,  # end increasing threshold at 250 episodes
         },
     )
 
     nominal_weight = CurriculumTermCfg(
         func=curriculum.nominal_policy_weight,
         params={
-            "episode_start": 50,  # start decaying at ~50 episodes
-            "episode_end": 300,  # end decaying at ~300 episodes
+            "episode_start": 50,  # start decaying at 50 episodes
+            "episode_end": 200,  # end decaying at 200 episodes
         },
     )
 

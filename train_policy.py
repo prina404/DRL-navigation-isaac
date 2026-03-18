@@ -135,9 +135,9 @@ def run_simulator(cfg: DictConfig):
     if args_cli.wandb:
         load_dotenv()
         agent_cfg["logger"] = "wandb"
-        agent_cfg["wandb_project"] = "LearningForPlanning-manual-tasks"
+        agent_cfg["wandb_project"] = "LFP-curriculum-collision-termination"
 
-    agent_cfg["num_envs"] = cfg.num_envs
+    agent_cfg["num_envs"] = args_cli.num_envs if args_cli.num_envs is not None else cfg.num_envs
     ppo_runner = OnPolicyRunner(env, agent_cfg, log_dir=log_dir, device=agent_cfg["device"])
 
     if args_cli.checkpoint is True:
@@ -154,6 +154,7 @@ def run_simulator(cfg: DictConfig):
         ),
     )
     ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
+    logger.debug(f"Final episode count: {env.unwrapped.episode_counter.mean().item()}")
     env.close()
 
 

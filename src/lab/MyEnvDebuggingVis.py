@@ -48,10 +48,11 @@ class MyEnvDebuggingVis(MyEnv):
         # reward heading: 3rd point forward along path (closer to goal than robot)
         reward_yaw = torch.zeros((self.num_envs,), device=self.device)
         null_target = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        nominal_disabled = self.nominal_weight == 0.0
         for i in range(self.num_envs):
             path_points = self.path_manager.path_tensors[i]
 
-            if path_points is None or path_points.size(0) <= 1:
+            if path_points is None or path_points.size(0) <= 1 or nominal_disabled:
                 null_target[i] = True
             else:
                 # Find closest point on trajectory

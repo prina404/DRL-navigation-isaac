@@ -47,7 +47,7 @@ class MyEnv(ManagerBasedRLEnv):
         self.collision_termination_thresh = 1.0
         self.nominal_weight = 0.0  # scale for nominal action
 
-        self._mean_step_per_episode = torch.full((self.num_envs,), 100, dtype=torch.float32, device=self.device)
+        self.episode_counter = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         if "log" in self.extras:  # Fixes wrong logging of rewards and dones in the first step after reset
@@ -75,10 +75,6 @@ class MyEnv(ManagerBasedRLEnv):
         self._update_lidar_buffer()
 
         return retVal
-
-    @property
-    def avg_episode_length(self) -> float:
-        return self._mean_step_per_episode.mean().item()
 
     def teleport_robots(self, env_ids: torch.Tensor) -> None:
         ## set cartesian position, quaternion orientation in (w, x, y, z), and linear and angular velocity

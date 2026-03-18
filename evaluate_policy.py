@@ -182,15 +182,12 @@ def run_simulator(cfg: DictConfig):
 
     env.close()
 
-    avg_termination_rate = (
-        sum(termination_flags) / len(termination_flags) if termination_flags else 0.0
-    )
+    avg_termination_rate = sum(termination_flags) / len(termination_flags) if termination_flags else 0.0
     avg_collisions = sum(collisions) / len(collisions) if collisions else 0.0
 
-    logger.info(
-        f"Average termination rate over {args_cli.max_iterations} avg episodes/env: {avg_termination_rate:.3f}"
-    )
+    logger.info(f"Average termination rate over {args_cli.max_iterations} avg episodes/env: {avg_termination_rate:.3f}")
     logger.info(f"Average collisions per completed episode: {avg_collisions:.3f}")
+
 
 if __name__ == "__main__":
     try:
