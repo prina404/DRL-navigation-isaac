@@ -47,8 +47,16 @@ class MapManager:
         return self._map_img.shape
 
     @property
-    def map_img(self) -> np.ndarray:
-        return self._map_img.copy()
+    def occupancy_gridmap(self) -> np.ndarray:
+        gray_pixels = (self._map_img > 1 ) & (self._map_img < 254)
+        white_pixels = self._map_img >= 254
+        black_pixels = self._map_img <= 1
+        # use -1, [0...100] to represent respectively unknown, free, occupied.
+        ogm = self._map_img.astype(np.int8, copy=True)
+        ogm[gray_pixels] = -1
+        ogm[white_pixels] = 0
+        ogm[black_pixels] = 100
+        return ogm
 
     @property
     def global_costmap(self) -> torch.Tensor:
@@ -171,7 +179,7 @@ class MapManager:
     def print_debug(self):
         t0 = time.time()
         for _ in range(128):
-            cpu_impl = self._create_inflated_costmap_cpu(self.map_img, inflation_scale=2)
+            cpu_impl = self._create_inflated_costmap_cpu(self._map_img, inflation_scale=2)
         print(f"CPU costmap inflation took {time.time() - t0:.4f} seconds")
         for _ in range(5):
             gpu_impl = self._create_inflated_costmap_gpu(self._map_tensor, torch.arange(0, self.num_envs), inflation_scale=2)[
