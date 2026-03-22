@@ -2,6 +2,7 @@ import math
 from typing import Literal
 
 import torch
+import warp as wp
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.sensors import MultiMeshRayCaster
 from isaaclab.utils.math import (
@@ -15,7 +16,6 @@ from cfg.CFG import DEVICE
 from defm.utils import preprocess_depth_batch
 from lab.MyEnv import MyEnv
 from models.vision_encoder import DepthResNetEncoder, ViNTVisionEncoder, ViTEncoder
-import warp as wp
 
 
 class VisionEncoder:
@@ -229,7 +229,7 @@ def get_path_obs(
     deltas = path_coords - robot_coords_expanded  # (B, num_points_forward, 2)
     path_angles = torch.atan2(deltas[..., 1], deltas[..., 0])  # angle from robot position to each path point
 
-    robot_rot = wp.to_torch(env.scene["robot"].data.root_link_quat_w )# (B, 4)
+    robot_rot = wp.to_torch(env.scene["robot"].data.root_link_quat_w)  # (B, 4)
     _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1)
 
     headings = -wrap_to_pi(path_angles - robot_yaw.unsqueeze(1))  # (B, num_points_forward)

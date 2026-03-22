@@ -48,7 +48,7 @@ class MapManager:
 
     @property
     def occupancy_gridmap(self) -> np.ndarray:
-        gray_pixels = (self._map_img > 1 ) & (self._map_img < 254)
+        gray_pixels = (self._map_img > 1) & (self._map_img < 254)
         white_pixels = self._map_img >= 254
         black_pixels = self._map_img <= 1
         # use -1, [0...100] to represent respectively unknown, free, occupied.

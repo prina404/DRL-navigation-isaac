@@ -2,11 +2,11 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pyastar2d
 import torch
 import yaml
 from isaaclab.utils.math import quat_from_euler_xyz
 
-import pyastar2d
 from lab.managers.map_manager import MapManager
 from preprocessing import voronoi
 

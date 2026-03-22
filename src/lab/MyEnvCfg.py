@@ -62,17 +62,17 @@ class Go2SimCfg(InteractiveSceneCfg):
         track_air_time=False,
     )
 
-    # camera = TiledCameraCfg(
-    #     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-    #     width=128,
-    #     height=128,
-    #     offset=TiledCameraCfg.OffsetCfg(
-    #         pos=(0.4, 0.0, 0.0),
-    #         convention="world",
-    #     ),
-    #     data_types=["rgb", "depth"],
-    #     spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
-    # )
+    camera = TiledCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
+        width=128,
+        height=128,
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.4, 0.0, 0.0),
+            convention="world",
+        ),
+        data_types=["rgb", "depth"],
+        spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
+    )
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
@@ -150,8 +150,8 @@ class ObservationsCfg:
     velocity_buffer = VelocityGroup()
 
     # Camera data
-    # vision = VisionGroup()
-    # depth = DepthGroup()
+    vision = VisionGroup()
+    depth = DepthGroup()
 
     # 2D lidar + plan information
     lidar = LidarGroup()

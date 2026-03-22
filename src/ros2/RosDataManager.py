@@ -2,36 +2,32 @@
 # https://github.com/Zhefan-Xu/isaac-go2-ros2
 
 
-import numpy as np
+import subprocess
+import time
 
-import rclpy
-from rclpy.node import Node
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped, Twist, TransformStamped
-from sensor_msgs.msg import PointCloud2, PointField, Image, CameraInfo
-from sensor_msgs_py import point_cloud2
-from nav_msgs.msg import OccupancyGrid
-from tf2_ros import TransformBroadcaster
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+import numpy as np
 import omni
 import omni.graph.core as og
 import omni.replicator.core as rep
 import omni.syntheticdata._syntheticdata as sd
-import subprocess
-import time
+import rclpy
 import torch
-from torch import Tensor
-from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-from isaaclab.sensors import MultiMeshRayCaster, TiledCamera
 import warp as wp
-from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
+from isaaclab.sensors import MultiMeshRayCaster, TiledCamera
+from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
+from sensor_msgs_py import point_cloud2
+from tf2_ros import TransformBroadcaster
+from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+from torch import Tensor
+
 from lab.MyEnv import MyEnv
 
-MAP_QOS = QoSProfile(
-    depth=1,
-    durability=DurabilityPolicy.TRANSIENT_LOCAL,  # ← critical
-    reliability=ReliabilityPolicy.RELIABLE
-)
+MAP_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)  # ← critical
 
 
 class RosDataManager(Node):
@@ -40,7 +36,7 @@ class RosDataManager(Node):
         self.cfg = cfg
         self.create_ros_time_graph()
         sim_time_set = False
-        while rclpy.ok() and sim_time_set == False:
+        while rclpy.ok() and sim_time_set is False:
             sim_time_set = self.use_sim_time()
 
         self.env: MyEnv = env.unwrapped
@@ -59,14 +55,10 @@ class RosDataManager(Node):
         self.color_pub = []
         self.depth_pub = []
         self.camera_info_pub = []
-        
+
         self.map_pub = []
         for i in range(self.num_envs):
-            pub = self.create_publisher(
-                    OccupancyGrid,
-                    f"{self.robot_ns(i)}/map",
-                    MAP_QOS
-                )
+            pub = self.create_publisher(OccupancyGrid, f"{self.robot_ns(i)}/map", MAP_QOS)
             msg = self.create_map_msg(i)
             msg.header.stamp = self.get_clock().now().to_msg()
             self.map_pub.append(pub)
@@ -145,7 +137,7 @@ class RosDataManager(Node):
 
     def cmd_vel_topic(self, env_idx: int) -> str:
         return f"{self.robot_ns(env_idx)}/cmd_vel"
-    
+
     def env_origin(self, env_idx: int) -> Tensor:
         return self.env.scene.env_origins[env_idx]
 
@@ -189,12 +181,12 @@ class RosDataManager(Node):
 
         # map metadata
         msg.info.resolution = map_mgr.resolution
-        msg.info.width = map_mgr.shape[1]          
-        msg.info.height = map_mgr.shape[0]         
+        msg.info.width = map_mgr.shape[1]
+        msg.info.height = map_mgr.shape[0]
         msg.info.origin.position.x = map_mgr.origin[0]
         msg.info.origin.position.y = map_mgr.origin[1]
         msg.info.origin.orientation.w = 1.0
-        
+
         ogm = np.fliplr(map_mgr.occupancy_gridmap)
         msg.data = ogm.flatten().tolist()
 
@@ -252,9 +244,7 @@ class RosDataManager(Node):
         if self.cfg.sensor.enable_camera:
             self.publish_camera_info()
 
-    def publish_odom(
-        self, base_pos: Tensor, base_rot: Tensor, base_lin_vel_b: Tensor, base_ang_vel_b: Tensor, env_idx: int
-    ):
+    def publish_odom(self, base_pos: Tensor, base_rot: Tensor, base_lin_vel_b: Tensor, base_ang_vel_b: Tensor, env_idx: int):
         odom = Odometry()
         odom.header.stamp = self.get_clock().now().to_msg()
         odom.header.frame_id = self.odom_frame(env_idx)
@@ -304,7 +294,9 @@ class RosDataManager(Node):
 
     def publish_lidar_data(self, points: Tensor, env_idx: int):
         point_cloud = PointCloud2()
-        point_cloud.header.frame_id = self.map_frame(env_idx) # lidar data is in isaac local frame, which corresponds to the map frame in ROS2.
+        point_cloud.header.frame_id = self.map_frame(
+            env_idx
+        )  # lidar data is in isaac local frame, which corresponds to the map frame in ROS2.
         point_cloud.header.stamp = self.get_clock().now().to_msg()
 
         fields = [
@@ -343,9 +335,7 @@ class RosDataManager(Node):
                     wp.to_torch(robot_data.root_ang_vel_b)[i],
                     i,
                 )
-                self.publish_pose(
-                    base_pose_local, wp.to_torch(robot_data.root_state_w)[i, 3:7], i
-                )
+                self.publish_pose(base_pose_local, wp.to_torch(robot_data.root_state_w)[i, 3:7], i)
         if self.cfg.sensor.enable_lidar:
             if pub_lidar:
                 self.lidar_pub_time = time.time()
@@ -385,12 +375,10 @@ class RosDataManager(Node):
                         ("IsaacCreateRenderProduct.inputs:enabled", True),
                         ("IsaacCreateRenderProduct.inputs:height", 480),
                         ("IsaacCreateRenderProduct.inputs:width", 640),
-
                         ("ROS2CameraHelperColor.inputs:type", "rgb"),
                         ("ROS2CameraHelperColor.inputs:topicName", self.color_topic(i)),
                         ("ROS2CameraHelperColor.inputs:frameId", self.camera_frame(i)),
                         ("ROS2CameraHelperColor.inputs:useSystemTime", False),
-
                         ("ROS2CameraHelperDepth.inputs:type", "depth"),
                         ("ROS2CameraHelperDepth.inputs:topicName", self.depth_topic(i)),
                         ("ROS2CameraHelperDepth.inputs:frameId", self.camera_frame(i)),
@@ -447,9 +435,7 @@ class RosDataManager(Node):
 
             # Note, this pointcloud publisher will simply convert the Depth image to a pointcloud using the Camera intrinsics.
             # This pointcloud generation method does not support semantic labelled objects.
-            rv = omni.syntheticdata.SyntheticData.convert_sensor_type_to_rendervar(
-                sd.SensorType.DistanceToImagePlane.name
-            )
+            rv = omni.syntheticdata.SyntheticData.convert_sensor_type_to_rendervar(sd.SensorType.DistanceToImagePlane.name)
 
             writer = rep.writers.get(rv + "ROS2PublishPointCloud")
             writer.initialize(

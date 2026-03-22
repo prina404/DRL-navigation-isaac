@@ -4,8 +4,8 @@ import sys
 import rclpy
 import torch
 import tqdm
-from isaaclab.app import AppLauncher
 import warp as wp
+from isaaclab.app import AppLauncher
 
 from cfg.CFG import SCENE_USD_PATH
 
@@ -52,11 +52,10 @@ from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from loguru import logger
 from omegaconf import DictConfig
-from ros2.RosDataManager import RosDataManager
 
 import go2.go2_mpc as go2_mpc
-from go2.go2_nav_cfg import go2_policy_cfg
 from lab.MyEnvCfg import Go2EnvCfg
+from ros2.RosDataManager import RosDataManager
 
 # from isaacsim.core.utils import extensions
 # extensions.enable_extension("isaacsim.ros2.bridge")
@@ -126,7 +125,7 @@ def run_simulator(cfg: DictConfig):
     __env = env.unwrapped
     ros2_dm = RosDataManager(__env, __env.scene["lidar"], __env.scene["camera"], cfg)
 
-    # --- Eval loop --- 
+    # --- Eval loop ---
     num_envs = env.num_envs
     episodes_done = torch.zeros(num_envs, dtype=torch.long, device=env.device)
     episode_collisions = torch.zeros(num_envs, dtype=torch.float32, device=env.device)

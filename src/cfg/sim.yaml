@@ -10,7 +10,6 @@ sensor:
   enable_camera: True
   color_image: True
   depth_image: True
-  semantic_segmentation: False
 
 sim_app:
   anti_aliasing: 0

@@ -1,12 +1,12 @@
 import isaaclab.sim as sim_utils
 import torch
+import warp as wp
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import euler_xyz_from_quat, quat_from_angle_axis
 
 from lab.helpers.observation_helpers import get_lidar
 from lab.MyEnv import MyEnv
-import warp as wp
 
 
 class MyEnvDebuggingVis(MyEnv):

@@ -3,8 +3,8 @@ import sys
 
 import torch
 import tqdm
-from isaaclab.app import AppLauncher
 import warp as wp
+from isaaclab.app import AppLauncher
 
 from cfg.CFG import SCENE_USD_PATH
 

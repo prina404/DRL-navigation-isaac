@@ -104,7 +104,9 @@ class MyEnv(ManagerBasedRLEnv):
 
     def manual_replan(self, env_ids: torch.Tensor) -> None:
         robot = self.scene["robot"]
-        self.path_manager.compute_global_plan(env_ids, wp.to_torch(robot.data.root_com_pos_w)[env_ids], self.scene.env_origins[env_ids])
+        self.path_manager.compute_global_plan(
+            env_ids, wp.to_torch(robot.data.root_com_pos_w)[env_ids], self.scene.env_origins[env_ids]
+        )
 
     def _update_lidar_buffer(self) -> None:
         # store only the last lidar scan
