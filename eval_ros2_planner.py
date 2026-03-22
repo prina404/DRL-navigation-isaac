@@ -52,7 +52,7 @@ from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from loguru import logger
 from omegaconf import DictConfig
-from ros2.RosDataManager import RobotDataManager
+from ros2.RosDataManager import RosDataManager
 
 import go2.go2_mpc as go2_mpc
 from go2.go2_nav_cfg import go2_policy_cfg
@@ -124,7 +124,7 @@ def run_simulator(cfg: DictConfig):
 
     rclpy.init()
     __env = env.unwrapped
-    ros2_dm = RobotDataManager(__env, __env.scene["lidar"], __env.scene["camera"], cfg)
+    ros2_dm = RosDataManager(__env, __env.scene["lidar"], __env.scene["camera"], cfg)
 
     # --- Eval loop --- 
     num_envs = env.num_envs

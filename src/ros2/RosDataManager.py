@@ -34,7 +34,7 @@ MAP_QOS = QoSProfile(
 )
 
 
-class RobotDataManager(Node):
+class RosDataManager(Node):
     def __init__(self, env: RslRlVecEnvWrapper, lidar_annotators: MultiMeshRayCaster, cameras: TiledCamera, cfg):
         super().__init__("robot_data_manager")
         self.cfg = cfg
@@ -132,7 +132,7 @@ class RobotDataManager(Node):
         return f"{self.robot_ns(env_idx)}/pose"
 
     def lidar_topic(self, env_idx: int) -> str:
-        return f"{self.robot_ns(env_idx)}/lidar/point_cloud"
+        return f"{self.robot_ns(env_idx)}/lidar"
 
     def color_topic(self, env_idx: int) -> str:
         return f"{self.robot_ns(env_idx)}/front_cam/color_image"
@@ -304,9 +304,8 @@ class RobotDataManager(Node):
 
     def publish_lidar_data(self, points: Tensor, env_idx: int):
         point_cloud = PointCloud2()
-        point_cloud.header.frame_id = self.map_frame(env_idx)
-        point_cloud.header.stamp.sec = 0
-        point_cloud.header.stamp.nanosec = 0
+        point_cloud.header.frame_id = self.map_frame(env_idx) # lidar data is in isaac local frame, which corresponds to the map frame in ROS2.
+        point_cloud.header.stamp = self.get_clock().now().to_msg()
 
         fields = [
             PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
@@ -350,9 +349,9 @@ class RobotDataManager(Node):
         if self.cfg.sensor.enable_lidar:
             if pub_lidar:
                 self.lidar_pub_time = time.time()
+                scan_local = self.lidar.data.ray_hits_w - self.env.scene.env_origins.unsqueeze(1)  # convert to local coordinates
                 for i in range(self.num_envs):
-                    scan_local = self.lidar.data.ray_hits_w[i].reshape(-1, 3) - self.env_origin(i)  # convert to local coordinates
-                    self.publish_lidar_data(scan_local, i)
+                    self.publish_lidar_data(scan_local[i], i)
 
         if self.cfg.sensor.enable_camera and pub_camera:
             self.camera_pub_time = time.time()
