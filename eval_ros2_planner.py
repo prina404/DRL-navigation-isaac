@@ -57,7 +57,7 @@ from omegaconf import DictConfig
 import go2.go2_mpc as go2_mpc
 from cfg.CFG import ROOT_DIR, SCENE_USD_PATH
 from lab.MyEnvCfg import Go2EnvCfg
-from ros2.Nav2Manager import kill_nav2_lifecycle, wait_for_nav2_ready
+from ros2.Nav2Manager import kill_nav2_lifecycle, wait_for_nav2_ready, MultiEnvNavigator
 from ros2.RosDataManager import RosDataManager
 
 # from isaacsim.core.utils import extensions
@@ -150,6 +150,8 @@ def run_simulator(cfg: DictConfig):
     signal.signal(signal.SIGINT, ros_send_sigint)
     wait_for_nav2_ready(ros2_dm, env.num_envs, robot_prefix="robot", timeout=60.0)
 
+    multi_nav = MultiEnvNavigator(env.unwrapped)
+
     # --- Eval loop ---
     num_envs = env.num_envs
     episodes_done = torch.zeros(num_envs, dtype=torch.long, device=env.device)
@@ -158,7 +160,7 @@ def run_simulator(cfg: DictConfig):
     collisions = []  # per-completed-episode collision counts
 
     avg_episodes = 0.0
-    env.unwrapped.nominal_weight = 0.5
+    #env.unwrapped.nominal_weight = 0.5
     with tqdm.tqdm(total=args_cli.max_iterations, desc="Evaluating policy") as pbar:
         while avg_episodes < args_cli.max_iterations:
             rclpy.spin_once(ros2_dm, timeout_sec=0.0)  # process cmd_vel callbacks
@@ -168,6 +170,7 @@ def run_simulator(cfg: DictConfig):
 
             _, _, dones, info = env.step(action)
             ros2_dm.pub_ros2_data()
+            multi_nav.step()
 
             dones = dones.bool()
             time_outs = info.get("time_outs", torch.zeros_like(dones)).bool()

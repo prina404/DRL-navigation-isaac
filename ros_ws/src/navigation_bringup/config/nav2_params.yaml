@@ -111,17 +111,17 @@ controller_server:
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.26
-      max_vel_y: 0.0
-      max_vel_theta: 1.0
+      max_vel_x: 2.5
+      max_vel_y: 2.5
+      max_vel_theta: 1.5
       min_speed_xy: 0.0
-      max_speed_xy: 0.26
+      max_speed_xy: 5.0
       min_speed_theta: 0.0
-      acc_lim_x: 2.5
-      acc_lim_y: 0.0
+      acc_lim_x: 2.0
+      acc_lim_y: 2.0
       acc_lim_theta: 3.2
       decel_lim_x: -2.5
-      decel_lim_y: 0.0
+      decel_lim_y: -2.5
       decel_lim_theta: -3.2
       vx_samples: 20
       vy_samples: 5
@@ -157,7 +157,7 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[ [0.21, 0.195], [0.21, -0.195], [-0.21, -0.195], [-0.21, 0.195] ]"
+      footprint: "[ [0.35, 0.215], [0.35, -0.215], [-0.35, -0.215], [-0.35, 0.215] ]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -201,8 +201,8 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      robot_radius: 0.3
       resolution: 0.05
+      footprint: "[ [0.35, 0.215], [0.35, -0.215], [-0.35, -0.215], [-0.35, 0.215] ]"
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       obstacle_layer:
@@ -240,13 +240,6 @@ global_costmap:
 # map_server:
 #   ros__parameters:
 #     yaml_filename: ""
-
-map_saver:
-  ros__parameters:
-    save_map_timeout: 5.0
-    free_thresh_default: 0.25
-    occupied_thresh_default: 0.65
-    map_subscribe_transient_local: True
 
 planner_server:
   ros__parameters:

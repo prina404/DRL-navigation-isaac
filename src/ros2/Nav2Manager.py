@@ -1,9 +1,55 @@
 import subprocess
 import time
 
+from typing import Sequence
 from loguru import logger
 
 from cfg.CFG import ROOT_DIR
+
+from nav2_simple_commander.robot_navigator import BasicNavigator
+from lab.MyEnv import MyEnv
+from geometry_msgs.msg import PoseStamped
+import torch
+
+class MultiEnvNavigator():
+    def __init__(self, env: MyEnv):
+        self.env = env
+
+        self.ns = robot_namespaces(env.num_envs)
+        self.navigators = [BasicNavigator(namespace=ns) for ns in self.ns]
+
+        self.current_goal_poses = env.path_manager.goal_pos_local.clone().cpu()
+        self._send_goals(list(range(env.num_envs)))
+
+    def _send_goals(self, env_ids: Sequence[int]):
+        for env_id in env_ids:
+            new_goal = self.current_goal_poses[env_id]
+            goal_msg = coord_to_pose(new_goal.tolist(), self.ns[env_id])
+            self.navigators[env_id].goToPose(goal_msg)
+
+    def step(self):
+        # check if any env goal has been updated, if so cancel previous goal and send new one
+        diff_goal = self.current_goal_poses != self.env.path_manager.goal_pos_local.cpu() # (N, 2)
+        diff_goal = diff_goal.any(dim=-1)  # (N, )
+        if diff_goal.any():
+            env_ids = torch.where(diff_goal)[0].tolist()
+            logger.debug(f"Updating goals for envs: {env_ids}")
+            for env_id in env_ids:
+                self.navigators[env_id].cancelTask()
+                #self.navigators[env_id].clearAllCostmaps()
+                        
+            self.current_goal_poses = self.env.path_manager.goal_pos_local.clone().cpu() # update stored goals to new ones
+            self._send_goals(env_ids)
+
+
+def coord_to_pose(coord: Sequence[float], namespace: str) -> PoseStamped:
+    pose = PoseStamped()
+    pose.header.frame_id = namespace + "/map"
+    pose.pose.position.x = coord[0]
+    pose.pose.position.y = coord[1]
+    pose.pose.position.z = 0.0
+    return pose
+            
 
 LIFECYCLE_NODES = ["planner_server", "controller_server", "bt_navigator", "behavior_server"]
 
