@@ -24,7 +24,7 @@ def _create_robot_nav2_nodes(context):
     actions = []
 
     for i in range(num_robots):
-        ns = f"{robot_prefix}_{i}"
+        ns = f"{robot_prefix}_{i}" if num_robots > 1 else robot_prefix
         map_frame = f"{ns}/map"
         odom_frame = f"{ns}/odom"
         base_frame = f"{ns}/base_link"
@@ -37,11 +37,19 @@ def _create_robot_nav2_nodes(context):
             root_key=ns,
             param_rewrites={
                 "use_sim_time": use_sim_time_str,
-                "global_frame": map_frame,
-                "global_frame_id": map_frame,
-                "odom_frame_id": odom_frame,
-                "robot_base_frame": base_frame,
-                "base_frame_id": base_frame,
+                "bt_navigator.ros__parameters.global_frame": map_frame,
+                "bt_navigator.ros__parameters.robot_base_frame": base_frame,
+                "controller_server.ros__parameters.odom_topic": "odom",
+                "global_costmap.global_costmap.ros__parameters.global_frame": map_frame,
+                "global_costmap.global_costmap.ros__parameters.robot_base_frame": base_frame,
+                "local_costmap.local_costmap.ros__parameters.global_frame": odom_frame,
+                "local_costmap.local_costmap.ros__parameters.robot_base_frame": base_frame,
+                "behavior_server.ros__parameters.global_frame": map_frame,
+                "behavior_server.ros__parameters.local_frame": odom_frame,
+                "behavior_server.ros__parameters.robot_base_frame": base_frame,
+                "amcl.ros__parameters.global_frame_id": map_frame,
+                "amcl.ros__parameters.odom_frame_id": odom_frame,
+                "amcl.ros__parameters.base_frame_id": base_frame,
                 # Relative names resolve under each namespace: /robot_i/...
                 "odom_topic": "odom",
                 # "scan_topic": "lidar",
@@ -96,6 +104,7 @@ def _create_robot_nav2_nodes(context):
                     name="planner_server",
                     namespace=ns,
                     output="screen",
+                    # arguments=["--ros-args", "--log-level", "debug"],
                     parameters=node_params,
                     remappings=remappings,
                 ),
@@ -105,6 +114,7 @@ def _create_robot_nav2_nodes(context):
                     name="controller_server",
                     namespace=ns,
                     output="screen",
+                    # arguments=["--ros-args", "--log-level", "debug"],
                     parameters=node_params,
                     remappings=remappings,
                 ),
@@ -114,6 +124,7 @@ def _create_robot_nav2_nodes(context):
                     name="bt_navigator",
                     namespace=ns,
                     output="screen",
+                    # arguments=["--ros-args", "--log-level", "debug"],
                     parameters=node_params,
                     remappings=remappings,
                 ),
@@ -123,6 +134,7 @@ def _create_robot_nav2_nodes(context):
                     name="lifecycle_manager_navigation",
                     namespace=ns,
                     output="screen",
+                    # arguments=["--ros-args", "--log-level", "debug"],
                     parameters=[
                         configured_params,
                         {
@@ -138,6 +150,7 @@ def _create_robot_nav2_nodes(context):
                     name="behavior_server",
                     namespace=ns,
                     output="screen",
+                    # arguments=["--ros-args", "--log-level", "debug"],
                     parameters=node_params,
                     remappings=remappings,
                 ),
@@ -145,6 +158,16 @@ def _create_robot_nav2_nodes(context):
         )
 
     return actions
+
+
+def rviz_node():
+    return Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+    )
 
 
 def generate_launch_description():
@@ -161,5 +184,6 @@ def generate_launch_description():
             DeclareLaunchArgument("params_file", default_value=nav2_params),
             DeclareLaunchArgument("map", default_value=map_file),
             OpaqueFunction(function=_create_robot_nav2_nodes),
+            rviz_node(),
         ]
     )

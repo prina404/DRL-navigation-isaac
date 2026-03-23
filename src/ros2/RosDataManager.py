@@ -14,10 +14,12 @@ import rclpy
 import torch
 import warp as wp
 from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
+from isaaclab.assets import ArticulationData
 from isaaclab.sensors import MultiMeshRayCaster, TiledCamera
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
 from sensor_msgs_py import point_cloud2
@@ -26,18 +28,21 @@ from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from torch import Tensor
 
 from lab.MyEnv import MyEnv
+from ros2.Nav2Manager import robot_namespaces
 
 MAP_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)  # ← critical
 
 
 class RosDataManager(Node):
     def __init__(self, env: RslRlVecEnvWrapper, lidar_annotators: MultiMeshRayCaster, cameras: TiledCamera, cfg):
-        super().__init__("robot_data_manager")
+        super().__init__(
+            "robot_data_manager",
+            parameter_overrides=[
+                Parameter("use_sim_time", value=True),
+            ],
+        )
         self.cfg = cfg
         self.create_ros_time_graph()
-        sim_time_set = False
-        while rclpy.ok() and sim_time_set is False:
-            sim_time_set = self.use_sim_time()
 
         self.env: MyEnv = env.unwrapped
         self.num_envs = self.env.scene.num_envs
@@ -90,32 +95,33 @@ class RosDataManager(Node):
         self.odom_pose_freq = 50.0
         self.lidar_freq = 15.0
         self.camera_freq = float(getattr(self.cfg.sensor, "camera_freq", self.lidar_freq))
-        self.odom_pose_pub_time = time.time()
-        self.lidar_pub_time = time.time()
-        self.camera_pub_time = time.time()
+        self.odom_pose_pub_time = time.time() - 1.0
+        self.lidar_pub_time = time.time() - 1.0
+        self.camera_pub_time = time.time() - 1.0
 
+        self.zero_time = rclpy.time.Time().to_msg()
         self.create_static_transform()
         self.create_camera_publisher()
 
         self.base_vel_cmd_input = torch.zeros((self.num_envs, 3), dtype=torch.float32).cpu()
 
     def robot_ns(self, env_idx: int) -> str:
-        return "robot" if self.num_envs == 1 else f"robot_{env_idx}"
+        return robot_namespaces(self.num_envs)[env_idx]
 
     def map_frame(self, env_idx: int) -> str:
-        return "map" if self.num_envs == 1 else f"{self.robot_ns(env_idx)}/map"
+        return f"{self.robot_ns(env_idx)}/map"
 
     def odom_frame(self, env_idx: int) -> str:
-        return "odom" if self.num_envs == 1 else f"{self.robot_ns(env_idx)}/odom"
+        return f"{self.robot_ns(env_idx)}/odom"
 
     def base_frame(self, env_idx: int) -> str:
-        return "base_link" if self.num_envs == 1 else f"{self.robot_ns(env_idx)}/base_link"
+        return f"{self.robot_ns(env_idx)}/base_link"
 
     def lidar_frame(self, env_idx: int) -> str:
-        return "lidar_frame" if self.num_envs == 1 else f"{self.robot_ns(env_idx)}/lidar_frame"
+        return f"{self.robot_ns(env_idx)}/lidar_frame"
 
     def camera_frame(self, env_idx: int) -> str:
-        return "front_cam" if self.num_envs == 1 else f"{self.robot_ns(env_idx)}/front_cam"
+        return f"{self.robot_ns(env_idx)}/front_cam"
 
     def odom_topic(self, env_idx: int) -> str:
         return f"{self.robot_ns(env_idx)}/odom"
@@ -165,14 +171,6 @@ class RosDataManager(Node):
             },
         )
 
-    def use_sim_time(self):
-        # Define the command as a list
-        command = ["ros2", "param", "set", "/robot_data_manager", "use_sim_time", "true"]
-
-        # Run the command in a non-blocking way
-        subprocess.Popen(command)
-        return True
-
     def create_map_msg(self, env_idx: int):
         msg = OccupancyGrid()
 
@@ -194,11 +192,10 @@ class RosDataManager(Node):
 
     def create_static_transform(self):
         static_transforms = []
-
         for i in range(self.num_envs):
             # map -> odom (identity for now; later this can come from localization)
             map_to_odom = TransformStamped()
-            map_to_odom.header.stamp = self.get_clock().now().to_msg()
+            map_to_odom.header.stamp = self.zero_time
             map_to_odom.header.frame_id = self.map_frame(i)
             map_to_odom.child_frame_id = self.odom_frame(i)
             map_to_odom.transform.translation.x = 0.0
@@ -212,7 +209,7 @@ class RosDataManager(Node):
 
             # base_link -> lidar_frame
             base_lidar_transform = TransformStamped()
-            base_lidar_transform.header.stamp = self.get_clock().now().to_msg()
+            base_lidar_transform.header.stamp = self.zero_time
             base_lidar_transform.header.frame_id = self.base_frame(i)
             base_lidar_transform.child_frame_id = self.lidar_frame(i)
             base_lidar_transform.transform.translation.x = 0.2
@@ -226,7 +223,7 @@ class RosDataManager(Node):
 
             # base_link -> front_cam
             base_cam_transform = TransformStamped()
-            base_cam_transform.header.stamp = self.get_clock().now().to_msg()
+            base_cam_transform.header.stamp = self.zero_time
             base_cam_transform.header.frame_id = self.base_frame(i)
             base_cam_transform.child_frame_id = self.camera_frame(i)
             base_cam_transform.transform.translation.x = 0.4
@@ -253,10 +250,10 @@ class RosDataManager(Node):
         odom.pose.pose.position.x = base_pos[0].item()
         odom.pose.pose.position.y = base_pos[1].item()
         odom.pose.pose.position.z = base_pos[2].item()
-        odom.pose.pose.orientation.x = base_rot[1].item()
-        odom.pose.pose.orientation.y = base_rot[2].item()
-        odom.pose.pose.orientation.z = base_rot[3].item()
-        odom.pose.pose.orientation.w = base_rot[0].item()
+        odom.pose.pose.orientation.x = base_rot[0].item()
+        odom.pose.pose.orientation.y = base_rot[1].item()
+        odom.pose.pose.orientation.z = base_rot[2].item()
+        odom.pose.pose.orientation.w = base_rot[3].item()
 
         odom.twist.twist.linear.x = base_lin_vel_b[0].item()
         odom.twist.twist.linear.y = base_lin_vel_b[1].item()
@@ -273,10 +270,10 @@ class RosDataManager(Node):
         odom_tf.transform.translation.x = base_pos[0].item()
         odom_tf.transform.translation.y = base_pos[1].item()
         odom_tf.transform.translation.z = base_pos[2].item()
-        odom_tf.transform.rotation.x = base_rot[1].item()
-        odom_tf.transform.rotation.y = base_rot[2].item()
-        odom_tf.transform.rotation.z = base_rot[3].item()
-        odom_tf.transform.rotation.w = base_rot[0].item()
+        odom_tf.transform.rotation.x = base_rot[0].item()
+        odom_tf.transform.rotation.y = base_rot[1].item()
+        odom_tf.transform.rotation.z = base_rot[2].item()
+        odom_tf.transform.rotation.w = base_rot[3].item()
         self.broadcaster.sendTransform(odom_tf)
 
     def publish_pose(self, base_pos: Tensor, base_rot: Tensor, env_idx: int):
@@ -286,10 +283,10 @@ class RosDataManager(Node):
         pose_msg.pose.position.x = base_pos[0].item()
         pose_msg.pose.position.y = base_pos[1].item()
         pose_msg.pose.position.z = base_pos[2].item()
-        pose_msg.pose.orientation.x = base_rot[1].item()
-        pose_msg.pose.orientation.y = base_rot[2].item()
-        pose_msg.pose.orientation.z = base_rot[3].item()
-        pose_msg.pose.orientation.w = base_rot[0].item()
+        pose_msg.pose.orientation.x = base_rot[0].item()
+        pose_msg.pose.orientation.y = base_rot[1].item()
+        pose_msg.pose.orientation.z = base_rot[2].item()
+        pose_msg.pose.orientation.w = base_rot[3].item()
         self.pose_pub[env_idx].publish(pose_msg)
 
     def publish_lidar_data(self, points: Tensor, env_idx: int):
@@ -325,17 +322,22 @@ class RosDataManager(Node):
 
         if pub_odom_pose:
             self.odom_pose_pub_time = time.time()
-            robot_data = self.env.unwrapped.scene["robot"].data
+            robot_data: ArticulationData = self.env.unwrapped.scene["robot"].data
+            from loguru import logger
+
             for i in range(self.num_envs):
-                base_pose_local = wp.to_torch(robot_data.root_state_w)[i, :3] - self.env_origin(i)  # convert to local coordinates
+                base_pose_local = wp.to_torch(robot_data.root_com_state_w)[i, :3] - self.env_origin(
+                    i
+                )  # convert to local coordinates
                 self.publish_odom(
                     base_pose_local,
-                    wp.to_torch(robot_data.root_state_w)[i, 3:7],
-                    wp.to_torch(robot_data.root_lin_vel_b)[i],
-                    wp.to_torch(robot_data.root_ang_vel_b)[i],
+                    wp.to_torch(robot_data.root_com_state_w)[i, 3:7],
+                    wp.to_torch(robot_data.root_com_lin_vel_w)[i],
+                    wp.to_torch(robot_data.root_com_ang_vel_w)[i],
                     i,
                 )
-                self.publish_pose(base_pose_local, wp.to_torch(robot_data.root_state_w)[i, 3:7], i)
+                self.publish_pose(base_pose_local, wp.to_torch(robot_data.root_com_state_w)[i, 3:7], i)
+
         if self.cfg.sensor.enable_lidar:
             if pub_lidar:
                 self.lidar_pub_time = time.time()
@@ -501,3 +503,9 @@ class RosDataManager(Node):
         msg.step = int(width) * int(channels) * int(tensor.element_size())
         msg.data = tensor.detach().cpu().contiguous().numpy().tobytes()
         publisher.publish(msg)
+
+    def shutdown(self) -> None:
+        """Destroy the ROS node cleanly."""
+        self.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
