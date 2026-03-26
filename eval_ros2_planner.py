@@ -93,7 +93,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="lab.MyEnv:MyEnv",
         disable_env_checker=True,
-        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": True, "sample_voronoi": False},
+        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": True, "sample_voronoi": True},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -123,9 +123,10 @@ def run_simulator(cfg: DictConfig):
     rclpy.init()
     __env = env.unwrapped
     ros2_dm = RosDataManager(__env, __env.scene["lidar"], __env.scene["camera"], cfg)
-    ros2_dm.pub_ros2_data()
+    ros2_dm.pub_ros2_data(ros2_dm.zero_time) 
 
     # Init NavStack
+    kill_nav2_lifecycle()  # ensure no leftover nodes from previous runs
     cmd = [
         "bash",
         "-lc",
@@ -169,8 +170,8 @@ def run_simulator(cfg: DictConfig):
                 action = ros2_dm.base_vel_cmd_input.to(env.device)
 
             _, _, dones, info = env.step(action)
-            ros2_dm.pub_ros2_data()
             multi_nav.step()
+            ros2_dm.pub_ros2_data(ros2_dm.get_time())
 
             dones = dones.bool()
             time_outs = info.get("time_outs", torch.zeros_like(dones)).bool()

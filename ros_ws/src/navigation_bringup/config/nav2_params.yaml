@@ -1,43 +1,3 @@
-amcl:
-  ros__parameters:
-    alpha1: 0.2
-    alpha2: 0.2
-    alpha3: 0.2
-    alpha4: 0.2
-    alpha5: 0.2
-    base_frame_id: "base_footprint"
-    beam_skip_distance: 0.5
-    beam_skip_error_threshold: 0.9
-    beam_skip_threshold: 0.3
-    do_beamskip: false
-    global_frame_id: "map"
-    lambda_short: 0.1
-    laser_likelihood_max_dist: 2.0
-    laser_max_range: 100.0
-    laser_min_range: -1.0
-    laser_model_type: "likelihood_field"
-    max_beams: 60
-    max_particles: 2000
-    min_particles: 500
-    odom_frame_id: "odom"
-    pf_err: 0.05
-    pf_z: 0.99
-    recovery_alpha_fast: 0.0
-    recovery_alpha_slow: 0.0
-    resample_interval: 1
-    robot_model_type: "nav2_amcl::DifferentialMotionModel"
-    save_pose_rate: 0.5
-    sigma_hit: 0.2
-    tf_broadcast: true
-    transform_tolerance: 1.0
-    update_min_a: 0.2
-    update_min_d: 0.25
-    z_hit: 0.5
-    z_max: 0.05
-    z_rand: 0.5
-    z_short: 0.05
-    scan_topic: scan
-
 bt_navigator:
   ros__parameters:
     global_frame: map
@@ -80,7 +40,7 @@ controller_server:
     controller_frequency: 20.0
     costmap_update_timeout: 0.30
     min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.5
+    min_y_velocity_threshold: 0.01
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
@@ -109,42 +69,143 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      min_vel_x: 0.0
-      min_vel_y: 0.0
-      max_vel_x: 2.5
-      max_vel_y: 2.5
-      max_vel_theta: 1.5
+      min_vel_x: -1.0
+      min_vel_y: -0.1
+      max_vel_x: 1.5
+      max_vel_y: 0.1
+      max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 5.0
+      max_speed_xy: 3.0
       min_speed_theta: 0.0
-      acc_lim_x: 2.0
-      acc_lim_y: 2.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
-      decel_lim_y: -2.5
-      decel_lim_theta: -3.2
+      acc_lim_x: 1.5
+      acc_lim_y: 0.5
+      acc_lim_theta: 1.5
+      decel_lim_x: -1.5
+      decel_lim_y: -0.5
+      decel_lim_theta: -0.5
       vx_samples: 20
-      vy_samples: 5
+      vy_samples: 10
       vtheta_samples: 20
       sim_time: 1.7
       linear_granularity: 0.05
       angular_granularity: 0.025
-      xy_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.5
       path_length_tolerance: 1.0
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
       limit_vel_cmd_in_traj: False
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist", "ObstacleFootprint", "PreferForward"]
+      BaseObstacle.scale: 1.0
+      ObstacleFootprint.scale: 12.0
+      PreferForward.scale: 32.0
       PathAlign.scale: 32.0
-      GoalAlign.scale: 24.0
+      GoalAlign.scale: 1.0
       PathAlign.forward_point_distance: 0.1
       GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
+      PathDist.scale: 24.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
+
+      ####### END DWA ###########
+
+      # plugin: "nav2_mppi_controller::MPPIController"
+      # time_steps: 56
+      # model_dt: 0.05
+      # batch_size: 2000
+      # vx_std: 0.3
+      # vy_std: 0.3
+      # wz_std: 0.4
+      # vx_max: 2.5
+      # vx_min: -0.35
+      # vy_max: 2.5
+      # wz_max: 1.9
+      # ax_max: 3.0
+      # ax_min: -3.0
+      # ay_min: -3.0
+      # ay_max: 3.0
+      # az_max: 3.5
+      # iteration_count: 1
+      # temperature: 0.3
+      # gamma: 0.015
+      # motion_model: "Omni"
+      # visualize: true
+      # critic_index_to_visualize: 0
+      # reset_period: 1.0 # (only in Humble)
+      # regenerate_noises: false
+      # TrajectoryVisualizer:
+      #   trajectory_step: 5
+      #   time_step: 3
+      # TrajectoryValidator:
+      #   plugin: "mppi::DefaultOptimalTrajectoryValidator"
+      #   collision_lookahead_time: 2.0
+      #   consider_footprint: true
+      # AckermannConstraints:
+      #   min_turning_r: 0.2
+      # critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+      # ConstraintCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 4.0
+      # GoalCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 5.0
+      #   threshold_to_consider: 1.4
+      # GoalAngleCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 3.0
+      #   threshold_to_consider: 0.5
+      # PreferForwardCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 5.0
+      #   threshold_to_consider: 0.5
+      # # ObstaclesCritic:
+      # #   enabled: true
+      # #   cost_power: 1
+      # #   repulsion_weight: 1.5
+      # #   critical_weight: 20.0
+      # #   consider_footprint: false
+      # #   collision_cost: 10000.0
+      # #   collision_margin_distance: 0.1
+      # #   near_goal_distance: 0.5
+      # #   inflation_radius: 0.55 # (only in Humble)
+      # #   cost_scaling_factor: 10.0 # (only in Humble)
+      # CostCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 3.81
+      #   critical_cost: 300.0
+      #   consider_footprint: true
+      #   collision_cost: 1000000.0
+      #   near_goal_distance: 1.0
+      #   trajectory_point_step: 2
+      # PathAlignCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 14.0
+      #   max_path_occupancy_ratio: 0.05
+      #   trajectory_point_step: 4
+      #   threshold_to_consider: 0.5
+      #   offset_from_furthest: 20
+      #   use_path_orientations: false
+      # PathFollowCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 5.0
+      #   offset_from_furthest: 5
+      #   threshold_to_consider: 1.4
+      # PathAngleCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 2.0
+      #   offset_from_furthest: 4
+      #   threshold_to_consider: 0.5
+      #   max_angle_to_furthest: 1.0
+      #   mode: 0
 
 local_costmap:
   local_costmap:
@@ -157,12 +218,12 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[ [0.35, 0.215], [0.35, -0.215], [-0.35, -0.215], [-0.35, 0.215] ]"
+      footprint: "[ [0.30, 0.20], [0.30, -0.20], [-0.30, -0.20], [-0.30, 0.20] ]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        inflation_radius: 0.4
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -170,7 +231,7 @@ local_costmap:
         origin_z: 0.0
         z_resolution: 0.05
         z_voxels: 16
-        max_obstacle_height: 2.0
+        max_obstacle_height: 0.5
         mark_threshold: 0
         observation_sources: point_cloud
         point_cloud:
@@ -181,7 +242,7 @@ local_costmap:
           #   * Topic will be remapped to `/tb4/scan` without `local_costmap`.
           #   * Use global topic `/scan` if you do not wish the node namespace to apply
           topic: lidar
-          max_obstacle_height: 2.0
+          max_obstacle_height: 0.5
           clearing: True
           marking: True
           data_type: "PointCloud2"
@@ -202,7 +263,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       resolution: 0.05
-      footprint: "[ [0.35, 0.215], [0.35, -0.215], [-0.35, -0.215], [-0.35, 0.215] ]"
+      footprint: "[ [0.30, 0.20], [0.30, -0.20], [-0.30, -0.20], [-0.30, 0.20] ]"
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       obstacle_layer:
@@ -217,7 +278,7 @@ global_costmap:
           #   * Topic will be remapped to `/tb4/scan` without `global_costmap`.
           #   * Use global topic `/scan` if you do not wish the node namespace to apply
           topic: lidar
-          max_obstacle_height: 2.0
+          max_obstacle_height: 0.5
           clearing: True
           marking: True
           data_type: "PointCloud2"
@@ -231,7 +292,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        inflation_radius: 0.4
       always_send_full_costmap: True
 
 # The yaml_filename does not need to be specified since it going to be set by defaults in launch.
@@ -248,9 +309,13 @@ planner_server:
     costmap_update_timeout: 1.0
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.5
+      tolerance: 0.75
       use_astar: false
       allow_unknown: true
+      # plugin: "nav2_smac_planner::SmacPlannerHybrid"
+      # tolerance: 0.5
+      # allow_unknown: true
+
 
 smoother_server:
   ros__parameters:
@@ -305,12 +370,143 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.5, 0.0, 2.0]
-    min_velocity: [-0.5, 0.0, -2.0]
-    max_accel: [2.5, 0.0, 3.2]
-    max_decel: [-2.5, 0.0, -3.2]
+    max_velocity: [1.0, 0.0, 1.5]
+    min_velocity: [-1.0, -0.0, -1.5]
+    max_accel: [1.5, 0.0, 1.5]
+    max_decel: [-1.5, -0.0, -1.5]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
     enable_stamped_cmd_vel: false
+
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base_footprint"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_smoothed"
+    cmd_vel_out_topic: "cmd_vel_safe"
+    state_topic: "collision_monitor_state"
+    transform_tolerance: 0.5
+    enable_stamped_cmd_vel: False
+    source_timeout: 1.0
+    base_shift_correction: True
+    stop_pub_timeout: 2.0
+    holonomic: true       # Set to true for holonomic robots
+    observation_sources: ["pointcloud"]
+    pointcloud:
+      type: "pointcloud"  
+      topic: "lidar"
+      transport_type: "raw"  # raw or/ with compression (zlib, draco, zstd)
+      min_height: 0.1
+      max_height: 0.5
+      min_range: 0.1
+      enabled: True
+    # polygons: ["VelocityPolygonSlow"]
+    polygons: ["FootprintApproach"]
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: "local_costmap/published_footprint"
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 6
+      visualize: True
+      enabled: True
+
+
+    VelocityPolygonSlow:
+      type: "velocity_polygon"
+      action_type: "slowdown"
+      slowdown_ratio: 0.5
+      holonomic: true
+      visualize: True
+      enabled: True
+      velocity_polygons: [
+        "forward", "forward_left", "left", "backward_left",
+        "backward", "backward_right", "right", "forward_right",
+        "stopped"
+      ]
+
+      forward:
+        points: "[[0.6, 0.4], [0.6, -0.4], [-0.3, -0.4], [-0.3, 0.4]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: -0.785   # -0.25pi
+        direction_end_angle: 0.785      # 0.25pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      forward_left:
+        points: "[[0.55, 0.55], [0.55, -0.3], [-0.3, -0.3], [-0.3, 0.55]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: 0.0      # 0.0pi
+        direction_end_angle: 1.571      # 0.5pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      left:
+        points: "[[0.4, 0.6], [0.4, -0.4], [-0.4, -0.4], [-0.4, 0.6]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: 0.785     # 0.25pi
+        direction_end_angle: 2.356       # 0.75pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      backward_left:
+        points: "[[0.3, 0.55], [0.3, -0.3], [-0.55, -0.3], [-0.55, 0.55]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: -3.1415   # -pi
+        direction_end_angle: -1.571      # -0.5pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      backward:
+        points: "[[0.3, 0.4], [0.3, -0.4], [-0.6, -0.4], [-0.6, 0.4]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: 2.356     # 0.75pi
+        direction_end_angle: -2.356      # -0.75pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      backward_right:
+        points: "[[0.3, 0.3], [0.3, -0.55], [-0.55, -0.55], [-0.55, 0.3]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: 1.571     # 0.5pi
+        direction_end_angle: 3.1415      # pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      right:
+        points: "[[0.4, 0.4], [0.4, -0.6], [-0.4, -0.6], [-0.4, 0.4]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: -2.356    # -0.75pi
+        direction_end_angle: -0.785      # -0.25pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      forward_right:
+        points: "[[0.55, 0.3], [0.55, -0.55], [-0.3, -0.55], [-0.3, 0.3]]"
+        linear_min: 0.05
+        linear_max: 1.0
+        direction_start_angle: -1.571   # -0.5pi
+        direction_end_angle: 0.0        # 0.0pi
+        theta_min: -1.0
+        theta_max: 1.0
+
+      # Stopped
+      stopped:
+        points: "[[0.4, 0.4], [0.4, -0.4], [-0.4, -0.4], [-0.4, 0.4]]"
+        linear_min: 0.0
+        linear_max: 0.05
+        direction_start_angle: -3.1415
+        direction_end_angle: 3.1415
+        theta_min: -1.0
+        theta_max: 1.0
+

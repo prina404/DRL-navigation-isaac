@@ -18,7 +18,9 @@ from isaaclab.assets import ArticulationData
 from isaaclab.sensors import MultiMeshRayCaster, TiledCamera
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from nav_msgs.msg import OccupancyGrid, Odometry
+from std_msgs.msg import Header
 from rclpy.node import Node
+from builtin_interfaces.msg import Time
 from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
@@ -91,13 +93,9 @@ class RosDataManager(Node):
                 )
             )
 
-        # use wall time for lidar and odom pub
         self.odom_pose_freq = 50.0
         self.lidar_freq = 15.0
         self.camera_freq = float(getattr(self.cfg.sensor, "camera_freq", self.lidar_freq))
-        self.odom_pose_pub_time = time.time() - 1.0
-        self.lidar_pub_time = time.time() - 1.0
-        self.camera_pub_time = time.time() - 1.0
 
         self.zero_time = rclpy.time.Time().to_msg()
         self.create_static_transform()
@@ -142,7 +140,7 @@ class RosDataManager(Node):
         return f"{self.robot_ns(env_idx)}/front_cam/camera_info"
 
     def cmd_vel_topic(self, env_idx: int) -> str:
-        return f"{self.robot_ns(env_idx)}/cmd_vel"
+        return f"{self.robot_ns(env_idx)}/cmd_vel_smoothed"
 
     def env_origin(self, env_idx: int) -> Tensor:
         return self.env.scene.env_origins[env_idx]
@@ -198,13 +196,6 @@ class RosDataManager(Node):
             map_to_odom.header.stamp = self.zero_time
             map_to_odom.header.frame_id = self.map_frame(i)
             map_to_odom.child_frame_id = self.odom_frame(i)
-            map_to_odom.transform.translation.x = 0.0
-            map_to_odom.transform.translation.y = 0.0
-            map_to_odom.transform.translation.z = 0.0
-            map_to_odom.transform.rotation.x = 0.0
-            map_to_odom.transform.rotation.y = 0.0
-            map_to_odom.transform.rotation.z = 0.0
-            map_to_odom.transform.rotation.w = 1.0
             static_transforms.append(map_to_odom)
 
             # base_link -> lidar_frame
@@ -215,10 +206,6 @@ class RosDataManager(Node):
             base_lidar_transform.transform.translation.x = 0.2
             base_lidar_transform.transform.translation.y = 0.0
             base_lidar_transform.transform.translation.z = 0.2
-            base_lidar_transform.transform.rotation.x = 0.0
-            base_lidar_transform.transform.rotation.y = 0.0
-            base_lidar_transform.transform.rotation.z = 0.0
-            base_lidar_transform.transform.rotation.w = 1.0
             static_transforms.append(base_lidar_transform)
 
             # base_link -> front_cam
@@ -239,11 +226,11 @@ class RosDataManager(Node):
 
     def create_camera_publisher(self):
         if self.cfg.sensor.enable_camera:
-            self.publish_camera_info()
+            self.publish_camera_info(self.zero_time)  
 
-    def publish_odom(self, base_pos: Tensor, base_rot: Tensor, base_lin_vel_b: Tensor, base_ang_vel_b: Tensor, env_idx: int):
+    def publish_odom(self, timestamp: Time, base_pos: Tensor, base_rot: Tensor, base_lin_vel_b: Tensor, base_ang_vel_b: Tensor, env_idx: int):
         odom = Odometry()
-        odom.header.stamp = self.get_clock().now().to_msg()
+        odom.header.stamp = timestamp
         odom.header.frame_id = self.odom_frame(env_idx)
         odom.child_frame_id = self.base_frame(env_idx)
 
@@ -264,7 +251,7 @@ class RosDataManager(Node):
         self.odom_pub[env_idx].publish(odom)
 
         odom_tf = TransformStamped()
-        odom_tf.header.stamp = self.get_clock().now().to_msg()
+        odom_tf.header.stamp = timestamp
         odom_tf.header.frame_id = self.odom_frame(env_idx)
         odom_tf.child_frame_id = self.base_frame(env_idx)
         odom_tf.transform.translation.x = base_pos[0].item()
@@ -276,9 +263,9 @@ class RosDataManager(Node):
         odom_tf.transform.rotation.w = base_rot[3].item()
         self.broadcaster.sendTransform(odom_tf)
 
-    def publish_pose(self, base_pos: Tensor, base_rot: Tensor, env_idx: int):
+    def publish_pose(self, timestamp: Time, base_pos: Tensor, base_rot: Tensor, env_idx: int):
         pose_msg = PoseStamped()
-        pose_msg.header.stamp = self.get_clock().now().to_msg()
+        pose_msg.header.stamp = timestamp
         pose_msg.header.frame_id = self.map_frame(env_idx)
         pose_msg.pose.position.x = base_pos[0].item()
         pose_msg.pose.position.y = base_pos[1].item()
@@ -289,12 +276,12 @@ class RosDataManager(Node):
         pose_msg.pose.orientation.w = base_rot[3].item()
         self.pose_pub[env_idx].publish(pose_msg)
 
-    def publish_lidar_data(self, points: Tensor, env_idx: int):
+    def publish_lidar_data(self, timestamp: Time, points: Tensor, env_idx: int):
         point_cloud = PointCloud2()
         point_cloud.header.frame_id = self.map_frame(
             env_idx
         )  # lidar data is in isaac local frame, which corresponds to the map frame in ROS2.
-        point_cloud.header.stamp = self.get_clock().now().to_msg()
+        point_cloud.header.stamp = timestamp
 
         fields = [
             PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
@@ -304,58 +291,39 @@ class RosDataManager(Node):
         point_cloud = point_cloud2.create_cloud(point_cloud.header, fields, points)
         self.lidar_pub[env_idx].publish(point_cloud)
 
-    def pub_ros2_data(self):
-        pub_odom_pose = False
-        pub_lidar = False
-        pub_camera = False
-        dt_odom_pose = time.time() - self.odom_pose_pub_time
-        dt_lidar = time.time() - self.lidar_pub_time
-        dt_camera = time.time() - self.camera_pub_time
-        if dt_odom_pose >= 1.0 / self.odom_pose_freq:
-            pub_odom_pose = True
+    def pub_ros2_data(self, timestamp: Time):
+        robot_data: ArticulationData = self.env.unwrapped.scene["robot"].data
 
-        if dt_lidar >= 1.0 / self.lidar_freq:
-            pub_lidar = True
-
-        if dt_camera >= 1.0 / self.camera_freq:
-            pub_camera = True
-
-        if pub_odom_pose:
-            self.odom_pose_pub_time = time.time()
-            robot_data: ArticulationData = self.env.unwrapped.scene["robot"].data
-            from loguru import logger
-
-            for i in range(self.num_envs):
-                base_pose_local = wp.to_torch(robot_data.root_com_state_w)[i, :3] - self.env_origin(
-                    i
-                )  # convert to local coordinates
-                self.publish_odom(
-                    base_pose_local,
-                    wp.to_torch(robot_data.root_com_state_w)[i, 3:7],
-                    wp.to_torch(robot_data.root_com_lin_vel_w)[i],
-                    wp.to_torch(robot_data.root_com_ang_vel_w)[i],
-                    i,
-                )
-                self.publish_pose(base_pose_local, wp.to_torch(robot_data.root_com_state_w)[i, 3:7], i)
+        for i in range(self.num_envs):
+            base_pose_local = wp.to_torch(robot_data.root_com_state_w)[i, :3] - self.env_origin(
+                i
+            )  # convert to local coordinates
+            self.publish_odom(
+                timestamp,
+                base_pose_local,
+                wp.to_torch(robot_data.root_com_state_w)[i, 3:7],
+                wp.to_torch(robot_data.root_com_lin_vel_w)[i],
+                wp.to_torch(robot_data.root_com_ang_vel_w)[i],
+                i,
+            )
+            self.publish_pose(timestamp, base_pose_local, wp.to_torch(robot_data.root_com_state_w)[i, 3:7], i)
 
         if self.cfg.sensor.enable_lidar:
-            if pub_lidar:
-                self.lidar_pub_time = time.time()
-                scan_local = self.lidar.data.ray_hits_w - self.env.scene.env_origins.unsqueeze(1)  # convert to local coordinates
-                for i in range(self.num_envs):
-                    self.publish_lidar_data(scan_local[i], i)
+            scan_local = self.lidar.data.ray_hits_w - self.env.scene.env_origins.unsqueeze(1)  # convert to local coordinates
+            for i in range(self.num_envs):
+                self.publish_lidar_data(timestamp, scan_local[i], i)
 
-        if self.cfg.sensor.enable_camera and pub_camera:
-            self.camera_pub_time = time.time()
+        if self.cfg.sensor.enable_camera:
             if self.cfg.sensor.color_image:
-                self.pub_color_image()
+                self.pub_color_image(timestamp)
             if self.cfg.sensor.depth_image:
-                self.pub_depth_image()
+                self.pub_depth_image(timestamp)
 
     def cmd_vel_callback(self, msg: Twist, env_idx: int):
-        self.base_vel_cmd_input[env_idx][0] = msg.linear.x
-        self.base_vel_cmd_input[env_idx][1] = msg.linear.y
-        self.base_vel_cmd_input[env_idx][2] = msg.angular.z
+        action_scale = 1.0
+        self.base_vel_cmd_input[env_idx][0] = msg.linear.x * action_scale
+        self.base_vel_cmd_input[env_idx][1] = msg.linear.y * action_scale
+        self.base_vel_cmd_input[env_idx][2] = msg.angular.z 
 
     def pub_image_graph(self):
         for i in range(self.num_envs):
@@ -396,7 +364,7 @@ class RosDataManager(Node):
                 },
             )
 
-    def pub_color_image(self):
+    def pub_color_image(self, timestamp: Time):
         data = self.cameras.data.output.get("rgb")
         if data is None:
             return
@@ -405,9 +373,9 @@ class RosDataManager(Node):
                 frame_id = "unitree_go2/front_cam"
             else:
                 frame_id = f"unitree_go2_{i}/front_cam"
-            self.publish_image(data[i], frame_id, "rgb8", self.color_pub[i])
+            self.publish_image(data[i], frame_id, "rgb8", self.color_pub[i], timestamp)
 
-    def pub_depth_image(self):
+    def pub_depth_image(self, timestamp: Time):
         data = self.cameras.data.output.get("depth")
         if data is None:
             return
@@ -419,9 +387,9 @@ class RosDataManager(Node):
             depth = data[i]
             if depth.ndim == 2:
                 depth = depth.unsqueeze(-1)
-            self.publish_image(depth, frame_id, "32FC1", self.depth_pub[i])
+            self.publish_image(depth, frame_id, "32FC1", self.depth_pub[i], timestamp)
 
-    def pub_cam_depth_cloud(self):
+    def pub_cam_depth_cloud(self, timestamp: Time):
         for i in range(self.num_envs):
             # The following code will link the camera's render product and publish the data to the specified topic name.
             render_product = self.cameras.render_product_paths[i]
@@ -453,7 +421,7 @@ class RosDataManager(Node):
 
             og.Controller.attribute(gate_path + ".inputs:step").set(step_size)
 
-    def publish_camera_info(self):
+    def publish_camera_info(self, timestamp: Time):
         for i in range(self.num_envs):
             if self.num_envs == 1:
                 frame_id = "unitree_go2/front_cam"
@@ -479,7 +447,7 @@ class RosDataManager(Node):
             ]
 
             msg = CameraInfo()
-            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.stamp = timestamp
             msg.header.frame_id = frame_id
             msg.height = height
             msg.width = width
@@ -490,9 +458,9 @@ class RosDataManager(Node):
             msg.p = p
             self.camera_info_pub[i].publish(msg)
 
-    def publish_image(self, tensor: Tensor, frame_id: str, encoding: str, publisher):
+    def publish_image(self, tensor: Tensor, frame_id: str, encoding: str, publisher, timestamp: Time):
         msg = Image()
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = timestamp
         msg.header.frame_id = frame_id
 
         height, width, channels = tensor.shape
@@ -503,6 +471,9 @@ class RosDataManager(Node):
         msg.step = int(width) * int(channels) * int(tensor.element_size())
         msg.data = tensor.detach().cpu().contiguous().numpy().tobytes()
         publisher.publish(msg)
+
+    def get_time(self) -> Time:
+        return self.get_clock().now().to_msg()
 
     def shutdown(self) -> None:
         """Destroy the ROS node cleanly."""
