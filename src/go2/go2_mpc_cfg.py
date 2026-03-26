@@ -48,9 +48,12 @@ unitree_go2_rough_cfg = {
     "empirical_normalization": False,
     "policy": {
         "class_name": "ActorCritic",
+        "actor_input_dims": 48,
+        "critic_input_dims": 48,
+        "n_actions": 12,
         "init_noise_std": 1.0,
-        "actor_hidden_dims": [512, 256, 128],
-        "critic_hidden_dims": [512, 256, 128],
+        "actor_hidden_dims": [128, 128, 128],
+        "critic_hidden_dims": [128, 128, 128],
         "activation": "elu",
     },
     "algorithm": {
