@@ -27,6 +27,8 @@ class CameraManager:
             smoothed_eye_pos = (1 - alpha) * self.old_eye_pos + alpha * new_eye_pos
             smoothed_lookat_pos = (1 - alpha) * self.old_lookat_pos + alpha * new_lookat_pos
 
+            smoothed_eye_pos[2] = max(smoothed_eye_pos[2].item(), 0.5)  # prevent camera from going underground
+            smoothed_lookat_pos[2] = min(smoothed_lookat_pos[2].item(), -0.1)
             self.camera.update_view_location(
                 eye=smoothed_eye_pos.cpu().numpy(),
                 lookat=smoothed_lookat_pos.cpu().numpy(),

@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 
 import torch
 import tqdm
@@ -67,6 +68,7 @@ from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
 import go2.go2_mpc as go2_mpc
+import go2.go2_control_policy as go2_control
 from go2.go2_nav_cfg import go2_policy_cfg
 from lab.MyEnvCfg import Go2EnvCfg
 
@@ -77,7 +79,7 @@ FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 def run_simulator(cfg: DictConfig):
 
     # Go2 MPC setup
-    mpc = go2_mpc.get_mpc_policy()
+    mpc = go2_control.get_mpc_policy()
 
     # Go2 Env setup
     go2_env_cfg = Go2EnvCfg()
@@ -91,9 +93,6 @@ def run_simulator(cfg: DictConfig):
     logger.info(f"Logging experiment in directory: {log_root_path}")
     logger.info(f"Exact experiment name requested from command line: {run_info}")
     log_dir = os.path.join(log_root_path, run_info)
-
-    if isinstance(go2_env_cfg, ManagerBasedRLEnvCfg):
-        go2_env_cfg.export_io_descriptors = True
 
     go2_env_cfg.log_dir = log_dir
 

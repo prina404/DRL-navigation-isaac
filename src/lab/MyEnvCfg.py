@@ -88,25 +88,25 @@ class Go2SimCfg(InteractiveSceneCfg):
         debug_vis=False,
         mesh_prim_paths=[
             "/World/ground",
-            MultiMeshRayCasterCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
-                is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms
-                track_mesh_transforms=True,
-            ),
-            MultiMeshRayCasterCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/environment/Meshes/static_objects",
-                is_shared=True,
-                track_mesh_transforms=False,
-            ),
+            # MultiMeshRayCasterCfg.RaycastTargetCfg(
+            #     prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
+            #     is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms
+            #     track_mesh_transforms=True,
+            # ),
+            # MultiMeshRayCasterCfg.RaycastTargetCfg(
+            #     prim_expr="{ENV_REGEX_NS}/environment/Meshes/static_objects",
+            #     is_shared=True,
+            #     track_mesh_transforms=False,
+            # ),
         ],
     )
 
-    environment = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/environment",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=str(SCENE_USD_PATH),
-        ),
-    )
+    # environment = AssetBaseCfg(
+    #     prim_path="{ENV_REGEX_NS}/environment",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=str(SCENE_USD_PATH),
+    #     ),
+    # )
 
 
 @configclass
@@ -231,7 +231,7 @@ class EventsCfg:
     reset_pos = EventTermCfg(func=events.teleport_on_reset, mode="reset")
 
     reset_joints = EventTermCfg(
-        func=mdp.reset_joints_by_scale,
+        func=mdp.reset_joints_by_offset,
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg(name="robot"),
@@ -240,10 +240,10 @@ class EventsCfg:
         },
     )
 
-    randomize_doors = EventTermCfg(
-        func=events.randomize_door_positions,
-        mode="reset",
-    )
+    # randomize_doors = EventTermCfg(
+    #     func=events.randomize_door_positions,
+    #     mode="reset",
+    # )
 
     replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
 

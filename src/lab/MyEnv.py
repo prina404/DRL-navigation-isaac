@@ -39,8 +39,8 @@ class MyEnv(ManagerBasedRLEnv):
         camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
         self.camera_manager = CameraManager(
             camera_controller,
-            camera_relative_pos=torch.tensor([-0.6, 0.0, 0.8]),
-            camera_lookat=torch.tensor([1.6, 0.0, -1.0]),
+            camera_relative_pos=torch.tensor([-1.5, 0.0, 0.8]),
+            camera_lookat=torch.tensor([1.6, 0.0, -1.5]),
         )
 
         self.long_horizon = kwargs.get("use_long_horizon", False)
