@@ -1,10 +1,13 @@
 import torch
 
-import lab.helpers.reward_helpers as rewards
-from lab.MyEnv import MyEnv
+import mdp.rewards.helper_functions as rewards
+from navigation_env.NavigationEnv import NavEnv
 
 
-def collision_after_threshold_termination(env: MyEnv) -> torch.Tensor:
+def collision_after_threshold_termination(env: NavEnv) -> torch.Tensor:
+    if env.collision_termination_thresh >= 1.0:
+        return torch.zeros((env.num_envs,), dtype=torch.bool, device=env.device)
+
     if env.collision_termination_thresh >= 1.0:
         return torch.zeros((env.num_envs,), dtype=torch.bool, device=env.device)
 
@@ -18,6 +21,6 @@ def collision_after_threshold_termination(env: MyEnv) -> torch.Tensor:
     return collisions & over_threshold
 
 
-def distance_traveled_termination(env: MyEnv, max_distance: float = 5.0) -> torch.Tensor:
+def distance_traveled_termination(env: NavEnv, max_distance: float = 5.0) -> torch.Tensor:
     traveled_dist = env.path_manager.initial_path_length - env.path_manager.current_path_length
     return traveled_dist >= max_distance

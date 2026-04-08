@@ -93,7 +93,7 @@ class MapManager:
         self._local_costmap_updated = True
 
         # filter points further than thresh
-        thresh = 2.5
+        thresh = 3.0
         scan_dist = torch.norm(lidar_scan.ray_hits_w - lidar_scan.pos_w.unsqueeze(1), dim=-1)  # (B, N_rays)
         mask = scan_dist < thresh  # (B, N_rays)
 
@@ -107,35 +107,6 @@ class MapManager:
         batches = torch.arange(self.num_envs, device=self.device)[:, None].expand(B, N)
         self.local_costmaps[batches[mask], 0, row[mask], col[mask]] = torch.inf
 
-    def debug_vis(self):
-        import matplotlib.pyplot as plt
-
-        # check costmaps from two separate batches
-        local_costmap_1 = self.local_costmaps[0, 0].cpu().numpy()
-        local_costmap_2 = self.local_costmaps[1, 0].cpu().numpy()
-        plt.figure(figsize=(12, 6))
-        plt.subplot(1, 2, 1)
-        plt.imshow(local_costmap_1, cmap="gray")
-        plt.title("Local Costmap with Lidar Updates (Batch 0)")
-        plt.subplot(1, 2, 2)
-        plt.imshow(local_costmap_2, cmap="gray")
-        plt.title("Local Costmap with Lidar Updates (Batch 1)")
-        plt.show()
-
-    def debug_vis_global(self):
-        import matplotlib.pyplot as plt
-
-        # check costmaps from two separate batches
-        global_costmap_1 = self._costmap_backup[0, 0].cpu().numpy()
-        global_costmap_2 = self._global_costmap[0, 0].cpu().numpy()
-        plt.figure(figsize=(12, 6))
-        plt.subplot(1, 2, 1)
-        plt.imshow(global_costmap_1, cmap="gray")
-        plt.title("Base Global Costmap (Batch 0)")
-        plt.subplot(1, 2, 2)
-        plt.imshow(global_costmap_2, cmap="gray")
-        plt.title("Updated Global Costmap (Batch 0)")
-        plt.show()
 
     def map_to_local_coords(self, map_coords: torch.Tensor) -> torch.Tensor:
         assert len(map_coords.shape) == 2 and map_coords.shape[1] == 2, "Expected map_coords to have shape (N, 2)"
@@ -167,33 +138,64 @@ class MapManager:
         scaled[..., 0] = W - scaled[..., 0]  # flip x axis
         map_coords = scaled[..., [1, 0]]  # swap to (row, col)
         return map_coords
+    
 
-    def print_debug(self):
-        t0 = time.time()
-        for _ in range(128):
-            cpu_impl = self._create_inflated_costmap_cpu(self.map_img, inflation_scale=2)
-        print(f"CPU costmap inflation took {time.time() - t0:.4f} seconds")
-        for _ in range(5):
-            gpu_impl = self._create_inflated_costmap_gpu(self._map_tensor, torch.arange(0, self.num_envs), inflation_scale=2)[
-                0, 0
-            ].cpu()
-        print(f"GPU costmap inflation took {(time.time() - t0)/5:.4f} seconds")
-        import matplotlib.pyplot as plt
+    # def debug_vis(self):
+    #     import matplotlib.pyplot as plt
 
-        plt.figure(figsize=(12, 6))
-        plt.subplot(1, 2, 1)
-        plt.title("CPU Inflated Costmap")
-        plt.imshow(cpu_impl, cmap="gray")
-        plt.subplot(1, 2, 2)
-        plt.title("GPU Inflated Costmap")
-        plt.imshow(gpu_impl, cmap="gray")
-        plt.show()
+    #     # check costmaps from two separate batches
+    #     local_costmap_1 = self.local_costmaps[0, 0].cpu().numpy()
+    #     local_costmap_2 = self.local_costmaps[1, 0].cpu().numpy()
+    #     plt.figure(figsize=(12, 6))
+    #     plt.subplot(1, 2, 1)
+    #     plt.imshow(local_costmap_1, cmap="gray")
+    #     plt.title("Local Costmap with Lidar Updates (Batch 0)")
+    #     plt.subplot(1, 2, 2)
+    #     plt.imshow(local_costmap_2, cmap="gray")
+    #     plt.title("Local Costmap with Lidar Updates (Batch 1)")
+    #     plt.show()
+
+#     def debug_vis_global(self):
+#         import matplotlib.pyplot as plt
+
+#         # check costmaps from two separate batches
+#         global_costmap_1 = self._costmap_backup[0, 0].cpu().numpy()
+#         global_costmap_2 = self._global_costmap[0, 0].cpu().numpy()
+#         plt.figure(figsize=(12, 6))
+#         plt.subplot(1, 2, 1)
+#         plt.imshow(global_costmap_1, cmap="gray")
+#         plt.title("Base Global Costmap (Batch 0)")
+#         plt.subplot(1, 2, 2)
+#         plt.imshow(global_costmap_2, cmap="gray")
+#         plt.title("Updated Global Costmap (Batch 0)")
+#         plt.show()
+
+#     def print_debug(self):
+#         t0 = time.time()
+#         for _ in range(128):
+#             cpu_impl = self._create_inflated_costmap_cpu(self.map_img, inflation_scale=2)
+#         print(f"CPU costmap inflation took {time.time() - t0:.4f} seconds")
+#         for _ in range(5):
+#             gpu_impl = self._create_inflated_costmap_gpu(self._map_tensor, torch.arange(0, self.num_envs), inflation_scale=2)[
+#                 0, 0
+#             ].cpu()
+#         print(f"GPU costmap inflation took {(time.time() - t0)/5:.4f} seconds")
+#         import matplotlib.pyplot as plt
+
+#         plt.figure(figsize=(12, 6))
+#         plt.subplot(1, 2, 1)
+#         plt.title("CPU Inflated Costmap")
+#         plt.imshow(cpu_impl, cmap="gray")
+#         plt.subplot(1, 2, 2)
+#         plt.title("GPU Inflated Costmap")
+#         plt.imshow(gpu_impl, cmap="gray")
+#         plt.show()
 
 
-if __name__ == "__main__":
-    from cfg.CFG import DEVICE, SCENE_USD_PATH
+# if __name__ == "__main__":
+#     from cfg.CFG import DEVICE, SCENE_USD_PATH
 
-    map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
-    map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
-    costmap_manager = MapManager(map_png, map_yaml, num_envs=128, device=DEVICE)
-    costmap_manager.print_debug()
+#     map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
+#     map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
+#     costmap_manager = MapManager(map_png, map_yaml, num_envs=128, device=DEVICE)
+#     costmap_manager.print_debug()

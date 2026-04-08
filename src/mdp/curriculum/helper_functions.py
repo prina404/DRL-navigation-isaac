@@ -1,12 +1,12 @@
 import torch
 
-from lab.MyEnv import MyEnv
+from navigation_env.NavigationEnv import NavEnv
 
 
 ## Curriculum manager calls this only when one or more envs are reset, so the internal
 ## episode_length_buf contains the lengths of the episodes just before reset.
 def update_collision_weight(
-    env: MyEnv, env_ids: torch.Tensor, weight_step_size: float, max_weight: float, episode_start: int = 0
+    env: NavEnv, env_ids: torch.Tensor, weight_step_size: float, max_weight: float, episode_start: int = 0
 ) -> float:
     if not hasattr(env, "_running_mean_var"):  # ensure attribute exists
         env._running_mean_var = 0.0
@@ -45,7 +45,7 @@ def update_collision_weight(
     return term_cfg.weight
 
 
-def _progress_coeff(env: MyEnv, episode_start: int, episode_end: int) -> float:
+def _progress_coeff(env: NavEnv, episode_start: int, episode_end: int) -> float:
     current_episode = env.episode_counter.mean().item() * 0.75  # TODO: check correction factor
     if current_episode < episode_start:
         return 1.0
@@ -55,13 +55,13 @@ def _progress_coeff(env: MyEnv, episode_start: int, episode_end: int) -> float:
         return 1.0 - (current_episode - episode_start) / (episode_end - episode_start)
 
 
-def collision_termination_threshold(env: MyEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> float:
+def collision_termination_threshold(env: NavEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> float:
     termination_coeff = _progress_coeff(env, episode_start, episode_end)
     env.collision_termination_thresh = max(termination_coeff, 0.01)
     return env.collision_termination_thresh
 
 
-def nominal_policy_weight(env: MyEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> float:
+def nominal_policy_weight(env: NavEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> float:
     # linearly decay nominal policy weight from 1.0 to 0.0 over the ep interval
     env.nominal_weight = _progress_coeff(env, episode_start, episode_end)
     return env.nominal_weight

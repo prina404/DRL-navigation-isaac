@@ -2,21 +2,21 @@ import omni.usd
 import torch
 from pxr import Usd, UsdPhysics
 
-from lab.MyEnv import MyEnv
+from navigation_env.NavigationEnv import NavEnv
 
 
-def teleport_on_reset(env: MyEnv, env_ids: torch.Tensor) -> None:
+def teleport_on_reset(env: NavEnv, env_ids: torch.Tensor) -> None:
     # on reset, sample new start/goal positions,
     env.sample_task_on_reset(env_ids)
     env.teleport_robots(env_ids)
     env.manual_replan(env_ids)
 
 
-def replan_global_plan(env: MyEnv, env_ids: torch.Tensor) -> None:
+def replan_global_plan(env: NavEnv, env_ids: torch.Tensor) -> None:
     env.manual_replan(env_ids)
 
 
-def update_episode_counters(env: MyEnv, env_ids: torch.Tensor) -> None:
+def update_episode_counters(env: NavEnv, env_ids: torch.Tensor) -> None:
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
 
@@ -49,7 +49,7 @@ def door_distribution(num_envs: int, num_doors: int, p_open: float = 0.80, p_clo
     return door_positions * 90.0  # scale to [0, 90] degrees
 
 
-def randomize_door_positions(env: MyEnv, env_ids: torch.Tensor) -> None:
+def randomize_door_positions(env: NavEnv, env_ids: torch.Tensor) -> None:
     stage = omni.usd.get_context().get_stage()
 
     if not hasattr(env, "_door_prim_paths"):

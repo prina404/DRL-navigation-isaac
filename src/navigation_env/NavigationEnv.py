@@ -7,12 +7,12 @@ from isaaclab.envs.common import VecEnvStepReturn
 from isaaclab.envs.ui import ViewportCameraController
 from isaaclab.utils.math import euler_xyz_from_quat
 
-from lab.managers.camera_manager import CameraManager
-from lab.managers.map_manager import MapManager
-from lab.managers.path_manager import PathManager
+from navigation_env.managers.camera_manager import CameraManager
+from navigation_env.managers.map_manager import MapManager
+from navigation_env.managers.path_manager import PathManager
 
 
-class MyEnv(ManagerBasedRLEnv):
+class NavEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 

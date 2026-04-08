@@ -1,15 +1,15 @@
-import isaaclab.envs.mdp as mdp
+import isaaclab.envs.mdp as isaac_mdp
 import torch
 from isaaclab.assets.articulation import Articulation
 from isaaclab.managers import SceneEntityCfg
 from torch import Tensor
 
-import lab.helpers.termination_helpers as termination
-from lab.helpers.observation_helpers import get_lidar, get_path_obs
-from lab.MyEnv import MyEnv
+import mdp.terminations.helper_functions as termination
+from mdp.observations.helper_functions import get_lidar, get_path_obs
+from navigation_env.NavigationEnv import NavEnv
 
 
-def dist_to_goal_xy(env: MyEnv) -> Tensor:
+def dist_to_goal_xy(env: NavEnv) -> Tensor:
     robot: Articulation = env.scene["robot"]
     pos_w = robot.data.root_com_pos_w
     goal_local = env.path_manager.goal_pos_local
@@ -18,7 +18,7 @@ def dist_to_goal_xy(env: MyEnv) -> Tensor:
     return torch.linalg.norm(delta_xy, dim=-1)
 
 
-def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> Tensor:
+def is_goal_reached(env: NavEnv, threshold_m: float = 0.2) -> Tensor:
     dist_to_goal = dist_to_goal_xy(env)
     path_len = env.path_manager.current_path_length
     result = (dist_to_goal < threshold_m) | (path_len < threshold_m)
@@ -27,9 +27,9 @@ def is_goal_reached(env: MyEnv, threshold_m: float = 0.2) -> Tensor:
     return result
 
 
-def reward_distance_to_goal(env: MyEnv) -> Tensor:
+def reward_distance_to_goal(env: NavEnv) -> Tensor:
     # find the closest point on the path and compute distance from that point to goal.
-    env: MyEnv = env.unwrapped
+    env: NavEnv = env.unwrapped
     res = torch.zeros((env.num_envs), device=env.device)
     for id in range(env.num_envs):
         path_points = env.path_manager.path_tensors[id]  # (num_path_points, 2)
@@ -45,8 +45,8 @@ def reward_distance_to_goal(env: MyEnv) -> Tensor:
     return res
 
 
-def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2) -> Tensor:
-    v = mdp.base_lin_vel(env, asset_cfg=SceneEntityCfg(name="robot"))
+def penalty_still(env: NavEnv, speed_thresh: float = 0.05, penalty: float = -0.2) -> Tensor:
+    v = isaac_mdp.base_lin_vel(env, asset_cfg=SceneEntityCfg(name="robot"))
     speed_xy = torch.linalg.norm(v[:, 0:2], dim=-1)
     return torch.where(
         speed_xy < speed_thresh,
@@ -55,7 +55,7 @@ def penalty_still(env: MyEnv, speed_thresh: float = 0.05, penalty: float = -0.2)
     )
 
 
-def detect_collision(env: MyEnv) -> Tensor:
+def detect_collision(env: NavEnv) -> Tensor:
     base_sensor = env.scene["body_collision_sensor"]
     base_forces = base_sensor.data.net_forces_w  # (N, bodies, 3)
     base_magnitude = torch.linalg.norm(base_forces, dim=-1).max(dim=-1).values
@@ -68,7 +68,7 @@ def detect_collision(env: MyEnv) -> Tensor:
     return magnitude
 
 
-def penalty_collision(env: MyEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> Tensor:
+def penalty_collision(env: NavEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> Tensor:
     # boolean tensor indicating whether a collision has occurred
     collision_force = detect_collision(env)
     collisions = (collision_force > force_thresh).to(torch.float32)
@@ -84,13 +84,13 @@ def penalty_collision(env: MyEnv, force_thresh: float = 3.0, penalty: float = -5
     return penalty
 
 
-def penalty_obstacle_proximity(env: MyEnv, max_penalty: float = -2.0) -> Tensor:
+def penalty_obstacle_proximity(env: NavEnv, max_penalty: float = -2.0) -> Tensor:
     lidar_ranges = get_lidar(env, num_obstacles=10, normalize=False)  # (B, num_obstacles*2)
     min_dist = lidar_ranges[:, :10].min(dim=-1).values  # (B,)
     return max_penalty + torch.clamp(torch.pow(min_dist, 2), min=max_penalty, max=-max_penalty)  # ()
 
 
-def robot_heading_reward(env: MyEnv) -> Tensor:
+def robot_heading_reward(env: NavEnv) -> Tensor:
     # Returns 1 if robot is heading in the correct direction, 0 otherwise
     # We compute the alignment wrt to the direction of the last point of the path in hour horizon.
     obs_tensor = get_path_obs(env, num_points_forward=10, normalize=True)  # (B, 20)
@@ -103,18 +103,18 @@ def robot_heading_reward(env: MyEnv) -> Tensor:
     return 1.0 - heading_delta * 2.0  # normalize to [0, 1], 1 = perfect alignment, 0 = opposite direction
 
 
-def action_smoothness_penalty(env: MyEnv) -> Tensor:
+def action_smoothness_penalty(env: NavEnv) -> Tensor:
     # I assume that jerky motions are correlated to sudden changes in velocity.
     delta = env._action_buffer[:, 0] - env._action_buffer[:, 1]  # (B, action_dim)
     return -torch.linalg.norm(delta, dim=-1)
 
 
-def time_penalty(env: MyEnv) -> Tensor:
+def time_penalty(env: NavEnv) -> Tensor:
     # Small penalty at each timestep to encourage faster completion
     return -1.0
 
 
-def collision_after_threshold_reward(env: MyEnv, penalty: float = -20.0) -> Tensor:
+def collision_after_threshold_reward(env: NavEnv, penalty: float = -20.0) -> Tensor:
     return torch.where(
         termination.collision_after_threshold_termination(env),
         torch.full((env.num_envs,), penalty, device=env.device),

@@ -1,41 +1,43 @@
-import isaaclab.envs.mdp as mdp
+from typing import Callable
+
+import isaaclab.envs.mdp as isaac_mdp
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
-from isaaclab.managers import ActionTerm, SceneEntityCfg
-from rsl_rl.modules import ActorCritic
+from isaaclab.managers import ActionTerm, ActionTermCfg, SceneEntityCfg
+from torch import Tensor
+from isaaclab.utils import configclass
 
-from lab.helpers.observation_helpers import get_goal_relative_position
-from lab.MyEnv import MyEnv
+from mdp.observations.helper_functions import get_goal_relative_position
+from navigation_env.NavigationEnv import NavEnv
+from mdp.actions.go2_locomotion_policy import get_locomotion_policy
 
 
-class Go2MPCPolicyAction(ActionTerm):
-    def __init__(self, cfg, env: MyEnv):
+class _Go2MPCPolicyAction(ActionTerm):
+    def __init__(self, cfg, env: NavEnv):
         super().__init__(cfg, env)
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
         self.null_cmd = torch.zeros((self.num_envs, 3), device=self.device)
         self._last_action_received = self.null_cmd.clone()
         self._last_joint_action = None
 
-        self.mpc: ActorCritic = getattr(cfg, "mpc_policy", None)  # type: ignore
-        if self.mpc is None:
-            raise ValueError("MPC policy must be provided in the environment config.")
+        self.controller = get_locomotion_policy()
 
     @property
     def action_dim(self) -> int:
         return 3
 
     @property
-    def raw_actions(self) -> torch.Tensor:
+    def raw_actions(self) -> Tensor:
         return self._last_action_received
 
     @property
-    def processed_actions(self) -> torch.Tensor:
+    def processed_actions(self) -> Tensor:
         return self._last_action_received
 
-    def process_actions(self, actions: torch.Tensor):
+    def process_actions(self, actions: Tensor):
         self._last_action_received = actions.clone()
 
-    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+    def reset(self, env_ids: Tensor | None = None) -> None:
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
@@ -43,18 +45,18 @@ class Go2MPCPolicyAction(ActionTerm):
         if self._last_joint_action is not None:
             self._last_joint_action[env_ids] = 0.0
 
-    def _build_low_level_obs(self) -> torch.Tensor:
-        base_lin_vel = mdp.base_lin_vel(self._env, asset_cfg=self._robot_cfg)
-        base_ang_vel = mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
-        projected_gravity = mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
+    def _build_low_level_obs(self) -> Tensor:
+        base_lin_vel = isaac_mdp.base_lin_vel(self._env, asset_cfg=self._robot_cfg)
+        base_ang_vel = isaac_mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
+        projected_gravity = isaac_mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
         base_vel_cmd = self._last_action_received + self.nominal_action()
         # logger.debug(f"Nominal action: {self.nominal_action()[0]}")
         # logger.debug(f"Policy command: {self._last_action_received[0]}")
         # logger.debug(f"Final cmd (nominal + action): {base_vel_cmd[0]}")
 
-        joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
-        joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
+        joint_pos = isaac_mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
+        joint_vel = isaac_mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
 
         if self._last_joint_action is None:
             self._last_joint_action = torch.zeros_like(joint_pos)
@@ -77,17 +79,25 @@ class Go2MPCPolicyAction(ActionTerm):
         with torch.no_grad():
             mpc_obs = self._build_low_level_obs()
             mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
-            self._last_joint_action = self.mpc(mpc_obs)
+            self._last_joint_action = self.controller(mpc_obs)
 
         robot: Articulation = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos
         q_des = q0 + self._last_joint_action * 0.25
         robot.set_joint_position_target(q_des)
 
-    def nominal_action(self) -> torch.Tensor:
+    def nominal_action(self) -> Tensor:
         if not hasattr(self._env, "nominal_weight"):
             weight = 0.0
         else:
             weight = self._env.nominal_weight
 
         return weight * get_goal_relative_position(self._env, local_goal_points_forward=4)
+
+
+@configclass
+class ActionsCfg:
+    mpc_cmd = ActionTermCfg(
+        class_type=_Go2MPCPolicyAction,
+        asset_name="robot",
+    )

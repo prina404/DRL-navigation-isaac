@@ -34,6 +34,9 @@ class ActorCriticWithEncoders(ActorCritic):
             )
 
         nn.Module.__init__(self)  # skip ActorCritic constructor
+        if obs_groups is None:
+            raise ValueError("obs_groups is None, set it before policy initialization")
+        
         self.obs_groups = obs_groups
 
         # Encoders

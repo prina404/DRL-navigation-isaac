@@ -1,6 +1,6 @@
 import math
 
-from models.policy_model import ActorCriticWithEncoders
+from policy.NavPolicy import ActorCriticWithEncoders
 
 go2_policy_cfg = {
     # Training loop parameters
@@ -10,10 +10,7 @@ go2_policy_cfg = {
     "device": "cuda:0",
     "empirical_normalization": False,
     # Observation routing
-    "obs_groups": {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],  # "depth"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],  # "depth"],
-    },
+    "obs_groups": None, # must be assigned depending on task configuration
     # Policy architecture
     "policy": {
         "class_name": ActorCriticWithEncoders,
@@ -25,7 +22,6 @@ go2_policy_cfg = {
         "encoders_hidden_dims": {
             "velocity_buffer": [128, 128],
             "action_buffer": [128, 128],
-            # "goal_relative_pos": [128, 128],
             "global_plan": [128, 128],
         },
     },

@@ -13,8 +13,8 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
 from cfg.CFG import DEVICE
 from defm.utils import preprocess_depth_batch
-from lab.MyEnv import MyEnv
-from models.vision_encoder import DepthResNetEncoder, ViNTVisionEncoder, ViTEncoder
+from navigation_env.NavigationEnv import NavEnv
+from mdp.observations.vision_models import DepthResNetEncoder, ViNTVisionEncoder, ViTEncoder
 
 
 class VisionEncoder:
@@ -28,7 +28,7 @@ class VisionEncoder:
         self.normalize = normalize
 
     @torch.no_grad()
-    def __call__(self, env: RslRlVecEnvWrapper) -> torch.Tensor:
+    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
         cam = env.scene["camera"]
         rgb = cam.data.output["rgb"]  # (N, H, W, C)
         rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT/ViNT
@@ -51,16 +51,13 @@ class DepthEncoder:
         self.device = device
 
     @torch.no_grad()
-    def __call__(self, env: RslRlVecEnvWrapper) -> torch.Tensor:
+    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
         cam = env.scene["camera"]
         depth = cam.data.output["depth"]  # (B, H, W, 1)
         depth = depth.permute(0, 3, 1, 2)  # (B, 1, H, W)
 
         normalized_depth = preprocess_depth_batch(depth, target_size=768, device=self.device)
         embedding = self.model(normalized_depth)
-        from loguru import logger
-
-        logger.debug(f"Depth_data = {depth[0]}")
         return embedding
 
 
@@ -72,7 +69,7 @@ def get_dummy_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 50), device=env.device, dtype=torch.float32)
 
 
-def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> torch.Tensor:
+def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> torch.Tensor:
     """
     Returns (B, 2 * num_obstacles) where for each batch we concatenate the distance and yaw of the closest num_obstacles points:
         result[B, :num_obstacles] = distance
@@ -90,7 +87,7 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
 
     # Sensor yaw (keep existing convention: invert lidar direction)
     _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1) or (B,)
-    sensor_yaw = robot_yaw.squeeze(-1) + math.pi      # (B,)
+    sensor_yaw = robot_yaw.squeeze(-1) + math.pi  # (B,)
 
     # Rotate relative hit vectors from world into sensor-yaw frame for voxelization
     # world->local inverse yaw rotation
@@ -105,7 +102,7 @@ def get_lidar(env: RslRlVecEnvWrapper, num_obstacles: int, normalize=True) -> to
     point_dist = torch.norm(scan_local, dim=-1)  # (B, N_rays)
 
     # Yaw per ray
-    yaw_w = torch.atan2(scan[..., 1], scan[..., 0])  # (B, N_rays) yaw angle of each ray (world frame)   
+    yaw_w = torch.atan2(scan[..., 1], scan[..., 0])  # (B, N_rays) yaw angle of each ray (world frame)
     yaw = -wrap_to_pi(yaw_w - sensor_yaw.unsqueeze(1))  # (B, N_rays) yaw angle in robot frame
 
     # Voxelize pointcloud
@@ -198,7 +195,7 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     # I find which point is closest to the robot,
     # then use the fact that the path points are ordered and take the next num_points_forward points.
     # If the closest point is the last point, I pad with the goal pos.
-    env: MyEnv = env.unwrapped
+    env: NavEnv = env.unwrapped
     local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
     res += env.path_manager.goal_pos_local.unsqueeze(1)  # default to goal pos
@@ -215,7 +212,7 @@ def get_path_obs(
     num_points_forward: int,
     normalize: bool = True,
 ) -> torch.Tensor:
-    env: MyEnv = env.unwrapped
+    env: NavEnv = env.unwrapped
     if getattr(env, "path_manager", None) is None:  # this is needed because this is called before env is fully initialized
         return torch.zeros((env.num_envs, num_points_forward * 2), device=env.device)
 
@@ -245,23 +242,23 @@ def get_path_obs(
 
 
 def get_previous_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:
-    env: MyEnv = env.unwrapped
+    env: NavEnv = env.unwrapped
     if not hasattr(env, "_action_buffer"):
         return torch.zeros((env.num_envs, 5 * 3), device=env.device)
     return env._action_buffer.reshape(env.num_envs, -1)
 
 
 def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
-    env: MyEnv = env.unwrapped
+    env: NavEnv = env.unwrapped
     if not hasattr(env, "_velocity_buffer"):
         return torch.zeros((env.num_envs, 10 * 3), device=env.device)
     return env._velocity_buffer.reshape(env.num_envs, -1)
 
 
-def get_goal_relative_position(env: RslRlVecEnvWrapper | MyEnv, local_goal_points_forward: int) -> torch.Tensor:
+def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_points_forward: int) -> torch.Tensor:
     # same logic as in the nominal action computation
     if isinstance(env, RslRlVecEnvWrapper):
-        env: MyEnv = env.unwrapped
+        env: NavEnv = env.unwrapped
 
     if not hasattr(env, "path_manager"):
         return torch.zeros((env.num_envs, 3), device=env.device)

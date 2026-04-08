@@ -4,11 +4,11 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import euler_xyz_from_quat, quat_from_angle_axis
 
-from lab.helpers.observation_helpers import get_lidar
-from lab.MyEnv import MyEnv
+from mdp.observations.helper_functions import get_lidar
+from navigation_env.NavigationEnv import NavEnv
 
 
-class MyEnvDebuggingVis(MyEnv):
+class NavEnvDebugView(NavEnv):
     def __init__(self, cfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
         self.viz_marker = self._define_markers()
