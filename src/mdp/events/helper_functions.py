@@ -1,6 +1,8 @@
+import random
+
 import omni.usd
 import torch
-from pxr import Usd, UsdPhysics
+from pxr import Gf, Usd, UsdLux, UsdPhysics
 
 from navigation_env.NavigationEnv import NavEnv
 
@@ -73,3 +75,34 @@ def randomize_door_positions(env: NavEnv, env_ids: torch.Tensor) -> None:
             door_drive = UsdPhysics.DriveAPI.Apply(door_prim, UsdPhysics.Tokens.angular)
             door_drive.CreateTargetPositionAttr().Set(angle)
             door_drive.CreateTargetVelocityAttr().Set(0)
+
+
+def collect_light_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
+    root_prim = stage.GetPrimAtPath(f"{env_ns}/environment/Meshes/static_objects")
+
+    light_prims = []
+    for prim in Usd.PrimRange(root_prim):
+        if prim.IsValid() and prim.GetTypeName() in ("SphereLight", "RectLight"):
+            light_prims.append(prim)
+    return light_prims
+
+
+def randomize_lights_on_off(env: NavEnv, env_ids: torch.Tensor, on_probability: float = 0.5) -> None:
+    stage = omni.usd.get_context().get_stage()
+
+    if not hasattr(env, "_light_prim_paths"):  # cache light prim paths to avoid repeated USD queries
+        env._light_prim_paths = {}
+
+    for env_id in env_ids.cpu().numpy():
+        env_ns = f"/World/envs/env_{env_id}"
+        light_prims = env._light_prim_paths.get(env_id, None)
+        if light_prims is None:
+            light_prims = collect_light_prims(stage, env_ns)
+            env._light_prim_paths[env_id] = light_prims
+
+        for light_prim in light_prims:
+            light = UsdLux.LightAPI.Apply(light_prim)
+            if random.random() < on_probability:
+                light.CreateColorAttr().Set(Gf.Vec3f(1.0, 1.0, 1.0))  # turn on
+            else:
+                light.CreateColorAttr().Set(Gf.Vec3f(0.0, 0.0, 0.0))  # turn off

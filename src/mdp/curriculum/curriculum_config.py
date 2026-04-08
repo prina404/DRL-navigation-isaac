@@ -1,6 +1,8 @@
 from isaaclab.managers import CurriculumTermCfg
 from isaaclab.utils import configclass
+
 import mdp.curriculum.helper_functions as curriculum
+
 
 @configclass
 class CurriculumCfg:

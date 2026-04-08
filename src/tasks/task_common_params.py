@@ -13,6 +13,6 @@ PARAMS = {
         enable_ambient_occlusion=True,
         dlss_mode="3",  # defaults to 1 in performance mode
     ),
-    "episode_length_s" :15.0,
-    "decimation" : 16,
+    "episode_length_s": 15.0,
+    "decimation": 16,
 }

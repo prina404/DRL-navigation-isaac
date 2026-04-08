@@ -107,7 +107,6 @@ class MapManager:
         batches = torch.arange(self.num_envs, device=self.device)[:, None].expand(B, N)
         self.local_costmaps[batches[mask], 0, row[mask], col[mask]] = torch.inf
 
-
     def map_to_local_coords(self, map_coords: torch.Tensor) -> torch.Tensor:
         assert len(map_coords.shape) == 2 and map_coords.shape[1] == 2, "Expected map_coords to have shape (N, 2)"
         map_coords = map_coords.clone()
@@ -138,7 +137,6 @@ class MapManager:
         scaled[..., 0] = W - scaled[..., 0]  # flip x axis
         map_coords = scaled[..., [1, 0]]  # swap to (row, col)
         return map_coords
-    
 
     # def debug_vis(self):
     #     import matplotlib.pyplot as plt
@@ -154,6 +152,7 @@ class MapManager:
     #     plt.imshow(local_costmap_2, cmap="gray")
     #     plt.title("Local Costmap with Lidar Updates (Batch 1)")
     #     plt.show()
+
 
 #     def debug_vis_global(self):
 #         import matplotlib.pyplot as plt

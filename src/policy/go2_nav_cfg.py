@@ -10,7 +10,7 @@ go2_policy_cfg = {
     "device": "cuda:0",
     "empirical_normalization": False,
     # Observation routing
-    "obs_groups": None, # must be assigned depending on task configuration
+    "obs_groups": None,  # must be assigned depending on task configuration
     # Policy architecture
     "policy": {
         "class_name": ActorCriticWithEncoders,

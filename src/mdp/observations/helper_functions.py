@@ -13,8 +13,12 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
 from cfg.CFG import DEVICE
 from defm.utils import preprocess_depth_batch
+from mdp.observations.vision_models import (
+    DepthResNetEncoder,
+    ViNTVisionEncoder,
+    ViTEncoder,
+)
 from navigation_env.NavigationEnv import NavEnv
-from mdp.observations.vision_models import DepthResNetEncoder, ViNTVisionEncoder, ViTEncoder
 
 
 class VisionEncoder:

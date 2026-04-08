@@ -1,10 +1,6 @@
-
-from isaaclab.utils import configclass
-from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 import isaaclab.sim as sim
-from mdp.scene.robot_cfg import UNITREE_GO2_CFG
-from cfg.CFG import SCENE_USD_PATH
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import (
     ContactSensorCfg,
     MultiMeshRayCasterCfg,
@@ -13,11 +9,16 @@ from isaaclab.sensors import (
 )
 from isaaclab.sensors.camera import TiledCameraCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
+from isaaclab.utils import configclass
+
+from cfg.CFG import SCENE_USD_PATH
+from mdp.scene.robot_cfg import UNITREE_GO2_CFG
+
 
 @configclass
 class Go2BaseCfg(InteractiveSceneCfg):
-    ''' Base config. Do not instantiate this'''
-    
+    """Base config. Do not instantiate this"""
+
     ground = AssetBaseCfg(
         prim_path="/World/ground",
         spawn=sim.GroundPlaneCfg(color=(0.1, 0.1, 0.1), size=(500.0, 500.0)),
@@ -46,9 +47,10 @@ class Go2BaseCfg(InteractiveSceneCfg):
         track_air_time=False,
     )
 
+
 @configclass
 class Go2EmptySceneCfg(Go2BaseCfg):
-    ''' Empty plane with robot only'''
+    """Empty plane with robot only"""
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
@@ -64,12 +66,13 @@ class Go2EmptySceneCfg(Go2BaseCfg):
         debug_vis=False,
         mesh_prim_paths=[
             "/World/ground",
-        ]
+        ],
     )
+
 
 @configclass
 class Go2FullSceneLidarCfg(Go2BaseCfg):
-    ''' Full indoor scene, robot has lidar only'''
+    """Full indoor scene, robot has lidar only"""
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
@@ -106,27 +109,29 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
         ),
     )
 
+
 CAMERA_CFG = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-        width=128,
-        height=128,
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.4, 0.0, 0.0),
-            convention="world",
-        ),
-        data_types=["rgb", "depth"],
-        spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
-    )
+    prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
+    width=128,
+    height=128,
+    offset=TiledCameraCfg.OffsetCfg(
+        pos=(0.4, 0.0, 0.0),
+        convention="world",
+    ),
+    data_types=["rgb", "depth"],
+    spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
+)
+
 
 @configclass
 class Go2EmptyVisionCfg(Go2EmptySceneCfg):
-    ''' Empty plane with robot only, robot has RGBD camera'''
+    """Empty plane with robot only, robot has RGBD camera"""
 
     camera = CAMERA_CFG
+
 
 @configclass
 class Go2FullVisionCfg(Go2FullSceneLidarCfg):
-    ''' Full indoor scene, robot has RGBD camera'''
+    """Full indoor scene, robot has RGBD camera"""
 
     camera = CAMERA_CFG
-

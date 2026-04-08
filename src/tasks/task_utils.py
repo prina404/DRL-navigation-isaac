@@ -9,6 +9,7 @@ _TASK_DICT = {
     "go2_depth_full": Go2DepthFull,
 }
 
+
 def get_env_config(name: str) -> ManagerBasedRLEnvCfg:
     if name not in _TASK_DICT:
         raise ValueError(f"Env {name} not found. Available envs: {list(_TASK_DICT.keys())}")

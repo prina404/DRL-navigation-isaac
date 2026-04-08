@@ -1,14 +1,15 @@
-from isaaclab.utils import configclass
 from isaaclab.envs import ManagerBasedRLEnvCfg
-import mdp.scene.go2_scene_cfg as scene
+from isaaclab.utils import configclass
+from loguru import logger
+
 import mdp.actions.actions_config as actions
+import mdp.curriculum.curriculum_config as curriculum
+import mdp.events.events_config as events
 import mdp.observations.obs_config as obs
 import mdp.rewards.rewards_config as rewards
+import mdp.scene.go2_scene_cfg as scene
 import mdp.terminations.terminations_config as terminations
-import mdp.events.events_config as events
-import mdp.curriculum.curriculum_config as curriculum
 from tasks.task_common_params import PARAMS
-from loguru import logger
 
 
 @configclass

@@ -1,8 +1,9 @@
+import isaaclab.envs.mdp as isaac_mdp
 from isaaclab.managers import TerminationTermCfg
 from isaaclab.utils import configclass
-import mdp.terminations.helper_functions as termination
+
 import mdp.rewards.helper_functions as rewards
-import isaaclab.envs.mdp as isaac_mdp
+import mdp.terminations.helper_functions as termination
 
 
 @configclass

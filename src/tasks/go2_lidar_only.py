@@ -1,15 +1,16 @@
-from isaaclab.utils import configclass
+import isaaclab.sim as sim_utils
 from isaaclab.envs import ManagerBasedRLEnvCfg
-import mdp.scene.go2_scene_cfg as scene
+from isaaclab.utils import configclass
+from loguru import logger
+
 import mdp.actions.actions_config as actions
+import mdp.curriculum.curriculum_config as curriculum
+import mdp.events.events_config as events
 import mdp.observations.obs_config as obs
 import mdp.rewards.rewards_config as rewards
+import mdp.scene.go2_scene_cfg as scene
 import mdp.terminations.terminations_config as terminations
-import mdp.events.events_config as events
-import mdp.curriculum.curriculum_config as curriculum
-import isaaclab.sim as sim_utils
 from tasks.task_common_params import PARAMS
-from loguru import logger
 
 
 @configclass
@@ -58,6 +59,7 @@ class Go2LidarEmpty(ManagerBasedRLEnvCfg):
         "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
         "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
     }
+
     def __post_init__(self) -> None:
         self.sim.dt = PARAMS["dt"]
         self.sim.device = PARAMS["device"]
@@ -67,6 +69,5 @@ class Go2LidarEmpty(ManagerBasedRLEnvCfg):
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]
         self.sim.render_interval = self.decimation
-
 
         logger.info("Go2 Empty environment with Lidar only initialized")
