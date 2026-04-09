@@ -100,9 +100,26 @@ def randomize_lights_on_off(env: NavEnv, env_ids: torch.Tensor, on_probability: 
             light_prims = collect_light_prims(stage, env_ns)
             env._light_prim_paths[env_id] = light_prims
 
+        light_temperature = random.uniform(3500.0, 8000.0)  # simulate different types of indoor lighting
         for light_prim in light_prims:
             light = UsdLux.LightAPI.Apply(light_prim)
+            light.GetColorTemperatureAttr().Set(light_temperature)
             if random.random() < on_probability:
-                light.CreateColorAttr().Set(Gf.Vec3f(1.0, 1.0, 1.0))  # turn on
+                light.GetColorAttr().Set(Gf.Vec3f(1.0, 1.0, 1.0))  # turn on
             else:
-                light.CreateColorAttr().Set(Gf.Vec3f(0.0, 0.0, 0.0))  # turn off
+                light.GetColorAttr().Set(Gf.Vec3f(0.0, 0.0, 0.0))  # turn off
+
+
+def randomize_distant_light(*args, **kwargs):
+    stage = omni.usd.get_context().get_stage()
+
+    random_intensity = random.uniform(1.0, 3000.0)
+    light_temperature = random.uniform(2500.0, 8000.0)  # set white point to simulate different times of day
+
+    env_ns = "/World/envs/env_0/environment/Rendering/Lights"
+    for prim in Usd.PrimRange(stage.GetPrimAtPath(env_ns)):
+        if prim.IsValid() and prim.GetTypeName() in ("DistantLight", "DomeLight"):
+            light = UsdLux.DistantLight(prim)
+            light.GetIntensityAttr().Set(random_intensity)
+            light.GetEnableColorTemperatureAttr().Set(True)
+            light.GetColorTemperatureAttr().Set(light_temperature)

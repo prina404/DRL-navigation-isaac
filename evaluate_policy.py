@@ -59,7 +59,6 @@ from datetime import datetime
 
 import gymnasium as gym
 import hydra
-from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path

@@ -25,11 +25,6 @@ class Go2BaseCfg(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0, 0, -0.01)),
     )
 
-    sky_light = AssetBaseCfg(
-        prim_path="/World/DomeLight",
-        spawn=sim.DomeLightCfg(color=(0.9, 0.9, 0.9), intensity=500.0),
-    )
-
     # Go2 Robot
     robot: ArticulationCfg = UNITREE_GO2_CFG.replace(
         prim_path="{ENV_REGEX_NS}/Go2",
@@ -51,6 +46,11 @@ class Go2BaseCfg(InteractiveSceneCfg):
 @configclass
 class Go2EmptySceneCfg(Go2BaseCfg):
     """Empty plane with robot only"""
+
+    sky_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim.DomeLightCfg(color=(0.9, 0.9, 0.9), intensity=1000.0),
+    )
 
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",

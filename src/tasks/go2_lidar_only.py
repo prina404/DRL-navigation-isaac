@@ -1,4 +1,3 @@
-import isaaclab.sim as sim_utils
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils import configclass
 from loguru import logger

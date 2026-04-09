@@ -36,7 +36,15 @@ class FullEventsCfg(BaseEventsCfg):
         mode="reset",
     )
 
-    randomize_lights = EventTermCfg(
+    randomize_indoor_lights = EventTermCfg(
         func=events.randomize_lights_on_off,
+        mode="reset",
+        params={
+            "on_probability": 0.75,
+        },
+    )
+
+    randomize_dome_light = EventTermCfg(
+        func=events.randomize_distant_light,
         mode="reset",
     )

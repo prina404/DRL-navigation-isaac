@@ -1,5 +1,3 @@
-from typing import Callable
-
 import isaaclab.envs.mdp as isaac_mdp
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
