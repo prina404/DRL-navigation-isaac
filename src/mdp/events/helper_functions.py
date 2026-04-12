@@ -2,6 +2,7 @@ import random
 
 import omni.usd
 import torch
+from isaaclab.assets import RigidObjectCollection
 from pxr import Gf, Usd, UsdLux, UsdPhysics
 
 from navigation_env.NavigationEnv import NavEnv
@@ -123,3 +124,25 @@ def randomize_distant_light(*args, **kwargs):
             light.GetIntensityAttr().Set(random_intensity)
             light.GetEnableColorTemperatureAttr().Set(True)
             light.GetColorTemperatureAttr().Set(light_temperature)
+
+
+def move_obstacle_on_path(env: NavEnv, env_ids: torch.Tensor) -> None:
+    obstacles: RigidObjectCollection = env.scene["path_obstacles"]
+
+    # Hide all objects below floor plane for selected envs.
+    state_0 = obstacles.data.object_link_pose_w[env_ids].clone()  # (num_env, num_obj, 7)
+    state_0[..., 2] = -1.0
+    obstacles.write_object_link_pose_to_sim(state_0, env_ids)
+
+    # Select exactly one obstacle per env with pairwise indexing shape (num_env, 1).
+    random_obstacle_ids = torch.randint(0, obstacles.num_objects, (len(env_ids), 1), device=env.device)
+
+    # Pairwise gather: (num_env, 1, 7), not (num_env, 7).
+    state_1 = obstacles.data.object_link_pose_w[env_ids[:, None], random_obstacle_ids].clone()
+
+    sampled_positions = env.path_manager.sample_random_obstacle_on_path(env_ids)  # (num_env, 2)
+    state_1[..., :2] = (sampled_positions + env.scene.env_origins[env_ids, :2]).unsqueeze(1)
+    state_1[..., 2] = 0.0
+
+    # Pairwise scatter with matching (num_env, 1) object ids.
+    obstacles.write_object_link_pose_to_sim(state_1, env_ids, random_obstacle_ids)

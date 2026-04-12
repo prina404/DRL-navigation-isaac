@@ -48,3 +48,8 @@ class FullEventsCfg(BaseEventsCfg):
         func=events.randomize_distant_light,
         mode="reset",
     )
+
+    randomize_obstacles = EventTermCfg(
+        func=events.move_obstacle_on_path,
+        mode="reset",
+    )

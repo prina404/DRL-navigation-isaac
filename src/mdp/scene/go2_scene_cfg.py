@@ -1,5 +1,5 @@
 import isaaclab.sim as sim
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCollectionCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import (
     ContactSensorCfg,
@@ -12,6 +12,7 @@ from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.utils import configclass
 
 from cfg.CFG import SCENE_USD_PATH
+from mdp.scene.moving_obstacles_cfg import get_obstacles_cfg
 from mdp.scene.robot_cfg import UNITREE_GO2_CFG
 
 
@@ -107,6 +108,10 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
         spawn=sim.UsdFileCfg(
             usd_path=str(SCENE_USD_PATH),
         ),
+    )
+
+    path_obstacles = RigidObjectCollectionCfg(
+        rigid_objects=get_obstacles_cfg(),
     )
 
 
