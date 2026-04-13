@@ -11,7 +11,7 @@ from isaaclab.sensors.camera import TiledCameraCfg
 from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.utils import configclass
 
-from cfg.CFG import SCENE_USD_PATH
+from cfg.CFG import get_scene_usd_path
 from mdp.scene.moving_obstacles_cfg import get_obstacles_cfg
 from mdp.scene.robot_cfg import UNITREE_GO2_CFG
 
@@ -103,16 +103,18 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
         ],
     )
 
-    environment = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/environment",
-        spawn=sim.UsdFileCfg(
-            usd_path=str(SCENE_USD_PATH),
-        ),
-    )
-
     path_obstacles = RigidObjectCollectionCfg(
         rigid_objects=get_obstacles_cfg(),
     )
+
+    def __post_init__(self):
+        # env config in post_init to ensure usd path is updated at runtime
+        self.environment = AssetBaseCfg(
+            prim_path="{ENV_REGEX_NS}/environment",
+            spawn=sim.UsdFileCfg(
+                usd_path=str(get_scene_usd_path()),
+            ),
+        )
 
 
 CAMERA_CFG = TiledCameraCfg(

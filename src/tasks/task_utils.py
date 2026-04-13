@@ -10,7 +10,8 @@ _TASK_DICT = {
 }
 
 
-def get_env_config(name: str) -> ManagerBasedRLEnvCfg:
-    if name not in _TASK_DICT:
-        raise ValueError(f"Env {name} not found. Available envs: {list(_TASK_DICT.keys())}")
-    return _TASK_DICT[name]()
+def get_env_config(task_name: str) -> ManagerBasedRLEnvCfg:
+    if task_name not in _TASK_DICT:
+        raise ValueError(f"Env {task_name} not found. Available envs: {list(_TASK_DICT.keys())}")
+
+    return _TASK_DICT[task_name]()

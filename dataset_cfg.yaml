@@ -1,3 +1,9 @@
-dataset_folder: "../InteriorAgent"
-env_folder: "kujiale_0003"
-env_name: "kujiale_0003_baked"
+current_env: kujiale_0003
+dataset_folder: ../InteriorAgent
+eval_envs:
+- kujiale_0026
+- kujiale_0031
+training_envs:
+- kujiale_0003
+- kujiale_0004
+- kujiale_0040

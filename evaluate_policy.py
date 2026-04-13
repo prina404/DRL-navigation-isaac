@@ -5,7 +5,7 @@ import torch
 import tqdm
 from isaaclab.app import AppLauncher
 
-from cfg.CFG import SCENE_USD_PATH
+from cfg.CFG import get_scene_usd_path
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
@@ -96,7 +96,7 @@ def run_simulator(cfg: DictConfig):
         if not args_cli.debug_vis
         else "navigation_env.EnvDebugWrapper:NavEnvDebugView",
         disable_env_checker=True,
-        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": True, "sample_voronoi": False},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi": False},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",

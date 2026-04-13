@@ -8,14 +8,27 @@ ASSET_DIR = ROOT_DIR / "asset"
 CHECKPOINT_DIR = ROOT_DIR / "ckpts"
 CFG_DIR = ROOT_DIR / "src/cfg"
 
-cfg_file = ROOT_DIR / "dataset_cfg.yaml"
-cfg = yaml.safe_load(cfg_file.open())
-
 VINT_MODEL_WEIGHTS = CHECKPOINT_DIR / "vint_model_weights/vint.pth"
-
-INTERIOR_AGENT_DIR = (ROOT_DIR / cfg["dataset_folder"]).resolve()
-print(f"INTERIOR_AGENT_DIR set to: {INTERIOR_AGENT_DIR}")
-
-SCENE_USD_PATH = INTERIOR_AGENT_DIR / cfg["env_folder"] / f'{cfg["env_name"]}.usda'
-
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+
+def load_cfg() -> dict:
+    cfg_file = ROOT_DIR / "dataset_cfg.yaml"
+    return yaml.safe_load(cfg_file.open())
+
+
+def store_cfg(cfg: dict):
+    cfg_file = ROOT_DIR / "dataset_cfg.yaml"
+    with open(cfg_file, "w") as f:
+        yaml.dump(cfg, f, default_flow_style=False)
+
+
+def get_dataset_dir() -> Path:
+    cfg = load_cfg()
+    return (ROOT_DIR / cfg["dataset_folder"]).resolve()
+
+
+def get_scene_usd_path() -> Path:
+    cfg = load_cfg()
+    env_name = cfg["current_env"]
+    return get_dataset_dir() / env_name / f"{env_name}_baked.usda"
