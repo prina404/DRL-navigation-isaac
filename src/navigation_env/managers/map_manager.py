@@ -44,6 +44,18 @@ class MapManager:
     @property
     def shape(self) -> tuple[int, int]:
         return self._map_img.shape
+    
+    @property
+    def occupancy_gridmap(self) -> np.ndarray:
+        gray_pixels = (self._map_img > 1) & (self._map_img < 254)
+        white_pixels = self._map_img >= 254
+        black_pixels = self._map_img <= 1
+        # use -1, [0...100] to represent respectively unknown, free, occupied.
+        ogm = self._map_img.astype(np.int8, copy=True)
+        ogm[gray_pixels] = -1
+        ogm[white_pixels] = 0
+        ogm[black_pixels] = 100
+        return ogm
 
     @property
     def map_img(self) -> np.ndarray:
