@@ -86,8 +86,9 @@ def run_simulator(*args):
     env_name_generator = set_next_scene_usd()
 
     while iteration < args_cli.total_iterations:
-        iteration += args_cli.env_iterations
         logger.info(f"Starting training iteration {iteration}/{args_cli.total_iterations}")
+        
+        iteration += args_cli.env_iterations + 1
 
         # Side effect of the generator is that it updates the 'dataset_cfg.yaml'
         # so that when I  initialize a new ppo_runner the env config automatically

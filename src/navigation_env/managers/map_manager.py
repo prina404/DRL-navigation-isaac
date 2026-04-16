@@ -132,9 +132,12 @@ class MapManager:
 
         scaled = ((local_xy - origin) / self.resolution).to(torch.int)
 
-        _, W = self.shape
+        H, W = self.shape
         scaled[..., 0] = W - scaled[..., 0]  # flip x axis
         map_coords = scaled[..., [1, 0]]  # swap to (row, col)
+
+        map_coords[..., 0] = torch.clamp(map_coords[..., 0], 0, H - 1)  # row
+        map_coords[..., 1] = torch.clamp(map_coords[..., 1], 0, W - 1)  # col
         return map_coords
 
     # def debug_vis(self):
