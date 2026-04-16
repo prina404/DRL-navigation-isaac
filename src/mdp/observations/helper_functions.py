@@ -91,12 +91,12 @@ def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> tor
 
     # Sensor yaw (keep existing convention: invert lidar direction)
     _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1) or (B,)
-    sensor_yaw = robot_yaw.squeeze(-1) + math.pi  # (B,)
+    sensor_yaw = robot_yaw + math.pi  # (B,)
 
     # Rotate relative hit vectors from world into sensor-yaw frame for voxelization
     # world->local inverse yaw rotation
-    cos_yaw = torch.cos(sensor_yaw).unsqueeze(1)  # (B, 1)
-    sin_yaw = torch.sin(sensor_yaw).unsqueeze(1)  # (B, 1)
+    cos_yaw = torch.cos(sensor_yaw).unsqueeze(-1)  # (B, 1)
+    sin_yaw = torch.sin(sensor_yaw).unsqueeze(-1)  # (B, 1)
     scan_local = torch.empty_like(scan)
     scan_local[..., 0] = cos_yaw * scan[..., 0] + sin_yaw * scan[..., 1]
     scan_local[..., 1] = -sin_yaw * scan[..., 0] + cos_yaw * scan[..., 1]
@@ -107,7 +107,7 @@ def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> tor
 
     # Yaw per ray
     yaw_w = torch.atan2(scan[..., 1], scan[..., 0])  # (B, N_rays) yaw angle of each ray (world frame)
-    yaw = -wrap_to_pi(yaw_w - sensor_yaw.unsqueeze(1))  # (B, N_rays) yaw angle in robot frame
+    yaw = -wrap_to_pi(yaw_w - sensor_yaw.unsqueeze(-1))  # (B, N_rays) yaw angle in robot frame
 
     # Voxelize pointcloud
 

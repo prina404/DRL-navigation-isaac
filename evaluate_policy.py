@@ -72,7 +72,7 @@ from tasks.task_utils import get_env_config
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
 
-@hydra.main(config_path=FILE_PATH, config_name="sim", version_base=None)
+@hydra.main()
 def run_simulator(cfg: DictConfig):
 
     run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -84,7 +84,7 @@ def run_simulator(cfg: DictConfig):
     # Go2 Env setup
     environment_cfg = get_env_config(args_cli.task)
     environment_cfg.curriculum = None
-    environment_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
+    environment_cfg.scene.num_envs = args_cli.num_envs
     environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
     environment_cfg.log_dir = log_dir
 
@@ -96,7 +96,7 @@ def run_simulator(cfg: DictConfig):
         if not args_cli.debug_vis
         else "navigation_env.EnvDebugWrapper:NavEnvDebugView",
         disable_env_checker=True,
-        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi": False},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi": True},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -122,7 +122,7 @@ def run_simulator(cfg: DictConfig):
     # Navigation Policy setup
     policy_cfg = go2_policy_cfg
     policy_cfg["obs_groups"] = environment_cfg.obs_groups  # needed for encoder initialization
-    policy_cfg["num_envs"] = cfg.num_envs
+    policy_cfg["num_envs"] = args_cli.num_envs
 
     ppo_runner = OnPolicyRunner(env, policy_cfg, log_dir=log_dir, device=policy_cfg["device"])
 
