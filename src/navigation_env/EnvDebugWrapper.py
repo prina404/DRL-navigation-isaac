@@ -1,5 +1,6 @@
 import isaaclab.sim as sim_utils
 import torch
+import warp as wp
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import euler_xyz_from_quat, quat_from_angle_axis
@@ -43,7 +44,7 @@ class NavEnvDebugView(NavEnv):
         robot = self.scene["robot"]
 
         # robot position in local (env) frame for path math
-        robot_pos_local = robot.data.root_link_pos_w[:, :2] - self.scene.env_origins[:, :2]  # (B, 2)
+        robot_pos_local = wp.to_torch(robot.data.root_link_pos_w)[:, :2] - self.scene.env_origins[:, :2]  # (B, 2)
 
         # reward heading: 3rd point forward along path (closer to goal than robot)
         reward_yaw = torch.zeros((self.num_envs,), device=self.device)
@@ -66,7 +67,7 @@ class NavEnvDebugView(NavEnv):
                 delta = target - robot_pos_local[i]
                 reward_yaw[i] = torch.atan2(delta[1], delta[0])
 
-        self.marker_locations = robot.data.root_pos_w  # (B, 3)
+        self.marker_locations = wp.to_torch(robot.data.root_pos_w)  # (B, 3)
         self.reward_marker_orientations = quat_from_angle_axis(reward_yaw, self.up_dir)
 
         # command heading: from action (x, y) only
@@ -74,7 +75,7 @@ class NavEnvDebugView(NavEnv):
         cmd_yaw = torch.atan2(cmd_xy[:, 1], cmd_xy[:, 0])
 
         # rotate command to world frame using robot yaw
-        _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_link_quat_w)  # (B, 1)
+        _, _, robot_yaw = euler_xyz_from_quat(wp.to_torch(robot.data.root_link_quat_w))  # (B, 1)
         command_world_yaw = robot_yaw.squeeze(-1) + cmd_yaw
         self.command_marker_orientations = quat_from_angle_axis(command_world_yaw, self.up_dir)
 
@@ -149,14 +150,14 @@ class NavEnvDebugView(NavEnv):
         lidar_y_local = -lidar_dist * torch.sin(lidar_angles)
 
         # rotate to world frame using robot yaw
-        _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_link_quat_w)  # (B,)
+        _, _, robot_yaw = euler_xyz_from_quat(wp.to_torch(robot.data.root_link_quat_w))  # (B,)
         robot_yaw = robot_yaw.squeeze(-1) if robot_yaw.ndim > 1 else robot_yaw
 
         cos_yaw = torch.cos(robot_yaw).unsqueeze(1)  # (B, 1)
         sin_yaw = torch.sin(robot_yaw).unsqueeze(1)  # (B, 1)
 
-        lidar_x_world = robot.data.root_link_pos_w[:, 0:1] + lidar_x_local * cos_yaw - lidar_y_local * sin_yaw
-        lidar_y_world = robot.data.root_link_pos_w[:, 1:2] + lidar_x_local * sin_yaw + lidar_y_local * cos_yaw
+        lidar_x_world = wp.to_torch(robot.data.root_link_pos_w)[:, 0:1] + lidar_x_local * cos_yaw - lidar_y_local * sin_yaw
+        lidar_y_world = wp.to_torch(robot.data.root_link_pos_w)[:, 1:2] + lidar_x_local * sin_yaw + lidar_y_local * cos_yaw
         lidar_z_world = torch.full_like(lidar_x_world, 0.10)
 
         lidar_points = torch.stack((lidar_x_world, lidar_y_world, lidar_z_world), dim=-1)  # (B, 128, 3)

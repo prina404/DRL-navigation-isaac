@@ -1,5 +1,6 @@
 import isaaclab.envs.mdp as isaac_mdp
 import torch
+import warp as wp
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.managers import ActionTerm, ActionTermCfg, SceneEntityCfg
 from isaaclab.utils import configclass
@@ -80,7 +81,7 @@ class _Go2MPCPolicyAction(ActionTerm):
             self._last_joint_action = self.controller(mpc_obs)
 
         robot: Articulation = self._env.scene[self.cfg.asset_name]
-        q0 = robot.data.default_joint_pos
+        q0 = wp.to_torch(robot.data.default_joint_pos)
         q_des = q0 + self._last_joint_action * 0.25
         robot.set_joint_position_target(q_des)
 
