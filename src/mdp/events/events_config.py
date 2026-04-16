@@ -13,7 +13,7 @@ class BaseEventsCfg:
     reset_pos = EventTermCfg(func=events.teleport_on_reset, mode="reset")
 
     reset_joints = EventTermCfg(
-        func=isaac_mdp.reset_joints_by_scale,
+        func=isaac_mdp.reset_joints_by_offset,
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg(name="robot"),

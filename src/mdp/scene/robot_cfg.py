@@ -29,7 +29,7 @@ UNITREE_GO2_CFG = ArticulationCfg(
         # collision_props = CollisionPropertiesCfg(collision_enabled=False)
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.6),
+        pos=(0.0, 0.0, 0.4),
         joint_pos={
             ".*L_hip_joint": 0.1,
             ".*R_hip_joint": -0.1,
