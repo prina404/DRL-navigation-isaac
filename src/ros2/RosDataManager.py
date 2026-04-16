@@ -36,14 +36,16 @@ MAP_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, relia
 
 
 class RosDataManager(Node):
-    def __init__(self, env: RslRlVecEnvWrapper, lidar_annotators: MultiMeshRayCaster, cameras: TiledCamera, cfg):
+    def __init__(self, env: RslRlVecEnvWrapper, lidar_annotators: MultiMeshRayCaster, cameras: TiledCamera | None, is_depth_camera=False):
         super().__init__(
             "robot_data_manager",
             parameter_overrides=[
                 Parameter("use_sim_time", value=True),
             ],
         )
-        self.cfg = cfg
+        self.enable_camera = cameras is not None
+        self.use_depth = is_depth_camera
+
         self.create_ros_time_graph()
 
         self.env: NavEnv = env.unwrapped
@@ -79,7 +81,7 @@ class RosDataManager(Node):
             self.pose_pub.append(self.create_publisher(PoseStamped, self.pose_topic(i), 10))
             self.lidar_pub.append(self.create_publisher(PointCloud2, self.lidar_topic(i), 10))
 
-            if self.cfg.sensor.enable_camera:
+            if self.enable_camera:
                 self.color_pub.append(self.create_publisher(Image, self.color_topic(i), 10))
                 self.depth_pub.append(self.create_publisher(Image, self.depth_topic(i), 10))
                 self.camera_info_pub.append(self.create_publisher(CameraInfo, self.camera_info_topic(i), 10))
@@ -93,14 +95,11 @@ class RosDataManager(Node):
                 )
             )
 
-        # self.odom_pose_freq = 50.0
-        # self.lidar_freq = 15.0
-        # self.camera_freq = float(getattr(self.cfg.sensor, "camera_freq", self.lidar_freq))
 
         self.zero_time = rclpy.time.Time().to_msg()
         self.create_static_transform()
 
-        if self.cfg.sensor.enable_camera: # init camera info topic
+        if self.enable_camera: # init camera info topic
             self.publish_camera_info(self.zero_time)
 
         self.base_vel_cmd_input = torch.zeros((self.num_envs, 3), dtype=torch.float32).cpu()
@@ -308,15 +307,13 @@ class RosDataManager(Node):
             )
             self.publish_pose(timestamp, base_pose_local, wp.to_torch(robot_data.root_com_state_w)[i, 3:7], i)
 
-        if self.cfg.sensor.enable_lidar:
-            scan_local = self.lidar.data.ray_hits_w - self.env.scene.env_origins.unsqueeze(1)  # convert to local coordinates
-            for i in range(self.num_envs):
-                self.publish_lidar_data(timestamp, scan_local[i], i)
+        scan_local = self.lidar.data.ray_hits_w - self.env.scene.env_origins.unsqueeze(1)  # convert to local coordinates
+        for i in range(self.num_envs):
+            self.publish_lidar_data(timestamp, scan_local[i], i)
 
-        if self.cfg.sensor.enable_camera:
-            if self.cfg.sensor.color_image:
-                self.pub_color_image(timestamp)
-            if self.cfg.sensor.depth_image:
+        if self.enable_camera:
+            self.pub_color_image(timestamp)
+            if self.use_depth:
                 self.pub_depth_image(timestamp)
 
     def cmd_vel_callback(self, msg: Twist, env_idx: int):

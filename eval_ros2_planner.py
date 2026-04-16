@@ -22,6 +22,7 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_episodes", type=int, default=100, help="RL Policy training iterations.")
+parser.add_argument("--task", type=str, default="go2_vision_full", help="Name of the task configuration to use for training.")
 
 AppLauncher.add_app_launcher_args(parser)
 
@@ -54,30 +55,18 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from loguru import logger
 from omegaconf import DictConfig
 
-import go2.go2_mpc as go2_mpc
-from cfg.CFG import ROOT_DIR, SCENE_USD_PATH
-from lab.MyEnvCfg import Go2EnvCfg
+import mdp.actions.go2_locomotion_policy as go2_control
+from cfg.CFG import ROOT_DIR, get_scene_usd_path
+from tasks.task_utils import get_env_config
 from ros2.Nav2Manager import kill_nav2_lifecycle, wait_for_nav2_ready, MultiEnvNavigator
 from ros2.RosDataManager import RosDataManager
 
-# from isaacsim.core.utils import extensions
-# extensions.enable_extension("isaacsim.ros2.bridge")
-# simulation_app.update()
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
 
-@hydra.main(config_path=FILE_PATH, config_name="sim", version_base=None)
+@hydra.main()
 def run_simulator(cfg: DictConfig):
-    # Go2 MPC setup
-    mpc = go2_mpc.get_mpc_policy(use_rough=True)
-
-    # Go2 Env setup
-    go2_env_cfg = Go2EnvCfg()
-    go2_env_cfg.curriculum = None
-    go2_env_cfg.actions.mpc_cmd.mpc_policy = mpc  # inject mpc policy
-    go2_env_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
-    go2_env_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
 
     run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", "ros2_validation"))
@@ -86,19 +75,24 @@ def run_simulator(cfg: DictConfig):
     log_dir = os.path.join(log_root_path, run_info)
     os.makedirs(log_dir, exist_ok=True)
 
-    go2_env_cfg.log_dir = log_dir
+    # Go2 Env setup
+    environment_cfg = get_env_config(args_cli.task)
+    environment_cfg.curriculum = None
+    environment_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
+    environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
+    environment_cfg.log_dir = log_dir
 
     # Create the whole scene
     logger.info("Creating gym environment...")
     gym.register(
         id="Isaac-indoor-navigation-go2-v0",
-        entry_point="lab.MyEnv:MyEnv",
+        entry_point="navigation_env.NavigationEnv:NavEnv",
         disable_env_checker=True,
-        kwargs={"scene_path": SCENE_USD_PATH, "use_long_horizon": True, "sample_voronoi": True},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi": True},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
-        cfg=go2_env_cfg,
+        cfg=environment_cfg,
         render_mode="rgb_array" if args_cli.video else None,
     )
     logger.info("Gym environment created")
@@ -123,7 +117,8 @@ def run_simulator(cfg: DictConfig):
 
     rclpy.init()
     __env = env.unwrapped
-    ros2_dm = RosDataManager(__env, __env.scene["lidar"], __env.scene["camera"], cfg)
+    _camera = __env.scene["camera"] if "camera" in __env.scene.__dict__ else None
+    ros2_dm = RosDataManager(__env, __env.scene["lidar"], _camera, is_depth_camera="depth" in environment_cfg.obs_groups["policy"])
     ros2_dm.pub_ros2_data(ros2_dm.zero_time) 
 
     # Init NavStack

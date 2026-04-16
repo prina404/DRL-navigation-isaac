@@ -9,11 +9,6 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from nav2_common.launch import RewrittenYaml
 
-ROOT_DIR = Path(__file__).resolve().parents[6]
-DATASET_CFG = yaml.safe_load((ROOT_DIR / "dataset_cfg.yaml").open())
-MAP_FOLDER = (ROOT_DIR / DATASET_CFG["dataset_folder"]).resolve() / DATASET_CFG["env_folder"]
-
-
 def _create_robot_nav2_nodes(context):
     params_file = LaunchConfiguration("params_file").perform(context)
     robot_prefix = LaunchConfiguration("robot_prefix").perform(context)
@@ -216,6 +211,6 @@ def generate_launch_description():
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("params_file", default_value=nav2_params),
             OpaqueFunction(function=_create_robot_nav2_nodes),
-            #rviz_node(),
+            rviz_node(),
         ]
     )
