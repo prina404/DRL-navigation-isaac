@@ -52,6 +52,7 @@ class Go2MPCPolicyAction(ActionTerm):
         # logger.debug(f"Nominal action: {self.nominal_action()[0]}")
         # logger.debug(f"Policy command: {self._last_action_received[0]}")
         # logger.debug(f"Final cmd (nominal + action): {base_vel_cmd[0]}")
+        base_vel_cmd = torch.clamp(base_vel_cmd, -1.5, 1.5) # limit max velocity when using nominal+residual
 
         joint_pos = mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
