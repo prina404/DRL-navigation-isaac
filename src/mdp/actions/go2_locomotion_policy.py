@@ -69,5 +69,5 @@ GO2_FLAT_CFG = {
     "wandb_project": "isaaclab",
     "resume": False,
     "load_run": "unitree_go2_locomotion",
-    "load_checkpoint": "flat_custom.pt",
+    "load_checkpoint": "flat_high_speed.pt",
 }

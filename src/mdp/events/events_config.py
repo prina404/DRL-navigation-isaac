@@ -49,7 +49,7 @@ class FullEventsCfg(BaseEventsCfg):
         mode="reset",
     )
 
-    randomize_obstacles = EventTermCfg(
-        func=events.move_obstacle_on_path,
-        mode="reset",
-    )
+    # randomize_obstacles = EventTermCfg(
+    #     func=events.move_obstacle_on_path,
+    #     mode="reset",
+    # )

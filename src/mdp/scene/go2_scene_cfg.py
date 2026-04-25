@@ -103,9 +103,9 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
         ],
     )
 
-    path_obstacles = RigidObjectCollectionCfg(
-        rigid_objects=get_obstacles_cfg(),
-    )
+    # path_obstacles = RigidObjectCollectionCfg(
+    #     rigid_objects=get_obstacles_cfg(),
+    # )
 
     def __post_init__(self):
         # env config in post_init to ensure usd path is updated at runtime
@@ -119,8 +119,8 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
 
 CAMERA_CFG = TiledCameraCfg(
     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-    width=128,
-    height=128,
+    width=224,
+    height=224,
     offset=TiledCameraCfg.OffsetCfg(
         pos=(0.4, 0.0, 0.0),
         convention="world",
