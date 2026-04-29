@@ -130,7 +130,7 @@ def run_simulator(cfg: DictConfig):
     if args_cli.wandb:
         load_dotenv()
         policy_cfg["logger"] = "wandb"
-        policy_cfg["wandb_project"] = "LFP-final-config"
+        policy_cfg["wandb_project"] = os.environ["WANDB_PROJECT"]
 
     ppo_runner = OnPolicyRunner(env, policy_cfg, log_dir=log_dir, device=policy_cfg["device"])
 
