@@ -4,7 +4,7 @@ if [ -z ${ISAACSIM_PATH+x} ]; then
     echo "ISAACSIM_PATH is not set, assuming IsaacSim is not pre-installed."
     USE_PIP_ISAAC=true
 else
-    ISAACSIM_VERSION=$(cat ${ISAACSIM_PATH}/VERSION | awk -F='-' '{print $1}')
+    ISAACSIM_VERSION=$(cat ${ISAACSIM_PATH}/VERSION | awk -F'-' '{print $1}')
     if [ "$ISAACSIM_VERSION" != "5.1.0" ]; then
         echo "Detected binary Isaacsim version different from 5.1.0. Pip's version of IsaacSim will be installed instead."
     fi
