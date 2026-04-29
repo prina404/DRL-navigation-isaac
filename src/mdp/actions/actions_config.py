@@ -1,15 +1,13 @@
-from typing import Callable
-
 import isaaclab.envs.mdp as isaac_mdp
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.managers import ActionTerm, ActionTermCfg, SceneEntityCfg
-from torch import Tensor
 from isaaclab.utils import configclass
+from torch import Tensor
 
+from mdp.actions.go2_locomotion_policy import get_locomotion_policy
 from mdp.observations.helper_functions import get_goal_relative_position
 from navigation_env.NavigationEnv import NavEnv
-from mdp.actions.go2_locomotion_policy import get_locomotion_policy
 
 
 class _Go2MPCPolicyAction(ActionTerm):

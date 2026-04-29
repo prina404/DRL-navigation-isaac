@@ -1,9 +1,11 @@
 import argparse
 import sys
+from copy import deepcopy
+from typing import Generator
 
 from isaaclab.app import AppLauncher
 
-from cfg.CFG import get_scene_usd_path
+from cfg.CFG import get_scene_usd_path, load_cfg, store_cfg
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
@@ -20,17 +22,12 @@ parser.add_argument(
     default=3000,
     help="Interval between video recordings (in steps).",
 )
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--log_interval", type=int, default=100_000, help="Log data every n timesteps.")
-parser.add_argument(
-    "--checkpoint",
-    action="store_true",
-    default=False,
-    help="Continue the training from checkpoint.",
-)
-parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
+parser.add_argument("--env_iterations", type=int, default=2000, help="Number of training iterations for each environment")
+parser.add_argument("--total_iterations", type=int, default=20_000, help="Total number of training iterations")
 parser.add_argument(
     "--wandb",
     action="store_true",
@@ -64,12 +61,11 @@ from datetime import datetime
 
 import gymnasium as gym
 import hydra
+import isaaclab.sim as sim_utils
 from dotenv import load_dotenv
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-from isaaclab_tasks.utils import get_checkpoint_path
 from loguru import logger
-from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
 from policy.go2_nav_cfg import go2_policy_cfg
@@ -77,17 +73,73 @@ from tasks.task_utils import get_env_config
 
 
 @hydra.main()
-def run_simulator(cfg: DictConfig):
-
+def run_simulator(*args):
     run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", "training"))
     logger.info(f"Logging experiment in directory: {log_root_path}")
-    logger.info(f"Exact experiment name requested from command line: {run_info}")
+    logger.info(f"Experiment name requested from command line: {run_info}")
     log_dir = os.path.join(log_root_path, run_info)
 
+    iteration = 0
+    temp_checkpoints = None
+    episode_counter = None
+    env_name_generator = set_next_scene_usd()
+
+    while iteration < args_cli.total_iterations:
+        logger.info(f"Starting training iteration {iteration}/{args_cli.total_iterations}")
+        
+        iteration += args_cli.env_iterations + 1
+
+        # Side effect of the generator is that it updates the 'dataset_cfg.yaml'
+        # so that when I  initialize a new ppo_runner the env config automatically
+        # loads the new scene USD.
+        env_name = next(env_name_generator)
+        logger.info(f"Training on environment: {env_name}")
+
+        ppo_runner = create_env_ppo_runner(log_dir)
+
+        # Restore weights and episode counter from the last training iteration
+        if temp_checkpoints is not None:
+            ppo_runner.load(temp_checkpoints)
+            os.remove(temp_checkpoints)
+
+        if episode_counter is not None:
+            ppo_runner.env.unwrapped.episode_counter = episode_counter
+
+        ppo_runner.learn(num_learning_iterations=args_cli.env_iterations)
+
+        # Store weights and episode counter for the next training iteration
+        temp_checkpoints = os.path.join(log_dir, f"temp_checkpoint_{iteration}.pt")
+        ppo_runner.save(temp_checkpoints)
+
+        episode_counter = ppo_runner.env.unwrapped.episode_counter
+        ppo_runner.env.close()
+        # sim_utils.clear_stage()
+        sim_utils.close_stage()
+        sim_utils.create_new_stage()
+
+    ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
+    os.remove(temp_checkpoints)
+    logger.info(f"Final policy saved in {log_dir}/final_policy.pt")
+
+
+def set_next_scene_usd() -> Generator[str, None, None]:
+    """Generator function that modifies the scene USD set into 'dataset_cfg.yaml' from a circular list of scene names"""
+    cfg = load_cfg()
+    env_names = cfg["training_envs"]
+    idx = 0
+    while True:
+        env_name = env_names[idx % len(env_names)]
+        cfg["current_env"] = env_name
+        store_cfg(cfg)
+        yield env_name
+        idx += 1
+
+
+def create_env_ppo_runner(log_dir: str) -> OnPolicyRunner:
     # Go2 Env setup
     environment_cfg = get_env_config(args_cli.task)
-    environment_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
+    environment_cfg.scene.num_envs = args_cli.num_envs
     environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
     environment_cfg.log_dir = log_dir
 
@@ -123,33 +175,16 @@ def run_simulator(cfg: DictConfig):
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
     # Navigation Policy setup
-    policy_cfg = go2_policy_cfg
+    policy_cfg = deepcopy(go2_policy_cfg)  # why tf does OnPolicyRunner pop items from the config dict?
     policy_cfg["obs_groups"] = environment_cfg.obs_groups  # needed for encoder initialization
-    policy_cfg["num_envs"] = args_cli.num_envs if args_cli.num_envs is not None else cfg.num_envs
+    policy_cfg["num_envs"] = args_cli.num_envs
 
     if args_cli.wandb:
         load_dotenv()
         policy_cfg["logger"] = "wandb"
-        policy_cfg["wandb_project"] = os.environ["WANDB_PROJECT"]
+        policy_cfg["wandb_project"] = "LFP-multi-env-training"
 
-    ppo_runner = OnPolicyRunner(env, policy_cfg, log_dir=log_dir, device=policy_cfg["device"])
-
-    if args_cli.checkpoint is True:
-        ckpt_path = get_checkpoint_path(
-            log_path=os.path.abspath("ckpts"),
-            run_dir=policy_cfg["load_run"],
-            checkpoint=policy_cfg["load_checkpoint"],
-        )
-        ppo_runner.load(ckpt_path)
-
-    ppo_runner.learn(
-        num_learning_iterations=(
-            go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
-        ),
-    )
-    ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
-    logger.debug(f"Final episode count: {env.unwrapped.episode_counter.mean().item()}")
-    env.close()
+    return OnPolicyRunner(env, policy_cfg, log_dir=log_dir, device=policy_cfg["device"])
 
 
 if __name__ == "__main__":

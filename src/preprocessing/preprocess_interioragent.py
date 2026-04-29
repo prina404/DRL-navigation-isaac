@@ -163,10 +163,10 @@ def main(args_cli: argparse.Namespace):
             colorize=True,
         )
 
-        directories = sorted(os.listdir(CFG.INTERIOR_AGENT_DIR))
-        env_dir = [d for d in directories if d.startswith("kujiale_") and os.path.isdir(os.path.join(CFG.INTERIOR_AGENT_DIR, d))]
+        directories = sorted(os.listdir(CFG.get_dataset_dir()))
+        env_dir = [d for d in directories if d.startswith("kujiale_") and os.path.isdir(os.path.join(CFG.get_dataset_dir(), d))]
         for directory in tqdm(env_dir, desc="Preprocessing InteriorAgent scenes", leave=False):
-            scene_dir = os.path.join(CFG.INTERIOR_AGENT_DIR, directory)
+            scene_dir = os.path.join(CFG.get_dataset_dir(), directory)
             usd_path = os.path.join(scene_dir, f"{directory}.usda")
             if not os.path.exists(usd_path):
                 logger.error(f"Could not find expected USD file: {usd_path}")

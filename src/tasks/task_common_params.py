@@ -12,7 +12,10 @@ PARAMS = {
         enable_shadows=True,
         enable_ambient_occlusion=True,
         dlss_mode="3",  # defaults to 1 in performance mode
+        carb_settings={
+            "/rtx/sceneDb/ambientLightIntensity": 0.1,
+        },
     ),
-    "episode_length_s" :15.0,
-    "decimation" : 16,
+    "episode_length_s": 15.0,
+    "decimation": 16,
 }

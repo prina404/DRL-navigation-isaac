@@ -1,6 +1,8 @@
-from isaaclab.utils import configclass
 from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.utils import configclass
+
 import mdp.rewards.helper_functions as rewards
+
 
 @configclass
 class RewardsCfg:

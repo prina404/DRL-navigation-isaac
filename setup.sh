@@ -1,40 +1,49 @@
-CONDA_ENV_NAME="lfp"
+USE_PIP_ISAAC=false
 
-eval "$(~/miniconda3/bin/conda shell.bash hook)"
+if [ -z ${ISAACSIM_PATH+x} ]; then
+    echo "ISAACSIM_PATH is not set, assuming IsaacSim is not pre-installed."
+    USE_PIP_ISAAC=true
+else
+    ISAACSIM_VERSION=$(cat ${ISAACSIM_PATH}/VERSION | awk -F'-' '{print $1}')
+    if [ "$ISAACSIM_VERSION" != "5.1.0" ]; then
+        echo "Detected binary Isaacsim version different from 5.1.0. Pip's version of IsaacSim will be installed instead."
+    fi
+fi
 
-conda update -n base -c conda-forge conda -y
 
-conda install -n base conda-libmamba-solver -y
-conda config --set solver libmamba
+LDD_VER=$(ldd --version | awk '/ldd/{print $NF}')
+echo "Detected ldd version: $LDD_VER"
+# check ldd version is greater than 2.35
+if [ "$USE_PIP_ISAAC" = true ] && ! printf '%s\n' "2.35" "$LDD_VER" | sort -VC; then
+    echo "ldd version is less than 2.35, which may cause issues with pip's version of IsaacSim. Please install IsaacSim using pre-built binaries."
+    exit 1
+fi
 
-conda create -n ${CONDA_ENV_NAME} python=3.11 -y
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -U torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
+git clone --branch v2.3.2 git@github.com:isaac-sim/IsaacLab.git
 
-conda activate ${CONDA_ENV_NAME}
+if [ "$USE_PIP_ISAAC" = true ]; then
+    pip install 'isaacsim[all,extscache]==5.1.0' --extra-index-url https://pypi.nvidia.com
+else
+    ln -s ${ISAACSIM_PATH} IsaacLab/_isaac_sim
+fi
 
-conda install pip git git-lfs cmake -y
-conda install conda-forge::hf-xet -y
-git xet install
-git lfs install
-pip install uv
+./IsaacLab/isaaclab.sh -i
+echo "source ${ISAACSIM_PATH}/setup_conda_env.sh" >> .venv/bin/activate
 
-conda env config vars set CUDA_HOME=""
-conda activate ${CONDA_ENV_NAME}
-conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit -y
-conda activate ${CONDA_ENV_NAME}
-
-conda install -c conda-forge cudnn -y
-conda install -c conda-forge vulkan-tools -y
-
-conda install conda-forge::libglvnd-egl-cos7-x86_64 -y
-conda install conda-forge::egl-probe -y
-
-uv pip install --no-build-isolation -e .
-uv pip install 'isaacsim[all,extscache]==5.1.0' --extra-index-url https://pypi.nvidia.com
-git clone --branch main git@github.com:isaac-sim/IsaacLab.git
-cd IsaacLab && ./isaaclab.sh -i
-cd ..
+pip install -e .
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.7.0+cu128.html
 
 # ViNT repo setup
 git clone https://github.com/robodhruv/visualnav-transformer.git
 cd visualnav-transformer/train
+pip install -e .
+
+# Depth encoder setup
+cd -
+git clone https://github.com/leggedrobotics/defm.git
+cd defm
 pip install -e .

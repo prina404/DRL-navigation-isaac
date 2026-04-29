@@ -201,3 +201,17 @@ class PathManager:
 
         state = torch.cat([pos_w, quats, zero_vel], dim=-1)  # (num_robots, 13)
         return state
+
+    def sample_random_obstacle_on_path(self, env_ids: torch.Tensor) -> torch.Tensor:
+        obstacle_pos = torch.zeros((len(env_ids), 2), device=self.device)  # in local coords
+        for i, id in enumerate(env_ids):
+            path = self.path_tensors[id].clone()
+            if len(path) < 3:
+                continue  # no path or path too short, skip
+
+            obstacle_range = path[2:-2]  # avoid sampling obstacles too close to start and goal
+            random_idx = random.randint(0, len(obstacle_range) - 1)
+            # sample a point on the path and add gaussian noise to randomize position
+            obstacle_pos[i] = obstacle_range[random_idx] + torch.randn(2, device=self.device) * 0.3
+
+        return obstacle_pos
