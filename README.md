@@ -16,6 +16,9 @@ Clone huggingface repo (25GB of disk required)
 $ curl -sSfL https://hf.co/git-xet/install.sh | sh
 
 $ git clone https://huggingface.co/datasets/spatialverse/InteriorAgent
+
+# preprocess the dataset
+$ python3 src/preprocessing/preprocess_interioragent.py 
 ```
 
 Set the `dataset_folder` parameter in `dataset_cfg.yaml` to the InteriorAgent repo folder.
