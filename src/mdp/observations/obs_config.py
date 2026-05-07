@@ -72,3 +72,27 @@ class LidarDepthCfg:
     depth = _DepthGroup()
     lidar = _LidarGroup()
     global_plan = _GlobalPlanGroup()
+
+
+@configclass
+class VisionOnlyCfg:
+    action_buffer = _ActionGroup()
+    velocity_buffer = _VelocityGroup()
+    vision = _VisionGroup()
+    global_plan = _GlobalPlanGroup()
+
+
+@configclass
+class DepthOnlyCfg:
+    action_buffer = _ActionGroup()
+    velocity_buffer = _VelocityGroup()
+    depth = _DepthGroup()
+    global_plan = _GlobalPlanGroup()
+
+@configclass
+class VisionDepthCfg:
+    action_buffer = _ActionGroup()
+    velocity_buffer = _VelocityGroup()
+    vision = _VisionGroup()
+    depth = _DepthGroup()
+    global_plan = _GlobalPlanGroup()

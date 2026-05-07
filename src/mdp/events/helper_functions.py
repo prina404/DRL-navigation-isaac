@@ -126,6 +126,15 @@ def randomize_distant_light(*args, **kwargs):
             light.GetColorTemperatureAttr().Set(light_temperature)
 
 
+def _sample_env_ids_obstacles(env: NavEnv, env_ids: torch.Tensor) -> torch.Tensor:
+    # sample a subset of envs to add obstacles to, based on obstacle_prob
+    if not hasattr(env, "obstacle_prob"):
+        env.obstacle_prob = 0.0  # default to no obstacles
+
+    mask = torch.rand(len(env_ids), device=env.device) < env.obstacle_prob
+    return env_ids[mask]
+
+
 def move_obstacle_on_path(env: NavEnv, env_ids: torch.Tensor) -> None:
     obstacles: RigidObjectCollection = env.scene["path_obstacles"]
 
@@ -133,6 +142,11 @@ def move_obstacle_on_path(env: NavEnv, env_ids: torch.Tensor) -> None:
     state_0 = obstacles.data.object_link_pose_w[env_ids].clone()  # (num_env, num_obj, 7)
     state_0[..., 2] = -1.0
     obstacles.write_object_link_pose_to_sim(state_0, env_ids)
+
+    # Resample env_ids to determine which envs get obstacles this episode based on obstacle_prob.
+    env_ids = _sample_env_ids_obstacles(env, env_ids)
+    if len(env_ids) == 0:
+        return  # no envs selected for obstacles this episode
 
     # Select exactly one obstacle per env with pairwise indexing shape (num_env, 1).
     random_obstacle_ids = torch.randint(0, obstacles.num_objects, (len(env_ids), 1), device=env.device)

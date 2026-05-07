@@ -106,11 +106,9 @@ class NavEnv(ManagerBasedRLEnv):
         self.path_manager.compute_global_plan(env_ids, robot.data.root_com_pos_w[env_ids], self.scene.env_origins[env_ids])
 
     def _update_lidar_buffer(self) -> None:
-        # store only the last lidar scan
-        # TODO: do I need a buffer?
-        # self._lidar_buffer = lidar_obs.clone()
-        lidar = self.scene.sensors["lidar"]
-        self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
+        if "lidar" in self.scene.sensors:
+            lidar = self.scene.sensors["lidar"]
+            self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
 
     def update_follow_camera(self, smoothing: float = 0.3):
         robot_pos = self.scene["robot"].data.root_pos_w[0]

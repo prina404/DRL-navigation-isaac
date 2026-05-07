@@ -49,7 +49,11 @@ class FullEventsCfg(BaseEventsCfg):
         mode="reset",
     )
 
-    # randomize_obstacles = EventTermCfg(
-    #     func=events.move_obstacle_on_path,
-    #     mode="reset",
-    # )
+@configclass
+class PathObstaclesEventsCfg(FullEventsCfg):
+    """Event config that adds path obstacles after a certain number of episodes"""
+    
+    randomize_obstacles = EventTermCfg(
+        func=events.move_obstacle_on_path,
+        mode="reset",
+    )

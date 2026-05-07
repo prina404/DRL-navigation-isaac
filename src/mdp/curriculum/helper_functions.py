@@ -65,3 +65,7 @@ def nominal_policy_weight(env: NavEnv, env_ids: torch.Tensor, episode_start: int
     # linearly decay nominal policy weight from 1.0 to 0.0 over the ep interval
     env.nominal_weight = _progress_coeff(env, episode_start, episode_end)
     return env.nominal_weight
+
+def add_path_obstacles(env: NavEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> None:
+    env.obstacle_prob = 1 - _progress_coeff(env, episode_start, episode_end)
+    return env.obstacle_prob
