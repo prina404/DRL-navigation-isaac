@@ -90,7 +90,7 @@ class Go2DepthFull(ManagerBasedRLEnvCfg):
 
     def __post_init__(self) -> None:
         # initialized in post init to ensure dataset cfg is loaded and we get the correct scene path
-        self.scene = scene.Go2EmptyVisionCfg(num_envs=1, env_spacing=18.0)
+        self.scene = scene.Go2FullVisionCfg(num_envs=1, env_spacing=18.0)
 
         self.sim.dt = PARAMS["dt"]
         self.sim.device = PARAMS["device"]

@@ -68,6 +68,7 @@ from rsl_rl.runners import OnPolicyRunner
 
 from policy.go2_nav_cfg import go2_policy_cfg
 from tasks.task_utils import get_env_config
+from hydra.utils import get_original_cwd
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
@@ -126,9 +127,9 @@ def run_simulator(cfg: DictConfig):
 
     ppo_runner = OnPolicyRunner(env, policy_cfg, log_dir=log_dir, device=policy_cfg["device"])
 
-    if args_cli.checkpoint is True:
+    if args_cli.checkpoint is not None:
         ckpt_path = get_checkpoint_path(
-            log_path=os.path.abspath("ckpts"),
+            log_path=os.path.join(get_original_cwd(), "ckpts"),
             run_dir=policy_cfg["load_run"],
             checkpoint=args_cli.checkpoint,
         )

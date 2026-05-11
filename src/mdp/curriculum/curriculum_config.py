@@ -9,19 +9,19 @@ class CurriculumCfg:
     obstacle_weight = CurriculumTermCfg(
         func=curriculum.update_collision_weight,
         params={
-            "weight_step_size": 0.1,
-            "max_weight": 4.0,
+            "weight_step_size": 0.05,
+            "max_weight": 1.0,
             "episode_start": 50,  # start curriculum at 100 episodes
         },
     )
 
-    # collision_thresh = CurriculumTermCfg(
-    #     func=curriculum.collision_termination_threshold,
-    #     params={
-    #         "episode_start": 300,  # start increasing threshold at 300 episodes
-    #         "episode_end": 650,  # end increasing threshold at 650 episodes
-    #     },
-    # )
+    collision_thresh = CurriculumTermCfg(
+        func=curriculum.collision_termination_threshold,
+        params={
+            "episode_start": 300,  # start increasing threshold at 300 episodes
+            "episode_end": 1000,  # end increasing threshold at 1000 episodes
+        },
+    )
 
     nominal_weight = CurriculumTermCfg(
         func=curriculum.nominal_policy_weight,

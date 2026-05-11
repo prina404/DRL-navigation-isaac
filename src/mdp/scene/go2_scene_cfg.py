@@ -119,8 +119,8 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
 
 CAMERA_CFG = TiledCameraCfg(
     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-    width=224,
-    height=224,
+    width=128,
+    height=128,
     offset=TiledCameraCfg.OffsetCfg(
         pos=(0.4, 0.0, 0.0),
         convention="world",
@@ -133,12 +133,12 @@ CAMERA_CFG = TiledCameraCfg(
 @configclass
 class Go2EmptyVisionCfg(Go2EmptySceneCfg):
     """Empty plane with robot only, robot has RGBD camera"""
-
+    #lidar = None
     camera = CAMERA_CFG
 
 
 @configclass
 class Go2FullVisionCfg(Go2FullSceneLidarCfg):
     """Full indoor scene, robot has RGBD camera"""
-
+    #lidar = None
     camera = CAMERA_CFG
