@@ -46,7 +46,8 @@ class FullEventsCfg(BaseEventsCfg):
 
     randomize_dome_light = EventTermCfg(
         func=events.randomize_distant_light,
-        mode="reset",
+        mode="interval",
+        interval_range_s=(10.0, 15.0),
     )
 
 @configclass

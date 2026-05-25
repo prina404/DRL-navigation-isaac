@@ -17,6 +17,7 @@ from mdp.observations.vision_models import (
     DepthResNetEncoder,
     ViNTVisionEncoder,
     ViTEncoder,
+    DepthEfficientNetEncoder,
 )
 from navigation_env.NavigationEnv import NavEnv
 
@@ -31,6 +32,27 @@ class VisionEncoder:
             raise ValueError(f"Unknown encoder type: {encoder}")
         self.normalize = normalize
 
+        self.history = None
+
+    def _append_to_history(self, obs: torch.Tensor):
+        if self.history is None:
+            # init history buffer with 10 copies of the first observation
+            self.history = obs.unsqueeze(1).repeat(1, 10, 1)
+        else:
+            # use circular buffer to store the last 10 observations
+            self.history = torch.roll(self.history, shifts=-1, dims=1)
+            self.history[:, -1, :] = obs
+    
+    def _get_history_flattened(self) -> torch.Tensor:
+        # flatten history into a single vector
+        from loguru import logger
+        logger.debug(f"History shape: {self.history.shape}")
+        logger.debug(f"History flattened shape: {self.history.reshape(self.history.shape[0], -1).shape}")
+        raise Exception
+        return self.history.reshape(self.history.shape[0], -1) # (B, 10 * obs_dim)
+
+
+
     @torch.no_grad()
     def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
         cam = env.scene["camera"]
@@ -40,19 +62,36 @@ class VisionEncoder:
         embedding = self.encoder(rgb)
         if self.normalize:
             embedding = torch.sigmoid(embedding)
-        return embedding
+        
+        self._append_to_history(embedding)
+        return self._get_history_flattened()
 
 
 class DepthEncoder:
-    def __init__(self, encoder: Literal["resnet"], device=DEVICE):
+    def __init__(self, encoder: Literal["resnet", "efficientnet"], device=DEVICE):
         # TODO: support more models, right now, only resnets are supported
         if encoder == "resnet":
             self.model = DepthResNetEncoder(device=device)
-        elif encoder == "vit":
-            raise NotImplementedError("ViT depth encoder not implemented yet")
+        elif encoder == "efficientnet":
+            self.model = DepthEfficientNetEncoder(device=device)
         else:
             raise ValueError(f"Unknown encoder type: {encoder}")
         self.device = device
+
+        self.history = None
+
+    def _append_to_history(self, obs: torch.Tensor):
+        if self.history is None:
+            # init history buffer with 25 copies of the first observation
+            self.history = obs.unsqueeze(1).repeat(1, 25, 1)
+        else:
+            # use circular buffer to store the last 25 observations
+            self.history = torch.roll(self.history, shifts=-1, dims=1)
+            self.history[:, -1, :] = obs
+    
+    def _get_history_flattened(self) -> torch.Tensor:
+        # flatten history into a single vector
+        return self.history.reshape(self.history.shape[0], -1) # (B, 25 * obs_dim)
 
     @torch.no_grad()
     def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -62,8 +101,9 @@ class DepthEncoder:
 
         normalized_depth = preprocess_depth_batch(depth, target_size=768, device=self.device)
         embedding = self.model(normalized_depth)
-        return embedding
 
+        self._append_to_history(embedding)
+        return self._get_history_flattened()
 
 def get_dummy_embedding(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 768), device=env.device, dtype=torch.float32)

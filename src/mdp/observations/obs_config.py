@@ -23,7 +23,8 @@ class _VisionGroup(ObsGroup):
 
 @configclass
 class _DepthGroup(ObsGroup):
-    depth = ObsTerm(func=observations.DepthEncoder(encoder="resnet"))
+    # depth = ObsTerm(func=observations.DepthEncoder(encoder="resnet"))
+    depth = ObsTerm(func=observations.DepthEncoder(encoder="efficientnet"))
 
 
 @configclass

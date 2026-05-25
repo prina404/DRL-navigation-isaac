@@ -6,6 +6,8 @@ import torch.nn as nn
 from efficientnet_pytorch import EfficientNet
 from loguru import logger
 from vint_train.models.vint.vint import ViNT
+from transformers import AutoImageProcessor, EfficientNetForImageClassification
+
 
 from cfg.CFG import VINT_MODEL_WEIGHTS
 
@@ -66,10 +68,24 @@ class DepthResNetEncoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         self._ensure_model()
-        # x is expected to be (B, 1, H, W) normalized depth batch
+        # x is expected to be (B, 3, H, W) normalized depth batch
         embedding = self.resnet.forward_no_bifpn(x)["global_backbone"]
         return embedding
 
+class DepthEfficientNetEncoder(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        self.preprocessor = AutoImageProcessor.from_pretrained("google/efficientnet-b0", backend="torchvision")
+        self.model = EfficientNetForImageClassification.from_pretrained("google/efficientnet-b0").to(device)
+        self.model.eval()
+        self.device = device
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x is expected to be (B, 3, H, W) normalized depth batch
+        # preprocess the input for efficientnet
+        x = self.preprocessor(x, return_tensors="pt", device=self.device, input_data_format="channels_first")["pixel_values"]
+        embedding = self.model(x).logits
+        return embedding
 
 if __name__ == "__main__":
     encoder = ViNTVisionEncoder()

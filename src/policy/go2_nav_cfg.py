@@ -23,6 +23,8 @@ go2_policy_cfg = {
             "velocity_buffer": [128, 128],
             "action_buffer": [128, 128],
             "global_plan": [128, 128],
+            "depth": [1024, 1024, 512],
+            "vision": [1024, 1024, 512],
         },
     },
     # PPO algorithm parameters
@@ -42,5 +44,5 @@ go2_policy_cfg = {
         "max_grad_norm": 1.0,
     },
     "load_run": "unitree_go2_nav",
-    "load_checkpoint": "short_horizon.pt",
+    "load_checkpoint": "last_ckpt_vis.pt",
 }
