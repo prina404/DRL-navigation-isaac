@@ -1,4 +1,5 @@
 import argparse
+import re
 
 from isaaclab.app import AppLauncher
 
@@ -24,6 +25,7 @@ import cfg.CFG as CFG
 import preprocessing.interioragent_utils.doors as doors
 import preprocessing.interioragent_utils.gridmap as gridmap
 import preprocessing.interioragent_utils.physics as physics
+import preprocessing.interioragent_utils.chairs as chairs
 
 parser = argparse.ArgumentParser(description="Preprocess USD for InteriorAgent.")
 parser.add_argument(
@@ -66,6 +68,11 @@ def load_interioragent_cfg(env_name: str = None) -> dict:
     validate_yaml_cfg(cfg, env_name)
     return cfg
 
+def is_dynamic_door(prim: Usd.Prim, door_cfg: dict) -> bool:
+    return prim.IsValid() and doors.is_door_root_xform(prim) and prim.GetName() in door_cfg["normal_doors"]
+
+def is_dynamic_chair(prim: Usd.Prim) -> bool:
+    return prim.IsValid() and chairs.is_chair_xform(prim)
 
 def init_static_dynamic_folders(
     usd_path: str,
@@ -104,7 +111,7 @@ def init_static_dynamic_folders(
     # Move only enabled doors into dynamic folder
     prims = list(Usd.PrimRange(static_folder))
     for prim in prims:
-        if prim.IsValid() and doors.is_door_root_xform(prim) and prim.GetName() in door_cfg["normal_doors"]:
+        if is_dynamic_door(prim, door_cfg) or is_dynamic_chair(prim):
             src = prim.GetPath()
             dst = f"{dynamic_other_path}/{prim.GetName()}"
             MovePrimCommand(src, dst, destructive=False, stage_or_context=stage).do()
@@ -133,6 +140,7 @@ def preprocess_interioragent_scene(scene_dir: str, usd_path: str):
 
     ## Enable door physics by setting up rigid body and hinge constraint APIs on enabled door prims
     dynamic_doors = doors.set_door_physics(root, env_cfg)
+    dynamic_chairs = chairs.set_chair_physics(root)
 
     ## Save preprocessed USD
     src_dir, src_name = os.path.split(usd_path)
@@ -144,7 +152,7 @@ def preprocess_interioragent_scene(scene_dir: str, usd_path: str):
     del stage  # this should call the destructor
 
     gridmap.create_map_from_file(dst_path, env_cfg)  # create occupancy map for the preprocessed USD
-    logger.info(f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors.")
+    logger.info(f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors and {len(dynamic_chairs)} dynamic chairs.")
 
 
 def main(args_cli: argparse.Namespace):
