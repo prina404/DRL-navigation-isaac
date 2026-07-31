@@ -67,7 +67,7 @@ class NavEnv(ManagerBasedRLEnv):
 
         ## Angular velocity
         _, _, new_yaw = euler_xyz_from_quat(robot.data.root_com_quat_w)
-        theta = (new_yaw - self._old_yaw) / getattr(self.sim, "dt", 0.005)
+        theta = (new_yaw - self._old_yaw) / getattr(self.sim, "dt", 0.005) * getattr(self.sim, "decimation", 16)
         self._velocity_buffer[:, 0, 2] = theta
         self._old_yaw = new_yaw
 

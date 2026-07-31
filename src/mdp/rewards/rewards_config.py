@@ -30,3 +30,8 @@ class RewardsCfg:
         weight=1.0,
         params={"penalty": -40.0},
     )
+
+    reduce_lateral_movement = RewTerm(
+        func=rewards.penalty_lateral_movement,
+        weight=0.5,
+    )

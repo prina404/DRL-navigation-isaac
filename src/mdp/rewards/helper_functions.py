@@ -120,3 +120,7 @@ def collision_after_threshold_reward(env: NavEnv, penalty: float = -20.0) -> Ten
         torch.full((env.num_envs,), penalty, device=env.device),
         torch.zeros((env.num_envs,), device=env.device),
     )
+
+def penalty_lateral_movement(env: NavEnv) -> Tensor:
+    v_y = isaac_mdp.base_lin_vel(env, asset_cfg=SceneEntityCfg(name="robot"))[:, 1]  # lateral velocity
+    return -torch.abs(v_y) * 0.5

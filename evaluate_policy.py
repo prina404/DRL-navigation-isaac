@@ -73,11 +73,11 @@ from hydra.utils import get_original_cwd
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
 
-@hydra.main()
+@hydra.main(config_path=None)
 def run_simulator(cfg: DictConfig):
 
     run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", "validation"))
+    log_root_path = os.path.abspath(os.path.join(get_original_cwd(), "logs", "rsl_rl", "validation"))
     logger.info(f"Logging experiment in directory: {log_root_path}")
     logger.info(f"Exact experiment name requested from command line: {run_info}")
     log_dir = os.path.join(log_root_path, run_info)

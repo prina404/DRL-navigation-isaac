@@ -45,10 +45,6 @@ class VisionEncoder:
     
     def _get_history_flattened(self) -> torch.Tensor:
         # flatten history into a single vector
-        from loguru import logger
-        logger.debug(f"History shape: {self.history.shape}")
-        logger.debug(f"History flattened shape: {self.history.reshape(self.history.shape[0], -1).shape}")
-        raise Exception
         return self.history.reshape(self.history.shape[0], -1) # (B, 10 * obs_dim)
 
 
