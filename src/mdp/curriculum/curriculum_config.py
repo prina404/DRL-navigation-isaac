@@ -19,7 +19,7 @@ class CurriculumCfg:
         func=curriculum.collision_termination_threshold,
         params={
             "episode_start": 300,  # start increasing threshold at 300 episodes
-            "episode_end": 1000,  # end increasing threshold at 1000 episodes
+            "episode_end": 800,  # end increasing threshold at 800 episodes
         },
     )
 

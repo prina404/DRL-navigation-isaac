@@ -35,6 +35,7 @@ class Go2VisionFull(ManagerBasedRLEnvCfg):
         self.sim.device = PARAMS["device"]
         self.sim.use_fabric = PARAMS["use_fabric"]
         self.sim.render = PARAMS["render"]
+        self.sim.enable_scene_query_support = True
 
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]
@@ -65,6 +66,7 @@ class Go2VisionEmpty(ManagerBasedRLEnvCfg):
         self.sim.device = PARAMS["device"]
         self.sim.use_fabric = PARAMS["use_fabric"]
         self.sim.render = PARAMS["render"]
+        self.sim.enable_scene_query_support = True
 
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]
@@ -96,6 +98,7 @@ class Go2DepthFull(ManagerBasedRLEnvCfg):
         self.sim.device = PARAMS["device"]
         self.sim.use_fabric = PARAMS["use_fabric"]
         self.sim.render = PARAMS["render"]
+        self.sim.enable_scene_query_support = True
 
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]
@@ -126,6 +129,7 @@ class Go2VisionDepthFull(ManagerBasedRLEnvCfg):
         self.sim.device = PARAMS["device"]
         self.sim.use_fabric = PARAMS["use_fabric"]
         self.sim.render = PARAMS["render"]
+        self.sim.enable_scene_query_support = True
 
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]

@@ -44,6 +44,7 @@ class Go2BaseCfg(InteractiveSceneCfg):
     )
 
 
+
 @configclass
 class Go2EmptySceneCfg(Go2BaseCfg):
     """Empty plane with robot only"""
@@ -93,6 +94,11 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
                 # TODO check if we can simplify prim_expr
                 prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
                 is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms for accurate raycasting
+                track_mesh_transforms=True,
+            ),
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/chair_.*/Meshes/chair_.*",
+                is_shared=False,  
                 track_mesh_transforms=True,
             ),
             MultiMeshRayCasterCfg.RaycastTargetCfg(

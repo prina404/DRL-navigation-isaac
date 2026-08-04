@@ -1,9 +1,11 @@
 import random
+import re
 
 import omni.usd
 import torch
 from isaaclab.assets import RigidObjectCollection
 from pxr import Gf, Usd, UsdLux, UsdPhysics
+from omni.physx import get_physx_scene_query_interface
 
 from navigation_env.NavigationEnv import NavEnv
 
@@ -36,6 +38,15 @@ def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
             joint_prims.append(prim)
     return joint_prims
 
+def _collect_chair_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
+    root_path = f"{env_ns}/environment/Meshes/dynamic_objects/other"
+    root_prim = stage.GetPrimAtPath(root_path)
+
+    chair_prims = []
+    for prim in Usd.PrimRange(root_prim):
+        if prim.IsValid() and re.search(r"/other/chair_\d+[/]*$", prim.GetPath().pathString) is not None:
+            chair_prims.append(prim)
+    return chair_prims
 
 def door_distribution(num_envs: int, num_doors: int, p_open: float = 0.80, p_closed: float = 0.15) -> torch.Tensor:
     assert p_open + p_closed <= 1.0, "Probabilities must sum to 1 or less"
@@ -160,3 +171,47 @@ def move_obstacle_on_path(env: NavEnv, env_ids: torch.Tensor) -> None:
 
     # Pairwise scatter with matching (num_env, 1) object ids.
     obstacles.write_object_link_pose_to_sim(state_1, env_ids, random_obstacle_ids)
+
+
+def randomize_chair_positions(env: NavEnv, env_ids: torch.Tensor):
+    stage = omni.usd.get_context().get_stage()
+
+    if not hasattr(env, "_chair_prim_paths"):
+        env._chair_prim_paths = {}
+        env._chair_start_positions = {}
+
+    for env_id in env_ids.cpu().numpy():
+        env_ns = f"/World/envs/env_{env_id}"
+        chair_prims = env._chair_prim_paths.get(env_id, None)
+        if chair_prims is None:
+            chair_prims = _collect_chair_prims(stage, env_ns)
+            env._chair_prim_paths[env_id] = chair_prims
+            env._chair_start_positions[env_id] = [chair_prim.GetAttribute("xformOp:translate").Get() for chair_prim in chair_prims]
+
+        for i, chair_prim in enumerate(chair_prims):
+            start_pos = env._chair_start_positions[env_id][i]
+            _rand_chair_position(chair_prim, start_pos, env_id, env)
+
+def _collides(chair_prim: Usd.Prim, env_id: int, env: NavEnv) -> bool:
+    query = get_physx_scene_query_interface()
+    pass # TODO
+
+
+def _rand_chair_position(chair_prim: Usd.Prim, start_pos: torch.Tensor, env_id: int, env: NavEnv):
+    retries = 50
+    old_pos = chair_prim.GetAttribute("xformOp:translate").Get()
+    while retries > 0:
+        # Sample a random position within the environment bounds
+        env_origin = env.scene.env_origins[env_id, :2]
+        env_size = env.scene.env_sizes[env_id, :2]
+        # TODO: SAMPLING LOGIC
+        #new_pos = Gf.Vec3f(rand_x, rand_y, start_pos[2])  # Keep the original Z position
+        new_pos = None
+        chair_prim.GetAttribute("xformOp:translate").Set(new_pos)
+        # Check if the new position is valid (not colliding with walls or other objects)
+        if not _collides(chair_prim, env_id, env):
+            return
+
+        # reset position and resample if collision detected    
+        chair_prim.GetAttribute("xformOp:translate").Set(old_pos)  # Reset to old position
+        retries -= 1

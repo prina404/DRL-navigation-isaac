@@ -50,6 +50,11 @@ class FullEventsCfg(BaseEventsCfg):
         interval_range_s=(10.0, 15.0),
     )
 
+    randomize_chairs = EventTermCfg(
+        func=events.randomize_chair_positions,
+        mode="reset",
+    )
+    
 @configclass
 class PathObstaclesEventsCfg(FullEventsCfg):
     """Event config that adds path obstacles after a certain number of episodes"""

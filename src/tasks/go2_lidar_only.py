@@ -35,7 +35,8 @@ class Go2LidarFull(ManagerBasedRLEnvCfg):
         self.sim.device = PARAMS["device"]
         self.sim.use_fabric = PARAMS["use_fabric"]
         self.sim.render = PARAMS["render"]
-
+        self.sim.enable_scene_query_support = True
+        
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]
         self.sim.render_interval = self.decimation
