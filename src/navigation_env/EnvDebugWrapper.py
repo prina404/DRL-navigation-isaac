@@ -43,7 +43,7 @@ class NavEnvDebugView(NavEnv):
         robot = self.scene["robot"]
 
         # robot position in local (env) frame for path math
-        robot_pos_local = robot.data.root_link_pos_w[:, :2] - self.scene.env_origins[:, :2]  # (B, 2)
+        robot_pos_local = robot.data.root_link_pos_w.torch[:, :2] - self.scene.env_origins[:, :2]  # (B, 2)
 
         # reward heading: 3rd point forward along path (closer to goal than robot)
         reward_yaw = torch.zeros((self.num_envs,), device=self.device)
@@ -66,7 +66,7 @@ class NavEnvDebugView(NavEnv):
                 delta = target - robot_pos_local[i]
                 reward_yaw[i] = torch.atan2(delta[1], delta[0])
 
-        self.marker_locations = robot.data.root_pos_w  # (B, 3)
+        self.marker_locations = robot.data.root_pos_w.torch  # (B, 3)
         self.reward_marker_orientations = quat_from_angle_axis(reward_yaw, self.up_dir)
 
         # command heading: from action (x, y) only
@@ -74,7 +74,7 @@ class NavEnvDebugView(NavEnv):
         cmd_yaw = torch.atan2(cmd_xy[:, 1], cmd_xy[:, 0])
 
         # rotate command to world frame using robot yaw
-        _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_link_quat_w)  # (B, 1)
+        _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_link_quat_w.torch)  # (B, 1)
         command_world_yaw = robot_yaw.squeeze(-1) + cmd_yaw
         self.command_marker_orientations = quat_from_angle_axis(command_world_yaw, self.up_dir)
 
@@ -100,7 +100,7 @@ class NavEnvDebugView(NavEnv):
             dim=-1,
         )
         goal_rots = torch.zeros((self.num_envs, 4), device=self.device)
-        goal_rots[:, 0] = 1.0  # identity quaternion
+        goal_rots[:, 3] = 1.0  # identity quaternion, (x, y, z, w) since IsaacLab 3.0
         goal_indices = torch.full((self.num_envs,), 3, device=self.device, dtype=torch.int64)
         return goal_locs, goal_rots, goal_indices
 
@@ -132,7 +132,7 @@ class NavEnvDebugView(NavEnv):
 
         path_locs = torch.cat(path_loc_list, dim=0)
         path_rots = torch.zeros((path_locs.shape[0], 4), device=self.device)
-        path_rots[:, 0] = 1.0  # identity quaternion
+        path_rots[:, 3] = 1.0  # identity quaternion, (x, y, z, w) since IsaacLab 3.0
         path_indices = torch.full((path_locs.shape[0],), 2, device=self.device, dtype=torch.int64)
         return path_locs, path_rots, path_indices
 
@@ -149,14 +149,15 @@ class NavEnvDebugView(NavEnv):
         lidar_y_local = -lidar_dist * torch.sin(lidar_angles)
 
         # rotate to world frame using robot yaw
-        _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_link_quat_w)  # (B,)
+        _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_link_quat_w.torch)  # (B,)
         robot_yaw = robot_yaw.squeeze(-1) if robot_yaw.ndim > 1 else robot_yaw
 
         cos_yaw = torch.cos(robot_yaw).unsqueeze(1)  # (B, 1)
         sin_yaw = torch.sin(robot_yaw).unsqueeze(1)  # (B, 1)
 
-        lidar_x_world = robot.data.root_link_pos_w[:, 0:1] + lidar_x_local * cos_yaw - lidar_y_local * sin_yaw
-        lidar_y_world = robot.data.root_link_pos_w[:, 1:2] + lidar_x_local * sin_yaw + lidar_y_local * cos_yaw
+        robot_pos_w = robot.data.root_link_pos_w.torch  # (B, 3)
+        lidar_x_world = robot_pos_w[:, 0:1] + lidar_x_local * cos_yaw - lidar_y_local * sin_yaw
+        lidar_y_world = robot_pos_w[:, 1:2] + lidar_x_local * sin_yaw + lidar_y_local * cos_yaw
         lidar_z_world = torch.full_like(lidar_x_world, 0.10)
 
         lidar_points = torch.stack((lidar_x_world, lidar_y_world, lidar_z_world), dim=-1)  # (B, 128, 3)
@@ -170,7 +171,7 @@ class NavEnvDebugView(NavEnv):
 
         lidar_points_flat = lidar_points[valid_mask]  # (N, 3)
         lidar_rots = torch.zeros((lidar_points_flat.shape[0], 4), device=self.device)
-        lidar_rots[:, 0] = 1.0
+        lidar_rots[:, 3] = 1.0  # identity quaternion, (x, y, z, w) since IsaacLab 3.0
         lidar_indices = torch.full(
             (lidar_points_flat.shape[0],),
             4,

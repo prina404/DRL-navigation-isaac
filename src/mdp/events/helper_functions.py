@@ -150,9 +150,11 @@ def move_obstacle_on_path(env: NavEnv, env_ids: torch.Tensor) -> None:
     obstacles: RigidObjectCollection = env.scene["path_obstacles"]
 
     # Hide all objects below floor plane for selected envs.
-    state_0 = obstacles.data.object_link_pose_w[env_ids].clone()  # (num_env, num_obj, 7)
+    # Note: only the position part of the pose is touched; the quaternion (indices 3:7, now in
+    # (x, y, z, w) order since IsaacLab 3.0) is carried through untouched.
+    state_0 = obstacles.data.body_link_pose_w.torch[env_ids].clone()  # (num_env, num_obj, 7)
     state_0[..., 2] = -1.0
-    obstacles.write_object_link_pose_to_sim(state_0, env_ids)
+    obstacles.write_body_link_pose_to_sim_index(body_poses=state_0, env_ids=env_ids)
 
     # Resample env_ids to determine which envs get obstacles this episode based on obstacle_prob.
     env_ids = _sample_env_ids_obstacles(env, env_ids)
@@ -160,17 +162,17 @@ def move_obstacle_on_path(env: NavEnv, env_ids: torch.Tensor) -> None:
         return  # no envs selected for obstacles this episode
 
     # Select exactly one obstacle per env with pairwise indexing shape (num_env, 1).
-    random_obstacle_ids = torch.randint(0, obstacles.num_objects, (len(env_ids), 1), device=env.device)
+    random_obstacle_ids = torch.randint(0, obstacles.num_bodies, (len(env_ids), 1), device=env.device)
 
     # Pairwise gather: (num_env, 1, 7), not (num_env, 7).
-    state_1 = obstacles.data.object_link_pose_w[env_ids[:, None], random_obstacle_ids].clone()
+    state_1 = obstacles.data.body_link_pose_w.torch[env_ids[:, None], random_obstacle_ids].clone()
 
     sampled_positions = env.path_manager.sample_random_obstacle_on_path(env_ids)  # (num_env, 2)
     state_1[..., :2] = (sampled_positions + env.scene.env_origins[env_ids, :2]).unsqueeze(1)
     state_1[..., 2] = 0.0
 
     # Pairwise scatter with matching (num_env, 1) object ids.
-    obstacles.write_object_link_pose_to_sim(state_1, env_ids, random_obstacle_ids)
+    obstacles.write_body_link_pose_to_sim_index(body_poses=state_1, env_ids=env_ids, body_ids=random_obstacle_ids)
 
 
 def randomize_chair_positions(env: NavEnv, env_ids: torch.Tensor):

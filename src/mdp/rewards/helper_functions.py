@@ -11,7 +11,7 @@ from navigation_env.NavigationEnv import NavEnv
 
 def dist_to_goal_xy(env: NavEnv) -> Tensor:
     robot: Articulation = env.scene["robot"]
-    pos_w = robot.data.root_com_pos_w
+    pos_w = robot.data.root_com_pos_w.torch
     goal_local = env.path_manager.goal_pos_local
     goal_w = goal_local + env.scene.env_origins[:, :2]
     delta_xy = goal_w[:, 0:2] - pos_w[:, 0:2]
@@ -57,11 +57,11 @@ def penalty_still(env: NavEnv, speed_thresh: float = 0.05, penalty: float = -0.2
 
 def detect_collision(env: NavEnv) -> Tensor:
     base_sensor = env.scene["body_collision_sensor"]
-    base_forces = base_sensor.data.net_forces_w  # (N, bodies, 3)
+    base_forces = base_sensor.data.net_forces_w.torch  # (N, bodies, 3)
     base_magnitude = torch.linalg.norm(base_forces, dim=-1).max(dim=-1).values
 
     hip_sensor = env.scene["hip_collision_sensor"]
-    hip_forces = hip_sensor.data.net_forces_w  # (N, bodies, 3)
+    hip_forces = hip_sensor.data.net_forces_w.torch  # (N, bodies, 3)
     hip_magnitude = torch.linalg.norm(hip_forces, dim=-1).max(dim=-1).values
 
     magnitude = torch.max(base_magnitude, hip_magnitude)

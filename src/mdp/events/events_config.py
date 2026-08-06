@@ -50,10 +50,13 @@ class FullEventsCfg(BaseEventsCfg):
         interval_range_s=(10.0, 15.0),
     )
 
-    randomize_chairs = EventTermCfg(
-        func=events.randomize_chair_positions,
-        mode="reset",
-    )
+    # TODO: re-enable once events.randomize_chair_positions is finished. It is still a stub
+    # (no sampling logic, `_collides` unimplemented) and references `env.scene.env_sizes`,
+    # which is not an InteractiveScene attribute, so every reset raises AttributeError.
+    # randomize_chairs = EventTermCfg(
+    #     func=events.randomize_chair_positions,
+    #     mode="reset",
+    # )
     
 @configclass
 class PathObstaclesEventsCfg(FullEventsCfg):

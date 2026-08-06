@@ -12,10 +12,10 @@ from isaaclab.utils.math import (
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
 from cfg.CFG import DEVICE
-from defm.utils import preprocess_depth_batch
+#from defm.utils import preprocess_depth_batch
 from mdp.observations.vision_models import (
     DepthResNetEncoder,
-    ViNTVisionEncoder,
+#    ViNTVisionEncoder,
     ViTEncoder,
     DepthEfficientNetEncoder,
 )
@@ -27,7 +27,7 @@ class VisionEncoder:
         if encoder == "vit":
             self.encoder = ViTEncoder().to(device)
         elif encoder == "vint":
-            self.encoder = ViNTVisionEncoder().to(device)
+            raise NotImplementedError("ViNT encoder was not ported to this version")
         else:
             raise ValueError(f"Unknown encoder type: {encoder}")
         self.normalize = normalize
@@ -52,7 +52,7 @@ class VisionEncoder:
     @torch.no_grad()
     def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
         cam = env.scene["camera"]
-        rgb = cam.data.output["rgb"]  # (N, H, W, C)
+        rgb = cam.data.output["rgb"].torch  # (N, H, W, C)
         rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT/ViNT
         rgb = rgb.to(dtype=torch.float32) / 255.0
         embedding = self.encoder(rgb)
@@ -67,7 +67,8 @@ class DepthEncoder:
     def __init__(self, encoder: Literal["resnet", "efficientnet"], device=DEVICE):
         # TODO: support more models, right now, only resnets are supported
         if encoder == "resnet":
-            self.model = DepthResNetEncoder(device=device)
+            raise NotImplementedError("DepthResNetEncoder was not ported to this version")
+            #self.model = DepthResNetEncoder(device=device)
         elif encoder == "efficientnet":
             self.model = DepthEfficientNetEncoder(device=device)
         else:
@@ -92,11 +93,11 @@ class DepthEncoder:
     @torch.no_grad()
     def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
         cam = env.scene["camera"]
-        depth = cam.data.output["depth"]  # (B, H, W, 1)
+        depth = cam.data.output["depth"].torch  # (B, H, W, 1)
         depth = depth.permute(0, 3, 1, 2)  # (B, 1, H, W)
 
-        normalized_depth = preprocess_depth_batch(depth, target_size=768, device=self.device)
-        embedding = self.model(normalized_depth)
+        #normalized_depth = preprocess_depth_batch(depth, target_size=768, device=self.device)
+        embedding = self.model(depth)
 
         self._append_to_history(embedding)
         return self._get_history_flattened()
@@ -117,10 +118,11 @@ def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> tor
     """
     lidar: MultiMeshRayCaster = env.scene["lidar"]
 
-    robot_rot = lidar.data.quat_w  # (B, 4)
-    robot_pos = lidar.data.pos_w  # (B, 3)
+    # IsaacLab 3.0 returns warp-backed ProxyArrays from sensor data; .torch is a zero-copy tensor view
+    robot_rot = lidar.data.quat_w.torch  # (B, 4) in (x, y, z, w)
+    robot_pos = lidar.data.pos_w.torch  # (B, 3)
 
-    scan_w: torch.Tensor = lidar.data.ray_hits_w  # (B, N_rays, 3)
+    scan_w: torch.Tensor = lidar.data.ray_hits_w.torch  # (B, N_rays, 3)
     scan = scan_w - robot_pos.unsqueeze(1)  # (B, N_rays, 3) relative vec in world frame
 
     B, N_rays, _ = scan.shape
@@ -236,7 +238,7 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     # then use the fact that the path points are ordered and take the next num_points_forward points.
     # If the closest point is the last point, I pad with the goal pos.
     env: NavEnv = env.unwrapped
-    local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
     res += env.path_manager.goal_pos_local.unsqueeze(1)  # default to goal pos
     for id in range(env.num_envs):
@@ -257,7 +259,7 @@ def get_path_obs(
         return torch.zeros((env.num_envs, num_points_forward * 2), device=env.device)
 
     # returns a 1D tensor of size (B*num_points_forward*2) with distance and heading to each path point
-    local_robot_coords = env.scene["robot"].data.root_link_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
 
     path_coords = _get_path_coords(env, num_points_forward)  # (B, num_points_forward, 2)
 
@@ -268,7 +270,7 @@ def get_path_obs(
     deltas = path_coords - robot_coords_expanded  # (B, num_points_forward, 2)
     path_angles = torch.atan2(deltas[..., 1], deltas[..., 0])  # angle from robot position to each path point
 
-    robot_rot = env.scene["robot"].data.root_link_quat_w  # (B, 4)
+    robot_rot = env.scene["robot"].data.root_link_quat_w.torch  # (B, 4) in (x, y, z, w)
     _, _, robot_yaw = euler_xyz_from_quat(robot_rot)  # (B, 1)
 
     headings = -wrap_to_pi(path_angles - robot_yaw.unsqueeze(1))  # (B, num_points_forward)
@@ -304,7 +306,7 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_poin
         return torch.zeros((env.num_envs, 3), device=env.device)
 
     robot = env.scene["robot"]
-    robot_pos_local = robot.data.root_com_pos_w[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    robot_pos_local = robot.data.root_com_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     goal_pos_local = torch.zeros((env.num_envs, 2), device=env.device)
 
     for i, path in enumerate(env.path_manager.path_tensors):
@@ -320,8 +322,8 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_poin
 
     # Now goal positions are in robot frame
     goal_pos_r, _ = subtract_frame_transforms(
-        robot.data.root_com_pos_w,
-        robot.data.root_link_quat_w,
+        robot.data.root_com_pos_w.torch,
+        robot.data.root_link_quat_w.torch,
         padded_goal,
     )
 

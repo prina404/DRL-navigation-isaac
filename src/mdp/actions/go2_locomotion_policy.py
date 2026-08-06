@@ -1,11 +1,17 @@
 import torch
 from isaaclab_tasks.utils import get_checkpoint_path
-from rsl_rl.modules import ActorCritic
+from rsl_rl.models import MLPModel
 
 from cfg.CFG import CHECKPOINT_DIR
+from policy.NavPolicyv2 import convert_legacy_checkpoint
 
 
 def get_locomotion_policy():
+    """Build the low-level locomotion controller and load its checkpoint.
+
+    The checkpoint was trained with ``rsl-rl-lib<4.0``, where a single ``ActorCritic`` module held both networks. Only
+    the actor is needed here, so the critic parameters of the converted checkpoint are discarded.
+    """
     cfg = GO2_FLAT_CFG["policy"]
     ckpt_path = get_checkpoint_path(
         log_path=str(CHECKPOINT_DIR),
@@ -16,18 +22,30 @@ def get_locomotion_policy():
     obs_dict = {
         "default": torch.zeros((1, cfg["actor_input_dims"])),
     }
-    cfg["critic_input_dims"]  # discard unusable variable
     obs_groups = {
-        "policy": ["default"],
+        "actor": ["default"],
         "critic": ["default"],
     }
-    policy = ActorCritic(obs_dict, obs_groups, cfg["n_actions"], **cfg)
-
-    state_dict = torch.load(ckpt_path, weights_only=False)
-    policy.load_state_dict(state_dict["model_state_dict"])
+    policy = MLPModel(
+        obs=obs_dict,
+        obs_groups=obs_groups,
+        obs_set="actor",
+        output_dim=cfg["n_actions"],
+        hidden_dims=cfg["actor_hidden_dims"],
+        activation=cfg["activation"],
+        obs_normalization=False,
+        distribution_cfg={
+            "class_name": "GaussianDistribution",
+            "init_std": cfg["init_noise_std"],
+            "std_type": cfg["noise_std_type"],
+        },
+    )
+    policy.load_state_dict(convert_legacy_checkpoint(ckpt_path)["actor_state_dict"], strict=True)
 
     policy = policy.to(GO2_FLAT_CFG["device"])
-    return policy.act_inference  # return only the actor network
+    policy.eval()
+    # Calling the model runs the actor deterministically, like ActorCritic.act_inference() did
+    return policy
 
 
 GO2_FLAT_CFG = {
@@ -37,11 +55,12 @@ GO2_FLAT_CFG = {
     "max_iterations": 1500,
     "empirical_normalization": False,
     "policy": {
-        "class_name": "ActorCritic",
+        "class_name": "MLPModel",
         "actor_input_dims": 48,
         "critic_input_dims": 48,
         "n_actions": 12,
         "init_noise_std": 1.0,
+        "noise_std_type": "scalar",
         "actor_hidden_dims": [128, 128, 128],
         "critic_hidden_dims": [128, 128, 128],
         "activation": "elu",

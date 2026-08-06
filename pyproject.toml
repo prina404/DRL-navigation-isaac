@@ -1,12 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "isaac-navigation"
 authors = [
     {name = "Matteo Princisgh", email = "princisgh@gmail.com"},
     {name = "João Carvalho"}
     ]
-version = "0.1.0"
-requires-python = "==3.11.*"
+version = "0.2.0"
+requires-python = "==3.12.*"
 dependencies = [
+    "torch==2.10.0",
     "pyastar2d>=1.1.4",
     "loguru",
     "tensordict",
@@ -14,13 +19,8 @@ dependencies = [
     "opencv-python",
     "matplotlib",
     "scikit-image",
-    "numpy==1.26.0",
-    "numba==0.59.1",
-    "llvmlite==0.42.0",
     "networkx",
     "skan",
-    "torch==2.7.0",
-    "rsl-rl-lib==3.3.0",
     "efficientnet-pytorch",
     "warmup-scheduler",
     "kornia",

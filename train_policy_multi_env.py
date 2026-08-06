@@ -1,6 +1,5 @@
 import argparse
 import sys
-from copy import deepcopy
 from typing import Generator
 
 from isaaclab.app import AppLauncher
@@ -68,7 +67,7 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from loguru import logger
 from rsl_rl.runners import OnPolicyRunner
 
-from policy.go2_nav_cfg import go2_policy_cfg
+from policy.NavPolicyv2 import load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
 
 
@@ -87,7 +86,7 @@ def run_simulator(*args):
 
     while iteration < args_cli.total_iterations:
         logger.info(f"Starting training iteration {iteration}/{args_cli.total_iterations}")
-        
+
         iteration += args_cli.env_iterations + 1
 
         # Side effect of the generator is that it updates the 'dataset_cfg.yaml'
@@ -100,7 +99,7 @@ def run_simulator(*args):
 
         # Restore weights and episode counter from the last training iteration
         if temp_checkpoints is not None:
-            ppo_runner.load(temp_checkpoints)
+            load_policy_checkpoint(ppo_runner, temp_checkpoints)
             os.remove(temp_checkpoints)
 
         if episode_counter is not None:
@@ -175,8 +174,8 @@ def create_env_ppo_runner(log_dir: str) -> OnPolicyRunner:
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
     # Navigation Policy setup
-    policy_cfg = deepcopy(go2_policy_cfg)  # why tf does OnPolicyRunner pop items from the config dict?
-    policy_cfg["obs_groups"] = environment_cfg.obs_groups  # needed for encoder initialization
+    # Note: make_go2_policy_cfg() returns a fresh copy, as OnPolicyRunner pops items from the config dict
+    policy_cfg = make_go2_policy_cfg(environment_cfg.obs_groups)  # obs_groups needed for encoder initialization
     policy_cfg["num_envs"] = args_cli.num_envs
 
     if args_cli.wandb:

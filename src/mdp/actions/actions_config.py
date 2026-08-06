@@ -80,7 +80,7 @@ class _Go2MPCPolicyAction(ActionTerm):
             self._last_joint_action = self.controller(mpc_obs)
 
         robot: Articulation = self._env.scene[self.cfg.asset_name]
-        q0 = robot.data.default_joint_pos
+        q0 = robot.data.default_joint_pos.torch
         q_des = q0 + self._last_joint_action * 0.25
         robot.set_joint_position_target(q_des)
 

@@ -93,10 +93,11 @@ class MapManager:
 
         # filter points further than thresh
         thresh = 3.0
-        scan_dist = torch.norm(lidar_scan.ray_hits_w - lidar_scan.pos_w.unsqueeze(1), dim=-1)  # (B, N_rays)
+        ray_hits_w = lidar_scan.ray_hits_w.torch  # (B, N_rays, 3), warp-backed ProxyArray in IsaacLab 3.0
+        scan_dist = torch.norm(ray_hits_w - lidar_scan.pos_w.torch.unsqueeze(1), dim=-1)  # (B, N_rays)
         mask = scan_dist < thresh  # (B, N_rays)
 
-        scan_local = lidar_scan.ray_hits_w - env_origins.unsqueeze(1)
+        scan_local = ray_hits_w - env_origins.unsqueeze(1)
         scan_map_coords = self.local_to_map_coords(scan_local)  # (B, N_rays, 2)
 
         row = scan_map_coords[..., 0]

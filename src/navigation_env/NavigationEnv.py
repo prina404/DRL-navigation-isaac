@@ -63,10 +63,10 @@ class NavEnv(ManagerBasedRLEnv):
         robot: Articulation = self.scene["robot"]
         self._velocity_buffer = torch.roll(self._velocity_buffer, shifts=1, dims=1)
         # store only x, y linear velocity
-        self._velocity_buffer[:, 0, :2] = robot.data.root_com_lin_vel_w[:, :2].to(self.device)
+        self._velocity_buffer[:, 0, :2] = robot.data.root_com_lin_vel_w.torch[:, :2].to(self.device)
 
         ## Angular velocity
-        _, _, new_yaw = euler_xyz_from_quat(robot.data.root_com_quat_w)
+        _, _, new_yaw = euler_xyz_from_quat(robot.data.root_com_quat_w.torch)
         theta = (new_yaw - self._old_yaw) / getattr(self.sim, "dt", 0.005) * getattr(self.sim, "decimation", 16)
         self._velocity_buffer[:, 0, 2] = theta
         self._old_yaw = new_yaw
@@ -77,19 +77,19 @@ class NavEnv(ManagerBasedRLEnv):
         return retVal
 
     def teleport_robots(self, env_ids: torch.Tensor) -> None:
-        ## set cartesian position, quaternion orientation in (w, x, y, z), and linear and angular velocity
+        ## set cartesian position, quaternion orientation in (x, y, z, w), and linear and angular velocity
         ## reset positions only for specified env indices
         robot: Articulation = self.scene["robot"]
 
         state = self.path_manager.compute_robot_teleport_state(
-            env_ids, self.scene.env_origins, robot.data.default_root_state[0, 2]
+            env_ids, self.scene.env_origins, robot.data.default_root_state.torch[0, 2]
         )
 
         robot.write_root_com_state_to_sim(state, env_ids)
 
         # reset joints to default state after teleporting root poses
-        default_pos = robot.data.default_joint_pos[env_ids]
-        default_vel = robot.data.default_joint_vel[env_ids]
+        default_pos = robot.data.default_joint_pos.torch[env_ids]
+        default_vel = robot.data.default_joint_vel.torch[env_ids]
         robot.set_joint_position_target(default_pos, None, env_ids)
         robot.write_joint_state_to_sim(default_pos, default_vel, None, env_ids)
 
@@ -103,7 +103,9 @@ class NavEnv(ManagerBasedRLEnv):
 
     def manual_replan(self, env_ids: torch.Tensor) -> None:
         robot = self.scene["robot"]
-        self.path_manager.compute_global_plan(env_ids, robot.data.root_com_pos_w[env_ids], self.scene.env_origins[env_ids])
+        self.path_manager.compute_global_plan(
+            env_ids, robot.data.root_com_pos_w.torch[env_ids], self.scene.env_origins[env_ids]
+        )
 
     def _update_lidar_buffer(self) -> None:
         if "lidar" in self.scene.sensors:
@@ -111,7 +113,7 @@ class NavEnv(ManagerBasedRLEnv):
             self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
 
     def update_follow_camera(self, smoothing: float = 0.3):
-        robot_pos = self.scene["robot"].data.root_pos_w[0]
-        robot_quat = self.scene["robot"].data.root_quat_w[0]
+        robot_pos = self.scene["robot"].data.root_pos_w.torch[0]
+        robot_quat = self.scene["robot"].data.root_quat_w.torch[0]
 
         self.camera_manager.update(robot_pos, robot_quat, smoothing_factor=smoothing)

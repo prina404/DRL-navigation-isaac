@@ -47,7 +47,7 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_argv = parser.parse_known_args()
 args_cli.enable_cameras = True  # always true for go2 cfg
 
-args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx"
+#args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx"
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -59,6 +59,7 @@ from datetime import datetime
 
 import gymnasium as gym
 import hydra
+from hydra.utils import get_original_cwd
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -66,9 +67,8 @@ from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
-from policy.go2_nav_cfg import go2_policy_cfg
+from policy.NavPolicyv2 import load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
-from hydra.utils import get_original_cwd
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
@@ -121,8 +121,8 @@ def run_simulator(cfg: DictConfig):
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
     # Navigation Policy setup
-    policy_cfg = go2_policy_cfg
-    policy_cfg["obs_groups"] = environment_cfg.obs_groups  # needed for encoder initialization
+    # Note: OnPolicyRunner consumes its configuration destructively, so a fresh copy is built here
+    policy_cfg = make_go2_policy_cfg(environment_cfg.obs_groups)  # obs_groups needed for encoder initialization
     policy_cfg["num_envs"] = args_cli.num_envs
 
     ppo_runner = OnPolicyRunner(env, policy_cfg, log_dir=log_dir, device=policy_cfg["device"])
@@ -133,7 +133,7 @@ def run_simulator(cfg: DictConfig):
             run_dir=policy_cfg["load_run"],
             checkpoint=args_cli.checkpoint,
         )
-        ppo_runner.load(ckpt_path)
+        load_policy_checkpoint(ppo_runner, ckpt_path)
 
     policy = ppo_runner.get_inference_policy(env.device)
 
@@ -156,7 +156,7 @@ def run_simulator(cfg: DictConfig):
 
             # log collisions per env at each step
             sensor = env.unwrapped.scene["body_collision_sensor"]
-            forces = sensor.data.net_forces_w  # (N, bodies, 3)
+            forces = sensor.data.net_forces_w.torch  # (N, bodies, 3)
             magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
             collision_tensor = magnitude > 1.0
             episode_collisions += collision_tensor.float()
