@@ -34,6 +34,7 @@ class _Go2MPCPolicyAction(ActionTerm):
 
     def process_actions(self, actions: Tensor):
         self._last_action_received = actions.clone()
+        self._cached_nominal = self.nominal_action()
 
     def reset(self, env_ids: Tensor | None = None) -> None:
         if env_ids is None:
@@ -48,10 +49,7 @@ class _Go2MPCPolicyAction(ActionTerm):
         base_ang_vel = isaac_mdp.base_ang_vel(self._env, asset_cfg=self._robot_cfg)
         projected_gravity = isaac_mdp.projected_gravity(self._env, asset_cfg=self._robot_cfg)
 
-        base_vel_cmd = self._last_action_received + self.nominal_action()
-        # logger.debug(f"Nominal action: {self.nominal_action()[0]}")
-        # logger.debug(f"Policy command: {self._last_action_received[0]}")
-        # logger.debug(f"Final cmd (nominal + action): {base_vel_cmd[0]}")
+        base_vel_cmd = self._last_action_received + self._cached_nominal
 
         joint_pos = isaac_mdp.joint_pos_rel(self._env, asset_cfg=self._robot_cfg)
         joint_vel = isaac_mdp.joint_vel_rel(self._env, asset_cfg=self._robot_cfg)
@@ -84,9 +82,9 @@ class _Go2MPCPolicyAction(ActionTerm):
         q_des = q0 + self._last_joint_action * 0.25
         robot.set_joint_position_target(q_des)
 
-    def nominal_action(self) -> Tensor:
-        if not hasattr(self._env, "nominal_weight"):
-            weight = 0.0
+    def nominal_action(self) -> Tensor | float:
+        if not hasattr(self._env, "nominal_weight") or self._env.nominal_weight <= 0.01:
+            return 0.0
         else:
             weight = self._env.nominal_weight
 

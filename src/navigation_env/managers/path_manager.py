@@ -45,6 +45,14 @@ class PathManager:
 
         self.path_tensors: list[torch.Tensor | None] = [None] * num_envs  # each: (K,2) in local (x,y)
 
+        # Dense, goal-padded mirror of `path_tensors`, so path queries can be batched over envs
+        # instead of looping in python (a loop costs one host sync per env, per query).
+        # Padding with the goal reproduces the ragged semantics exactly: running off the end of a
+        # path yields the goal, which is what the consumers already fall back to.
+        self.max_path_points = 256
+        self.path_buf = torch.zeros((num_envs, self.max_path_points, 2), dtype=torch.float32, device=device)
+        self.path_len = torch.ones((num_envs,), dtype=torch.long, device=device)
+
         # on each reset store the initial path length for reward normalization
         self.initial_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
         self.current_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
@@ -118,6 +126,24 @@ class PathManager:
 
         return start_pos_map, goal_pos_map
 
+    def _write_path_buf(self, env_id: torch.Tensor | int, world_path: torch.Tensor) -> None:
+        """Mirror ``world_path`` into the dense buffer, padding the tail with the goal position."""
+        k = world_path.shape[0]
+        if k > self.path_buf.shape[1]:
+            self._grow_path_buf(k)
+        self.path_buf[env_id, :k] = world_path
+        self.path_buf[env_id, k:] = self.goal_pos_local[env_id]
+        self.path_len[env_id] = k
+
+    def _grow_path_buf(self, min_points: int) -> None:
+        old_k = self.path_buf.shape[1]
+        new_k = max(min_points, 2 * old_k)
+        grown = torch.zeros((self.path_buf.shape[0], new_k, 2), dtype=torch.float32, device=self.device)
+        grown[:, :old_k] = self.path_buf
+        grown[:, old_k:] = self.goal_pos_local.unsqueeze(1)
+        self.path_buf = grown
+        self.max_path_points = new_k
+
     def compute_global_plan(self, env_ids: torch.Tensor, robot_pos_w: torch.Tensor, env_origins: torch.Tensor) -> None:
         assert (
             robot_pos_w.shape[0] == env_ids.shape[0] == env_origins.shape[0]
@@ -154,6 +180,7 @@ class PathManager:
                 if self.path_tensors[env_id] is None:  # set to current location
                     robot_pos_local = self.map_to_local_coords(robot_map_coords[idx].unsqueeze(0))
                     self.path_tensors[env_id] = robot_pos_local
+                    self._write_path_buf(env_id, robot_pos_local)
                     self.current_path_length[env_id] = 0.0  # reset
                 continue
 
@@ -166,6 +193,7 @@ class PathManager:
 
             world_path = self.map_to_local_coords(path_tensor)  # (num_path_points, 2)
             self.path_tensors[env_id] = world_path
+            self._write_path_buf(env_id, world_path)
 
             # update path length buffer for reward normalization
             path_len_m = world_path.size(0) * self.point_dist

@@ -233,20 +233,28 @@ def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> tor
     return torch.cat([topk_dist, topk_yaw], dim=1)  # (B, 2*num_obstacles)
 
 
+def _closest_path_idx(env: NavEnv, robot_xy_local: torch.Tensor) -> torch.Tensor:
+    """Index of the path point closest to each robot. Shape (B,). Batched, no host sync."""
+    paths = env.path_manager.path_buf  # (B, K, 2)
+    lengths = env.path_manager.path_len  # (B,)
+    dist = torch.linalg.norm(paths - robot_xy_local.unsqueeze(1), dim=-1)  # (B, K)
+    # the goal padding past each path's end must never win the argmin
+    valid = torch.arange(paths.shape[1], device=paths.device).unsqueeze(0) < lengths.unsqueeze(1)
+    return dist.masked_fill(~valid, float("inf")).argmin(dim=1)
+
+
 def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.Tensor:
     # I find which point is closest to the robot,
     # then use the fact that the path points are ordered and take the next num_points_forward points.
-    # If the closest point is the last point, I pad with the goal pos.
+    # Overrunning the end of a path lands in the goal padding, which is the same fallback the
+    # previous implementation got by pre-filling the result with goal_pos_local.
     env: NavEnv = env.unwrapped
     local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
-    res = torch.zeros((env.num_envs, num_points_forward + 1, 2), device=env.device)  # (B, num_points_forward, 2)
-    res += env.path_manager.goal_pos_local.unsqueeze(1)  # default to goal pos
-    for id in range(env.num_envs):
-        path_points = env.path_manager.path_tensors[id]
-        closest_idx = torch.argmin(torch.norm(path_points - local_robot_coords[id], dim=-1))
-        n_forward = min(path_points.shape[0] - closest_idx, num_points_forward + 1)
-        res[id, :n_forward] = path_points[closest_idx : closest_idx + n_forward]
-    return res
+    paths = env.path_manager.path_buf  # (B, K, 2), goal-padded
+    closest = _closest_path_idx(env, local_robot_coords)  # (B,)
+    offsets = torch.arange(num_points_forward + 1, device=paths.device)  # (P+1,)
+    idx = (closest.unsqueeze(1) + offsets.unsqueeze(0)).clamp_(max=paths.shape[1] - 1)  # (B, P+1)
+    return paths.gather(1, idx.unsqueeze(-1).expand(-1, -1, 2))  # (B, P+1, 2)
 
 
 def get_path_obs(
@@ -307,15 +315,13 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_poin
 
     robot = env.scene["robot"]
     robot_pos_local = robot.data.root_com_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
-    goal_pos_local = torch.zeros((env.num_envs, 2), device=env.device)
 
-    for i, path in enumerate(env.path_manager.path_tensors):
-        if path is None or path.shape[0] == 0:
-            goal_pos_local[i] = robot_pos_local[i]  # if no path, set current pos as goal
-            continue
-        closest = torch.argmin(torch.norm(path - robot_pos_local[i], dim=-1))
-        forward_point = path[closest : closest + local_goal_points_forward][-1]  # last point in my horizon
-        goal_pos_local[i] = forward_point
+    paths = env.path_manager.path_buf  # (B, K, 2)
+    lengths = env.path_manager.path_len  # (B,)
+    closest = _closest_path_idx(env, robot_pos_local)  # (B,)
+    # `path[closest : closest + n][-1]` is the last point of the horizon, clamped to the path end
+    idx = torch.minimum(closest + (local_goal_points_forward - 1), lengths - 1)  # (B,)
+    goal_pos_local = paths.gather(1, idx.view(-1, 1, 1).expand(-1, 1, 2)).squeeze(1)  # (B, 2)
 
     goal_pos_w = goal_pos_local + env.scene.env_origins[:, :2]  # (B, 2)
     padded_goal = torch.cat([goal_pos_w, torch.zeros((env.num_envs, 1), device=env.device)], dim=-1)  # (B, 3)

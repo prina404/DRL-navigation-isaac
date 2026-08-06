@@ -113,6 +113,9 @@ class NavEnv(ManagerBasedRLEnv):
             self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
 
     def update_follow_camera(self, smoothing: float = 0.3):
+        if self.render_mode is None or self.render_mode == "headless":
+            return
+        
         robot_pos = self.scene["robot"].data.root_pos_w.torch[0]
         robot_quat = self.scene["robot"].data.root_quat_w.torch[0]
 
