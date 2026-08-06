@@ -22,6 +22,7 @@ from pxr import Usd
 from tqdm import tqdm
 
 import cfg.CFG as CFG
+import preprocessing.interioragent_utils.collisions as collisions
 import preprocessing.interioragent_utils.doors as doors
 import preprocessing.interioragent_utils.gridmap as gridmap
 import preprocessing.interioragent_utils.physics as physics
@@ -142,6 +143,10 @@ def preprocess_interioragent_scene(scene_dir: str, usd_path: str):
     dynamic_doors = doors.set_door_physics(root, env_cfg)
     dynamic_chairs = chairs.set_chair_physics(root)
 
+    ## Drop collisions of static objects the quadruped can never reach, to speed up the simulation
+    reach_height = env_cfg.get("collision_reach_height", collisions.QUADRUPED_REACH_HEIGHT)
+    pruned_collisions = collisions.prune_unreachable_collisions(root, height=reach_height)
+
     ## Save preprocessed USD
     src_dir, src_name = os.path.split(usd_path)
     base, ext = os.path.splitext(src_name)
@@ -152,7 +157,11 @@ def preprocess_interioragent_scene(scene_dir: str, usd_path: str):
     del stage  # this should call the destructor
 
     gridmap.create_map_from_file(dst_path, env_cfg)  # create occupancy map for the preprocessed USD
-    logger.info(f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors and {len(dynamic_chairs)} dynamic chairs.")
+    logger.info(
+        f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors, {len(dynamic_chairs)} dynamic chairs")
+    logger.info(
+        f"{len(pruned_collisions)} colliders pruned from environment"
+    )
 
 
 def main(args_cli: argparse.Namespace):
