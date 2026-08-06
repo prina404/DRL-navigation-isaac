@@ -113,9 +113,12 @@ class NavEnv(ManagerBasedRLEnv):
             self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
 
     def update_follow_camera(self, smoothing: float = 0.3):
-        if self.render_mode is None or self.render_mode == "headless":
+        # render_mode only describes gym's video-recording API, while the Kit GUI is
+        # selected by --viz. Gating on render_mode left the follow camera dead in the
+        # GUI unless --video was also passed, so gate on an actual viewport instead.
+        if not self.sim.has_gui and self.render_mode != "rgb_array":
             return
-        
+
         robot_pos = self.scene["robot"].data.root_pos_w.torch[0]
         robot_quat = self.scene["robot"].data.root_quat_w.torch[0]
 

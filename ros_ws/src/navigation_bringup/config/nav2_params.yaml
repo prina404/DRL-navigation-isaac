@@ -37,7 +37,10 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
-    controller_frequency: 40.0
+    # One control cycle per simulator step. /clock only advances every dt * decimation
+    # (0.005 * 16 = 0.08 s), so anything above 12.5 Hz just re-plans on identical odom
+    # and scan data and floods the log with "Control loop missed its desired rate".
+    controller_frequency: 12.5
     costmap_update_timeout: 0.30
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.01
@@ -205,7 +208,10 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 4.0
+      # Match the controller rate: at 4.0 Hz the local planner reused the same obstacle
+      # data for ~3 control cycles, and 0.25 s left no margin under the controller's
+      # costmap_update_timeout of 0.30 s. publish_frequency stays low, it only feeds RViz.
+      update_frequency: 12.5
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_link

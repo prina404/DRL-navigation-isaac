@@ -30,7 +30,7 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_argv = parser.parse_known_args()
 args_cli.enable_cameras = True  # always true for go2 cfg
 
-args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx" + " --enable isaacsim.ros2.bridge"
+args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.ros2.bridge"
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -130,8 +130,14 @@ def run_simulator(cfg: DictConfig):
         "ros2 launch navigation_bringup navigation_bringup.launch.py "
         f"num_robots:={env.num_envs} robot_prefix:=robot use_sim_time:=true",
     ]
+    # `import cv2` (pulled in by MapManager) points QT_QPA_PLATFORM_PLUGIN_PATH at opencv's
+    # own bundled Qt plugins. rviz2 is built against system Qt6, inherits that path through
+    # this Popen, fails to load the plugin and aborts with SIGABRT -- which is why no rviz
+    # window appeared. Hand the launch a clean Qt environment.
+    launch_env = {k: v for k, v in os.environ.items() if k not in ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_PLUGIN_PATH")}
     nav_proc = subprocess.Popen(
         cmd,
+        env=launch_env,
         #stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )
@@ -166,8 +172,10 @@ def run_simulator(cfg: DictConfig):
                 action = ros2_dm.base_vel_cmd_input.to(env.device)
 
             _, _, dones, info = env.step(action)
-            multi_nav.step()
+            # Publish TF/odom/scan before anything that can stall: the simulator is the only
+            # source of odom -> base_link, and Nav2 cannot activate without it.
             ros2_dm.pub_ros2_data(ros2_dm.get_time())
+            multi_nav.step()
 
             dones = dones.bool()
             time_outs = info.get("time_outs", torch.zeros_like(dones)).bool()
@@ -200,6 +208,7 @@ def run_simulator(cfg: DictConfig):
     logger.info(f"Average collisions per completed episode: {avg_collisions:.3f}")
 
     # cleanup
+    multi_nav.shutdown()
     env.close()
     ros_send_sigint()
 
