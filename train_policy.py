@@ -59,6 +59,7 @@ simulation_app = app_launcher.app
 import os
 import traceback
 from datetime import datetime
+from pathlib import Path
 
 import gymnasium as gym
 import hydra
@@ -71,7 +72,7 @@ from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
-from cfg.CFG import get_scene_usd_path
+from cfg.CFG import get_scene_usd_path, CHECKPOINT_DIR, get_map_name
 from policy.NavPolicyv2 import go2_policy_cfg, load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
 
@@ -146,10 +147,21 @@ def run_simulator(cfg: DictConfig):
             go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
         ),
     )
-    ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
-    logger.debug(f"Final episode count: {env.unwrapped.episode_counter.mean().item()}")
-    env.close()
+    store_final_policy(ppo_runner, CHECKPOINT_DIR)
 
+def store_final_policy(ppo_runner: OnPolicyRunner, ckpt_dir: Path) -> None:
+    # final path should be ckpts/unitree_go2_nav/single_env_policies/{map_name}_policy.pt
+    policy_name = get_map_name() + "_policy.pt"
+    policy_save_path = ckpt_dir / "unitree_go2_nav" / "single_env_policies" / policy_name
+    policy_save_path.parent.mkdir(parents=True, exist_ok=True)
+    if policy_save_path.exists():
+        
+        new_name = f"old_{get_map_name()}_policy_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pt"
+        policy_save_path.rename(policy_save_path.parent / new_name)
+
+    ppo_runner.save(policy_save_path)
+    logger.debug(f"Final episode count: {ppo_runner.env.unwrapped.episode_counter.mean().item()}")
+    ppo_runner.env.close()
 
 if __name__ == "__main__":
     try:

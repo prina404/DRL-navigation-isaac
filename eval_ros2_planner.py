@@ -21,7 +21,18 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
-parser.add_argument("--max_episodes", type=int, default=100, help="RL Policy training iterations.")
+parser.add_argument(
+    "--max_episodes",
+    type=int,
+    default=20,
+    help="Number of episodes to record per environment.",
+)
+parser.add_argument(
+    "--collision_force_thresh",
+    type=float,
+    default=3.0,
+    help="Contact force (N) above which the robot is considered to be colliding.",
+)
 parser.add_argument("--task", type=str, default="go2_vision_full", help="Name of the task configuration to use for training.")
 
 AppLauncher.add_app_launcher_args(parser)
@@ -36,6 +47,7 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 
+import json
 import os
 import signal
 import subprocess
@@ -48,7 +60,6 @@ import hydra
 import rclpy
 import torch
 import tqdm
-import warp as wp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
@@ -56,6 +67,7 @@ from loguru import logger
 from omegaconf import DictConfig
 
 import mdp.actions.go2_locomotion_policy as go2_control
+import mdp.rewards.helper_functions as rewards
 from cfg.CFG import ROOT_DIR, get_scene_usd_path
 from tasks.task_utils import get_env_config
 from ros2.Nav2Manager import kill_nav2_lifecycle, wait_for_nav2_ready, MultiEnvNavigator
@@ -88,7 +100,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="navigation_env.NavigationEnv:NavEnv",
         disable_env_checker=True,
-        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi": True},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi_probability": 0.25},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -157,55 +169,75 @@ def run_simulator(cfg: DictConfig):
 
     # --- Eval loop ---
     num_envs = env.num_envs
-    episodes_done = torch.zeros(num_envs, dtype=torch.long, device=env.device)
-    episode_collisions = torch.zeros(num_envs, dtype=torch.float32, device=env.device)
-    termination_flags = []
-    collisions = []  # per-completed-episode collision counts
+    base_env = env.unwrapped
+    max_ep = args_cli.max_episodes
 
-    avg_episodes = 0.0
+    episodes_done = torch.zeros(num_envs, dtype=torch.long, device=env.device)
+    episode_events = torch.zeros(num_envs, dtype=torch.long, device=env.device)
+    prev_in_contact = torch.zeros(num_envs, dtype=torch.bool, device=env.device)
+
+    successes: list[float] = []  # one entry per recorded episode
+    collisions: list[int] = []  # collision events per recorded episode
+
     #env.unwrapped.nominal_weight = 0.5
-    with tqdm.tqdm(total=args_cli.max_episodes, desc="Evaluating policy") as pbar:
-        while avg_episodes < args_cli.max_episodes:
+    with tqdm.tqdm(total=num_envs * max_ep, desc="Evaluating planner") as pbar:
+        while not bool((episodes_done >= max_ep).all()):
             rclpy.spin_once(ros2_dm, timeout_sec=0.0)  # process cmd_vel callbacks
 
             with torch.no_grad():
                 action = ros2_dm.base_vel_cmd_input.to(env.device)
 
-            _, _, dones, info = env.step(action)
+            _, _, dones, _ = env.step(action)
             # Publish TF/odom/scan before anything that can stall: the simulator is the only
             # source of odom -> base_link, and Nav2 cannot activate without it.
             ros2_dm.pub_ros2_data(ros2_dm.get_time())
             multi_nav.step()
 
             dones = dones.bool()
-            time_outs = info.get("time_outs", torch.zeros_like(dones)).bool()
 
-            # log collisions per env at each step
-            sensor = env.unwrapped.scene["body_collision_sensor"]
-            forces = wp.to_torch(sensor.data.net_forces_w)  # (N, bodies, 3)
-            magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
-            collision_tensor = magnitude > 1.0
-            episode_collisions += collision_tensor.float()
+            # count collisions as rising edges, so a sustained scrape counts once
+            in_contact = rewards.detect_collision(base_env) > args_cli.collision_force_thresh
+            episode_events += (in_contact & ~prev_in_contact).long()
+            prev_in_contact = in_contact
 
             done_ids = dones.nonzero(as_tuple=False).squeeze(-1)
             if len(done_ids) > 0:
-                # finalize metrics for each completed env-episode
-                collisions.extend(episode_collisions[done_ids].detach().cpu().tolist())
-                termination_flags.extend((~time_outs[done_ids]).float().detach().cpu().tolist())
+                # `goal_reached` covers both "arrived at the goal" and "no feasible path":
+                # the path manager sets current_path_length to 0 when A* finds nothing.
+                # `_term_dones` is written before the in-step auto-reset and survives it.
+                reached = base_env.termination_manager.get_term("goal_reached")
+
+                # cap per env so fast-terminating envs cannot dominate the sample
+                keep = done_ids[episodes_done[done_ids] < max_ep]
+                if len(keep) > 0:
+                    successes.extend(reached[keep].float().cpu().tolist())
+                    collisions.extend(episode_events[keep].cpu().tolist())
+                    pbar.update(len(keep))
 
                 episodes_done[done_ids] += 1
-                episode_collisions[done_ids] = 0.0
+                episode_events[done_ids] = 0
+                prev_in_contact[done_ids] = False
 
-            new_avg_episodes = episodes_done.float().mean().item()
-            new_avg_episodes_clamped = min(new_avg_episodes, float(args_cli.max_episodes))
-            pbar.update(new_avg_episodes_clamped - avg_episodes)
-            avg_episodes = new_avg_episodes_clamped
+    num_episodes = len(successes)
+    succ = torch.tensor(successes, dtype=torch.float32)
+    col = torch.tensor(collisions, dtype=torch.float32)
+    collided = col[col > 0]
 
-    avg_termination_rate = sum(termination_flags) / len(termination_flags) if termination_flags else 0.0
-    avg_collisions = sum(collisions) / len(collisions) if collisions else 0.0
+    success_rate = succ.mean().item() if num_episodes else float("nan")
+    collision_free_rate = (col == 0).float().mean().item() if num_episodes else float("nan")
+    mean_collisions = collided.mean().item() if len(collided) else 0.0
+    # torch.std is nan for a single sample
+    std_collisions = collided.std(unbiased=True).item() if len(collided) > 1 else 0.0
 
-    logger.info(f"Average termination rate over {args_cli.max_episodes} avg episodes/env: {avg_termination_rate:.3f}")
-    logger.info(f"Average collisions per completed episode: {avg_collisions:.3f}")
+    logger.info(f"Episodes recorded: {num_episodes} ({num_envs} envs x {max_ep} episodes)")
+    logger.info(f"Success rate (goal reached or no feasible path): {success_rate:.3f}")
+    logger.info(f"Collision-free episodes: {collision_free_rate:.3%}")
+    logger.info(f"Collisions per colliding episode: {mean_collisions:.2f} +/- {std_collisions:.2f} (n={len(collided)})")
+
+    metrics_path = os.path.join(log_dir, "eval_metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump({"success": successes, "collisions": collisions}, f)
+    logger.info(f"Per-episode metrics written to {metrics_path}")
 
     # cleanup
     multi_nav.shutdown()

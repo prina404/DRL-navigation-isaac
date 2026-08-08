@@ -22,7 +22,7 @@ parser.add_argument(
     default=2000,
     help="Interval between video recordings (in steps).",
 )
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to simulate.")
 
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument(
@@ -31,7 +31,18 @@ parser.add_argument(
     default=None,
     help="Name of the policy checkpoint file to evaluate.",
 )
-parser.add_argument("--max_iterations", type=int, default=100, help="RL Policy training iterations.")
+parser.add_argument(
+    "--max_episodes",
+    type=int,
+    default=20,
+    help="Number of episodes to record per environment.",
+)
+parser.add_argument(
+    "--collision_force_thresh",
+    type=float,
+    default=3.0,
+    help="Contact force (N) above which the robot is considered to be colliding.",
+)
 parser.add_argument(
     "--debug-vis",
     action="store_true",
@@ -53,6 +64,7 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 
+import json
 import os
 import traceback
 from datetime import datetime
@@ -67,6 +79,7 @@ from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
+import mdp.rewards.helper_functions as rewards
 from policy.NavPolicyv2 import load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
 
@@ -97,7 +110,7 @@ def run_simulator(cfg: DictConfig):
         if not args_cli.debug_vis
         else "navigation_env.EnvDebugWrapper:NavEnvDebugView",
         disable_env_checker=True,
-        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi": True},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi_probability": 0.25},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -108,7 +121,7 @@ def run_simulator(cfg: DictConfig):
 
     if args_cli.video:
         video_kwargs = {
-            "video_folder": os.path.join(log_dir, "videos", "validation"),
+            "video_folder": os.path.join(log_dir, "videos"),
             "step_trigger": lambda step: step % args_cli.video_interval == 0,
             "video_length": args_cli.video_length,
             "disable_logger": True,
@@ -138,50 +151,69 @@ def run_simulator(cfg: DictConfig):
     policy = ppo_runner.get_inference_policy(env.device)
 
     obs, _ = env.reset()
+    base_env = env.unwrapped
+    max_ep = args_cli.max_episodes
 
     episodes_done = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
-    episode_collisions = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
-    termination_flags = []
-    collisions = []  # per-completed-episode collision counts
+    episode_events = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+    prev_in_contact = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
-    avg_episodes = 0.0
-    with tqdm.tqdm(total=args_cli.max_iterations, desc="Evaluating policy") as pbar:
-        while avg_episodes < args_cli.max_iterations:
+    successes: list[float] = []  # one entry per recorded episode
+    collisions: list[int] = []  # collision events per recorded episode
+
+    with tqdm.tqdm(total=env.num_envs * max_ep, desc="Evaluating policy") as pbar:
+        while not bool((episodes_done >= max_ep).all()):
             with torch.no_grad():
                 action = policy(obs)
-            obs, _, dones, info = env.step(action)
-
+            obs, _, dones, _ = env.step(action)
             dones = dones.bool()
-            time_outs = info.get("time_outs", torch.zeros_like(dones)).bool()
 
-            # log collisions per env at each step
-            sensor = env.unwrapped.scene["body_collision_sensor"]
-            forces = sensor.data.net_forces_w.torch  # (N, bodies, 3)
-            magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
-            collision_tensor = magnitude > 1.0
-            episode_collisions += collision_tensor.float()
+            # count collisions as rising edges, so a sustained scrape counts once
+            in_contact = rewards.detect_collision(base_env) > args_cli.collision_force_thresh
+            episode_events += (in_contact & ~prev_in_contact).long()
+            prev_in_contact = in_contact
 
             done_ids = dones.nonzero(as_tuple=False).squeeze(-1)
             if len(done_ids) > 0:
-                # finalize metrics for each completed env-episode
-                collisions.extend(episode_collisions[done_ids].detach().cpu().tolist())
-                termination_flags.extend((~time_outs[done_ids]).float().detach().cpu().tolist())
+                # `goal_reached` covers both "arrived at the goal" and "no feasible path":
+                # the path manager sets current_path_length to 0 when A* finds nothing.
+                # `_term_dones` is written before the in-step auto-reset and survives it.
+                reached = base_env.termination_manager.get_term("goal_reached")
+
+                # cap per env so fast-terminating envs cannot dominate the sample
+                keep = done_ids[episodes_done[done_ids] < max_ep]
+                if len(keep) > 0:
+                    successes.extend(reached[keep].float().cpu().tolist())
+                    collisions.extend(episode_events[keep].cpu().tolist())
+                    pbar.update(len(keep))
 
                 episodes_done[done_ids] += 1
-                episode_collisions[done_ids] = 0.0
-
-            new_avg_episodes = episodes_done.float().mean().item()
-            new_avg_episodes_clamped = min(new_avg_episodes, float(args_cli.max_iterations))
-            pbar.update(new_avg_episodes_clamped - avg_episodes)
-            avg_episodes = new_avg_episodes_clamped
+                episode_events[done_ids] = 0
+                prev_in_contact[done_ids] = False
 
     env.close()
 
-    avg_termination_rate = sum(termination_flags) / len(termination_flags) if termination_flags else 0.0
-    avg_collisions = sum(collisions) / len(collisions) if collisions else 0.0
+    num_episodes = len(successes)
+    succ = torch.tensor(successes, dtype=torch.float32)
+    col = torch.tensor(collisions, dtype=torch.float32)
+    collided = col[col > 0]
 
-    logger.info(f"Average termination rate over {args_cli.max_iterations} avg episodes/env: {avg_termination_rate:.3f}")
-    logger.info(f"Average collisions per completed episode: {avg_collisions:.3f}")
+    success_rate = succ.mean().item() if num_episodes else float("nan")
+    collision_free_rate = (col == 0).float().mean().item() if num_episodes else float("nan")
+    mean_collisions = collided.mean().item() if len(collided) else 0.0
+    # torch.std is nan for a single sample
+    std_collisions = collided.std(unbiased=True).item() if len(collided) > 1 else 0.0
+
+    logger.info(f"Episodes recorded: {num_episodes} ({env.num_envs} envs x {max_ep} episodes)")
+    logger.info(f"Success rate (goal reached or no feasible path): {success_rate:.3f}")
+    logger.info(f"Collision-free episodes: {collision_free_rate:.3%}")
+    logger.info(f"Collisions per colliding episode: {mean_collisions:.2f} +/- {std_collisions:.2f} (n={len(collided)})")
+
+    metrics_path = os.path.join(log_dir, "eval_metrics.json")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(metrics_path, "w") as f:
+        json.dump({"success": successes, "collisions": collisions}, f)
+    logger.info(f"Per-episode metrics written to {metrics_path}")
 
 
 if __name__ == "__main__":
