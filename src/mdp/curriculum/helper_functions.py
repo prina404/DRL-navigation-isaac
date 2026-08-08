@@ -36,7 +36,7 @@ def update_collision_weight(
     else:
         env._running_mean_var = 0.8 * env._running_mean_var + 0.2 * average_variance
 
-    if average_variance < env._running_mean_var * 0.95:
+    if average_variance < env._running_mean_var * 0.90:
         term_cfg.weight += weight_step_size
 
     # Ensure the weight doesn't exceed the maximum allowed value
