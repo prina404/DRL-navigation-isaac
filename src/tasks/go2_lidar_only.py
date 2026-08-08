@@ -2,7 +2,7 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils import configclass
 from loguru import logger
 
-import mdp.actions.actions_config as actions
+import mdp.actions.actions_config_v2 as actions
 import mdp.curriculum.curriculum_config as curriculum
 import mdp.events.events_config as events
 import mdp.observations.obs_config as obs
