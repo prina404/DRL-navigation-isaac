@@ -24,15 +24,21 @@ from navigation_env.NavigationEnv import NavEnv
 
 class VisionEncoder:
     def __init__(self, encoder: Literal["vit", "vint"], device=DEVICE, normalize: bool = True):
-        if encoder == "vit":
-            self.encoder = ViTEncoder().to(device)
-        elif encoder == "vint":
+        if encoder == "vint":
             raise NotImplementedError("ViNT encoder was not ported to this version")
-        else:
+        elif encoder != "vit":
             raise ValueError(f"Unknown encoder type: {encoder}")
+        # the weights are only loaded on the first call, so observation configs that do not
+        # use vision never pay for them (obs_config instantiates every term at import time)
+        self.encoder = None
+        self.device = device
         self.normalize = normalize
 
         self.history = None
+
+    def _ensure_encoder(self):
+        if self.encoder is None:
+            self.encoder = ViTEncoder().to(self.device)
 
     def _append_to_history(self, obs: torch.Tensor):
         if self.history is None:
@@ -51,6 +57,7 @@ class VisionEncoder:
 
     @torch.no_grad()
     def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
+        self._ensure_encoder()
         cam = env.scene["camera"]
         rgb = cam.data.output["rgb"].torch  # (N, H, W, C)
         rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT/ViNT
@@ -69,13 +76,17 @@ class DepthEncoder:
         if encoder == "resnet":
             raise NotImplementedError("DepthResNetEncoder was not ported to this version")
             #self.model = DepthResNetEncoder(device=device)
-        elif encoder == "efficientnet":
-            self.model = DepthEfficientNetEncoder(device=device)
-        else:
+        elif encoder != "efficientnet":
             raise ValueError(f"Unknown encoder type: {encoder}")
+        # see VisionEncoder: the model is only built on the first call
+        self.model = None
         self.device = device
 
         self.history = None
+
+    def _ensure_model(self):
+        if self.model is None:
+            self.model = DepthEfficientNetEncoder(device=self.device)
 
     def _append_to_history(self, obs: torch.Tensor):
         if self.history is None:
@@ -92,6 +103,7 @@ class DepthEncoder:
 
     @torch.no_grad()
     def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
+        self._ensure_model()
         cam = env.scene["camera"]
         depth = cam.data.output["depth"].torch  # (B, H, W, 1)
         depth = depth.permute(0, 3, 1, 2)  # (B, 1, H, W)
