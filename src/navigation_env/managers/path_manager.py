@@ -9,6 +9,7 @@ from isaaclab.utils.math import quat_from_euler_xyz
 import pyastar2d
 from navigation_env.managers.map_manager import MapManager
 from preprocessing import voronoi
+from cfg.CFG import NAVPOINTS_FILE, get_map_name
 
 
 class PathManager:
@@ -20,10 +21,10 @@ class PathManager:
         self.map_manager = map_mgr
         self.point_dist = subgoal_dist
 
-        manual_task_file = Path(scene_path).parent / "navpoints.yaml"
-        if manual_task_file.exists():
-            with open(manual_task_file, "r") as f:
-                self.manual_tasks = yaml.safe_load(f)
+        if NAVPOINTS_FILE.exists():
+            with open(NAVPOINTS_FILE, "r") as f:
+                MAP_NAME = get_map_name()
+                self.manual_tasks = yaml.safe_load(f)[MAP_NAME]  # type: ignore
 
         self.graph, coords = voronoi.compute_voronoi_graph(
             map_path=map_mgr.map_img_path,
@@ -72,11 +73,11 @@ class PathManager:
     def sample_node_ids(self, num_samples: int) -> torch.Tensor:
         return torch.randint(0, self.nodes.shape[0], (num_samples,), device=self.device)
 
-    def sample_nav_task(self, env_ids: torch.Tensor, use_voronoi: bool = True) -> None:
+    def sample_nav_task(self, env_ids: torch.Tensor, sample_voronoi_prob: float = 0.25) -> None:
         # TODO: add distance_based sampling. For the time being,
         # just select a random node and navigate towards it
         for id in env_ids:
-            if use_voronoi:
+            if torch.rand(1) < sample_voronoi_prob:
                 start_coord_map, goal_coord_map = self.sample_voronoi_task(id)
             else:
                 start_coord_map, goal_coord_map = self.sample_manual_task(id)

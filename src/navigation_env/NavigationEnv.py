@@ -43,7 +43,7 @@ class NavEnv(ManagerBasedRLEnv):
         )
 
         self.long_horizon = kwargs.get("use_long_horizon", False)
-        self.sample_voronoi = kwargs.get("sample_voronoi", False)
+        self.sample_voronoi_probability = kwargs.get("sample_voronoi_probability", 0.25)
         self.collision_termination_thresh = 1.0
         self.nominal_weight = 0.0  # scale for nominal action
 
@@ -99,7 +99,7 @@ class NavEnv(ManagerBasedRLEnv):
             self.update_follow_camera(smoothing=1.0)  # snap camera to new position on reset
 
     def sample_task_on_reset(self, env_ids: torch.Tensor) -> None:
-        self.path_manager.sample_nav_task(env_ids, use_voronoi=self.sample_voronoi)
+        self.path_manager.sample_nav_task(env_ids, sample_voronoi_prob=self.sample_voronoi_probability)
 
     def manual_replan(self, env_ids: torch.Tensor) -> None:
         robot = self.scene["robot"]

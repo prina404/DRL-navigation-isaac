@@ -3,10 +3,11 @@ from pathlib import Path
 import torch
 import yaml
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent
 ASSET_DIR = ROOT_DIR / "asset"
 CHECKPOINT_DIR = ROOT_DIR / "ckpts"
 CFG_DIR = ROOT_DIR / "src/cfg"
+NAVPOINTS_FILE = ROOT_DIR/"src/tasks/nav_points.yaml"
 
 VINT_MODEL_WEIGHTS = CHECKPOINT_DIR / "vint_model_weights/vint.pth"
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -32,3 +33,7 @@ def get_scene_usd_path() -> Path:
     cfg = load_cfg()
     env_name = cfg["current_env"]
     return get_dataset_dir() / env_name / f"{env_name}_baked.usda"
+
+def get_map_name() -> str:
+    cfg = load_cfg()
+    return cfg["current_env"]
