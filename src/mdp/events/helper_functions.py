@@ -1,11 +1,15 @@
 import random
 import re
 
+import numpy as np
 import omni.usd
 import torch
+import warp as wp
 from isaaclab.assets import RigidObjectCollection
-from pxr import Gf, Usd, UsdLux, UsdPhysics
+from loguru import logger
+from pxr import Gf, PhysicsSchemaTools, Usd, UsdGeom, UsdLux, UsdPhysics
 from omni.physx import get_physx_scene_query_interface
+from scipy.spatial import ConvexHull
 
 from navigation_env.NavigationEnv import NavEnv
 
@@ -37,16 +41,6 @@ def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
         if prim.IsValid() and prim.GetTypeName() == "PhysicsRevoluteJoint":
             joint_prims.append(prim)
     return joint_prims
-
-def _collect_chair_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
-    root_path = f"{env_ns}/environment/Meshes/dynamic_objects/other"
-    root_prim = stage.GetPrimAtPath(root_path)
-
-    chair_prims = []
-    for prim in Usd.PrimRange(root_prim):
-        if prim.IsValid() and re.search(r"/other/chair_\d+[/]*$", prim.GetPath().pathString) is not None:
-            chair_prims.append(prim)
-    return chair_prims
 
 def door_distribution(num_envs: int, num_doors: int, p_open: float = 0.80, p_closed: float = 0.15) -> torch.Tensor:
     assert p_open + p_closed <= 1.0, "Probabilities must sum to 1 or less"
@@ -175,45 +169,188 @@ def move_obstacle_on_path(env: NavEnv, env_ids: torch.Tensor) -> None:
     obstacles.write_body_link_pose_to_sim_index(body_poses=state_1, env_ids=env_ids, body_ids=random_obstacle_ids)
 
 
-def randomize_chair_positions(env: NavEnv, env_ids: torch.Tensor):
+
+
+CHAIR_BODY_PATTERN = "/World/envs/env_*/environment/Meshes/dynamic_objects/other/chair_*/Meshes/chair_*"
+CHAIR_QUERY_PROXY_ROOT = "/World/chair_query_proxies"
+
+_CHAIR_BODY_PATH_RE = re.compile(r"^/World/envs/env_(\d+)/.*/other/(chair_\d+)/Meshes/")
+
+
+def _pose_matrix(pose: np.ndarray) -> Gf.Matrix4d:
+    """Transform of a PhysX pose, stored as (x, y, z) plus a quaternion in (x, y, z, w) order."""
+    matrix = Gf.Matrix4d().SetRotate(Gf.Quatd(float(pose[6]), float(pose[3]), float(pose[4]), float(pose[5])))
+    matrix.SetTranslateOnly(Gf.Vec3d(float(pose[0]), float(pose[1]), float(pose[2])))
+    return matrix
+
+
+def _collision_points_in_actor_frame(body_prim: Usd.Prim, pose: np.ndarray) -> np.ndarray:
+    """Every collision mesh vertex of a chair, expressed in its PhysX actor frame.
+
+    The vertices are authored in centimetres with the unit scale sitting on an ancestor of the rigid
+    body prim, so they are gathered in world space, which applies that scale, and then mapped back.
+    """
+    xform_cache = UsdGeom.XformCache()
+    world_to_actor = np.asarray(_pose_matrix(pose).GetInverse(), dtype=np.float64)
+
+    points = []
+    for prim in Usd.PrimRange(body_prim):
+        if not prim.IsValid() or not prim.IsA(UsdGeom.Mesh):
+            continue
+        local = UsdGeom.Mesh(prim).GetPointsAttr().Get()
+        if not local:
+            continue
+        # USD uses the row vector convention, so transforms are applied on the right
+        to_world = np.asarray(xform_cache.GetLocalToWorldTransform(prim), dtype=np.float64)
+        world = np.asarray(local, dtype=np.float64) @ to_world[:3, :3] + to_world[3, :3]
+        points.append(world @ world_to_actor[:3, :3] + world_to_actor[3, :3])
+
+    if not points:
+        raise RuntimeError(f"No collision meshes under chair body {body_prim.GetPath()}")
+    return np.concatenate(points)
+
+
+def _setup_chair_randomization(env: NavEnv) -> None:
+    """Cache the chair rigid bodies, their authored poses, and one collision proxy per chair.
+
+    Two behaviours of the running simulation force this setup, both measured rather than assumed:
+
+    * Authoring ``xformOp:translate`` does **not** move a chair. With ``use_fabric=True`` PhysX owns
+      the pose of a rigid body, so poses have to be written through the rigid body view.
+    * The ``omni.physx`` scene query answers from the stage as it was parsed at load time and never
+      follows the simulation, so a chair's own collider is stuck at its authored pose and cannot
+      serve as the query shape. Each chair instead gets an invisible, physics free mesh carrying its
+      exact convex hull, which ``overlap_mesh`` evaluates at whatever transform we author on it.
+    """
     stage = omni.usd.get_context().get_stage()
+    view = env.sim.physics_sim_view.create_rigid_body_view(CHAIR_BODY_PATTERN)
+    if view is None or view._backend is None or view.count == 0:
+        raise RuntimeError(f"no chair rigid bodies matched '{CHAIR_BODY_PATTERN}'")
 
-    if not hasattr(env, "_chair_prim_paths"):
-        env._chair_prim_paths = {}
-        env._chair_start_positions = {}
+    env._chair_view = view
+    env._chair_home = wp.to_torch(view.get_transforms()).view(-1, 7).clone().cpu().numpy()
+    env._chair_rows = {}  # (env id, chair name) -> row in the rigid body view
+    for row, path in enumerate(view.prim_paths):
+        match = _CHAIR_BODY_PATH_RE.match(path)
+        if match is not None:
+            env._chair_rows[(int(match.group(1)), match.group(2))] = row
 
-    for env_id in env_ids.cpu().numpy():
-        env_ns = f"/World/envs/env_{env_id}"
-        chair_prims = env._chair_prim_paths.get(env_id, None)
-        if chair_prims is None:
-            chair_prims = _collect_chair_prims(stage, env_ns)
-            env._chair_prim_paths[env_id] = chair_prims
-            env._chair_start_positions[env_id] = [chair_prim.GetAttribute("xformOp:translate").Get() for chair_prim in chair_prims]
+    # the chairs are clones of each other, so one proxy per chair name serves every environment
+    env._chair_proxies = {}
+    stage.DefinePrim(CHAIR_QUERY_PROXY_ROOT, "Scope")
+    for (_, name), row in sorted(env._chair_rows.items()):
+        if name in env._chair_proxies:
+            continue
 
-        for i, chair_prim in enumerate(chair_prims):
-            start_pos = env._chair_start_positions[env_id][i]
-            _rand_chair_position(chair_prim, start_pos, env_id, env)
+        points = _collision_points_in_actor_frame(stage.GetPrimAtPath(view.prim_paths[row]), env._chair_home[row])
+        hull = ConvexHull(points)
+        vertices = points[hull.vertices]
+        renumbered = {old: new for new, old in enumerate(hull.vertices)}
 
-def _collides(chair_prim: Usd.Prim, env_id: int, env: NavEnv) -> bool:
-    query = get_physx_scene_query_interface()
-    pass # TODO
+        mesh = UsdGeom.Mesh.Define(stage, f"{CHAIR_QUERY_PROXY_ROOT}/{name}")
+        mesh.CreatePointsAttr([Gf.Vec3f(*vertex) for vertex in vertices])
+        mesh.CreateFaceVertexCountsAttr([3] * len(hull.simplices))
+        mesh.CreateFaceVertexIndicesAttr([int(renumbered[i]) for simplex in hull.simplices for i in simplex])
+        mesh.CreateVisibilityAttr(UsdGeom.Tokens.invisible)
+        mesh.MakeMatrixXform()
+
+        # widest reach of the hull around the chair's origin in the ground plane, for the robot check
+        world_vertices = vertices @ np.asarray(_pose_matrix(env._chair_home[row]), dtype=np.float64)[:3, :3]
+        env._chair_proxies[name] = (
+            mesh.GetPrim().GetAttribute("xformOp:transform"),
+            PhysicsSchemaTools.encodeSdfPath(mesh.GetPath()),
+            float(np.linalg.norm(world_vertices[:, :2], axis=1).max()),
+        )
+
+    # the chair hull rests on the floor, and the robot is at its stale spawn pose in the query scene
+    # (candidates are kept clear of where it actually is with a distance check instead)
+    robot_name = re.escape(env.scene["robot"].cfg.prim_path.rstrip("/").rsplit("/", 1)[-1])
+    env._chair_ignored_re = re.compile(rf"^/World/ground|/floor_\d+(/|$)|^/World/envs/env_\d+/{robot_name}/")
+
+    logger.info(f"Chair randomization: {len(env._chair_proxies)} chairs over {view.count} rigid bodies")
 
 
-def _rand_chair_position(chair_prim: Usd.Prim, start_pos: torch.Tensor, env_id: int, env: NavEnv):
-    retries = 50
-    old_pos = chair_prim.GetAttribute("xformOp:translate").Get()
-    while retries > 0:
-        # Sample a random position within the environment bounds
-        env_origin = env.scene.env_origins[env_id, :2]
-        env_size = env.scene.env_sizes[env_id, :2]
-        # TODO: SAMPLING LOGIC
-        #new_pos = Gf.Vec3f(rand_x, rand_y, start_pos[2])  # Keep the original Z position
-        new_pos = None
-        chair_prim.GetAttribute("xformOp:translate").Set(new_pos)
-        # Check if the new position is valid (not colliding with walls or other objects)
-        if not _collides(chair_prim, env_id, env):
-            return
+def _chair_collides(env: NavEnv, chair_name: str, env_id: int, pose: np.ndarray) -> bool:
+    """Whether the chair's convex hull, placed at pose, touches geometry it has to stay clear of."""
+    xform_attr, encoded_path, _ = env._chair_proxies[chair_name]
+    xform_attr.Set(_pose_matrix(pose))
 
-        # reset position and resample if collision detected    
-        chair_prim.GetAttribute("xformOp:translate").Set(old_pos)  # Reset to old position
-        retries -= 1
+    own_prefix = f"/World/envs/env_{env_id}/environment/Meshes/dynamic_objects/other/{chair_name}/"
+    blocked = False
+
+    def report(hit) -> bool:
+        nonlocal blocked
+        if hit.collision.startswith(own_prefix) or env._chair_ignored_re.search(hit.collision):
+            return True  # keep traversing
+        blocked = True
+        return False  # the first real hit is enough
+
+    get_physx_scene_query_interface().overlap_mesh(*encoded_path, report, False)
+    return blocked
+
+
+def randomize_chair_positions(
+    env: NavEnv,
+    env_ids: torch.Tensor,
+    position_std: float = 0.25,
+    max_retries: int = 25,
+    robot_clearance: float = 0.15,
+) -> None:
+    """Teleport every chair to a collision free Gaussian sample around its authored position.
+
+    Args:
+        position_std: standard deviation of the x/y offset, in meters.
+        max_retries: samples to try per chair before falling back to the authored position.
+        robot_clearance: margin kept between the chair's hull and the robot, in meters.
+
+    Candidates are tested against the scene as it was authored, so a chair never lands inside a wall,
+    a table or a door frame. Its neighbours are only known at their authored poses though, so two
+    chairs can occasionally overlap once both have moved; PhysX pushes them apart in a few steps.
+    """
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+
+    if not hasattr(env, "_chair_view"):
+        try:
+            _setup_chair_randomization(env)
+        except Exception as error:  # scenes without chairs must not break the reset
+            logger.warning(f"Chair randomization disabled: {error}")
+            env._chair_view = None
+
+    if env._chair_view is None:
+        return
+
+    poses = wp.to_torch(env._chair_view.get_transforms()).view(-1, 7).clone().cpu().numpy()
+    robot_xy = env.scene["robot"].data.root_pos_w.torch[:, :2].cpu().numpy()
+
+    rows = []
+    for env_id in env_ids.cpu().tolist():
+        for chair_name, (_, _, hull_radius_xy) in env._chair_proxies.items():
+            row = env._chair_rows.get((env_id, chair_name))
+            if row is None:
+                continue
+
+            rows.append(row)
+            # start from the authored pose, so a chair knocked over during the previous episode is
+            # put back upright and an unlucky chair simply stays where the scene put it
+            home = env._chair_home[row]
+            poses[row] = home
+
+            for offset in np.random.normal(scale=position_std, size=(max_retries, 2)):
+                candidate = home.copy()
+                candidate[:2] += offset  # x/y only, the chair keeps its height and its rotation
+                if np.linalg.norm(candidate[:2] - robot_xy[env_id]) < hull_radius_xy + robot_clearance:
+                    continue
+                if not _chair_collides(env, chair_name, env_id, candidate):
+                    poses[row] = candidate
+                    break
+
+    if not rows:
+        return
+
+    row_indices = wp.array(np.asarray(rows, dtype=np.int32), dtype=wp.int32, device=env.device)
+    pose_buffer = torch.from_numpy(poses).to(env.device).contiguous()
+    env._chair_view.set_transforms(wp.from_torch(pose_buffer), indices=row_indices)
+    # a teleported chair must not keep the momentum it had when the previous episode ended
+    velocities = torch.zeros((env._chair_view.count, 6), dtype=torch.float32, device=env.device)
+    env._chair_view.set_velocities(wp.from_torch(velocities), indices=row_indices)
