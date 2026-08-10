@@ -110,7 +110,7 @@ def run_simulator(cfg: DictConfig):
         if not args_cli.debug_vis
         else "navigation_env.EnvDebugWrapper:NavEnvDebugView",
         disable_env_checker=True,
-        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi_probability": 0.25},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "debug_vis": args_cli.debug_vis, "sample_voronoi_probability": 0.25},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
