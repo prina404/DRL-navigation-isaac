@@ -79,7 +79,7 @@ from tasks.task_utils import get_env_config
 
 @hydra.main(config_path=None)
 def run_simulator(cfg: DictConfig):
-    run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_info = get_map_name() + datetime.now().strftime("_%m-%d_%H-%M")
     log_root_path = os.path.abspath(os.path.join(get_original_cwd(), "logs", "rsl_rl", "training"))
     logger.info(f"Logging experiment in directory: {log_root_path}")
     logger.info(f"Exact experiment name requested from command line: {run_info}")

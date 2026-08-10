@@ -5,7 +5,7 @@ import torch
 import tqdm
 from isaaclab.app import AppLauncher
 
-from cfg.CFG import get_scene_usd_path
+from cfg.CFG import get_scene_usd_path, get_map_name
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
@@ -99,8 +99,7 @@ FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
 @hydra.main(config_path=None)
 def run_simulator(cfg: DictConfig):
-
-    run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_info = get_map_name() + datetime.now().strftime("_%m-%d_%H-%M")
     log_root_path = os.path.abspath(os.path.join(get_original_cwd(), "logs", "rsl_rl", "validation"))
     logger.info(f"Logging experiment in directory: {log_root_path}")
     logger.info(f"Exact experiment name requested from command line: {run_info}")
