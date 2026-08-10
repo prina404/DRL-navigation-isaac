@@ -1,0 +1,145 @@
+Subject: [PATCH] Fix MultiMeshRayCaster tracked-mesh order and honour is_shared
+
+Two local fixes against Isaac Lab v3.0.0-beta2, combined into one patch.
+
+1) Transposed tracked-mesh poses in MultiMeshRayCaster
+   (source/isaaclab_physx/.../sensors/ray_caster/ray_caster.py)
+
+   `BaseMultiMeshRayCaster._build_mesh_records` passes one destination expression per
+   tracked body to `_create_tracked_target_view`. Resolving them one expression at a
+   time produced a mesh-major PhysX view
+   (`[body_0/env_0, body_0/env_1, body_1/env_0, ...]`), while
+   `copy_mesh_transforms_to_table_kernel` indexes that view env-major
+   (`src_index = env * meshes_per_env + local_mesh`).
+
+   The two layouts only agree when a target resolves to a single body per environment,
+   so any target with `track_mesh_transforms=True` matching several bodies per env
+   silently ray-cast those meshes at another body's (or another environment's) pose
+   once `num_envs > 1`. Isaac Lab 2.3 built one view from a single glob for the whole
+   target expression, which PhysX expanded env-major, so such targets worked before.
+
+   Interleave the per-expression matches so the view is env-major. This is a no-op for
+   single-expression targets and for the USD fallback path, where each expression is a
+   concrete path resolving to exactly one prim.
+
+2) Honour RaycastTargetCfg.is_shared again
+   (source/isaaclab/.../sensors/ray_caster/base_multi_mesh_ray_caster.py)
+
+   `MultiMeshRayCasterCfg.RaycastTargetCfg.is_shared` documents that "only the first mesh is
+   read and then reused for all environments, rather than re-parsed". Isaac Lab 2.x implemented
+   this in `MultiMeshRayCaster._initialize_warp_meshes` by rewriting `env_<n>` to `env_0` in the
+   mesh cache key before parsing. The 3.0 rewrite into `BaseMultiMeshRayCaster` kept the config
+   field and its docstring but dropped the implementation: `is_shared` is now read nowhere in
+   the sensor, so the documented dedup silently does not happen.
+
+   The flag matters for env-scoped targets that take the USD fallback path in
+   `_build_mesh_records`, i.e. targets with `track_mesh_transforms=False`. Those match one prim
+   per environment, and `_load_target_prim_warp_mesh` keys its cache on the full prim path, so
+   identical geometry is re-parsed, re-merged and re-uploaded to Warp - BVH included - once per
+   environment.
+
+   For a 1.92M-triangle indoor scene declared as a single merged static target this costs about
+   230 MiB of VRAM per environment. Measured on an RTX 4080 SUPER (16 GiB), VRAM above app
+   launch for an 8-environment scene goes from 4430 MiB to 2802 MiB, and the per-environment
+   slope from 252 MiB to 19 MiB; 8 environments allocate 38 warp meshes where 31 suffice. Before
+   the fix the card runs out at ~40 environments; after it, 64 environments use 3819 MiB.
+   Start-up time scales the same way, since each redundant copy re-runs the trimesh merge and
+   the BVH build.
+
+   Sharing is safe: `_load_target_prim_warp_mesh` builds vertices relative to `reference_prim`,
+   so every environment's copy is identical, and the per-environment world pose lives in the
+   separate `_mesh_positions_w` / `_mesh_orientations_w` table rather than being baked into the
+   mesh. Verified by placing every robot at the same pose relative to its own env origin and
+   comparing per-env lidar returns: worst per-env mean deviation 0.000519 m over 1200 rays,
+   with 0.42% of rays differing by more than 1 cm (grazing-angle tie-breaks between meshes,
+   expected given environments sit tens of metres apart in float32 world space).
+
+diff --git a/source/isaaclab/isaaclab/sensors/ray_caster/base_multi_mesh_ray_caster.py b/source/isaaclab/isaaclab/sensors/ray_caster/base_multi_mesh_ray_caster.py
+index 25a47a91c1..973fd047e3 100644
+--- a/source/isaaclab/isaaclab/sensors/ray_caster/base_multi_mesh_ray_caster.py
++++ b/source/isaaclab/isaaclab/sensors/ray_caster/base_multi_mesh_ray_caster.py
+@@ -6,6 +6,7 @@
+ from __future__ import annotations
+ 
+ import logging
++import re
+ from typing import TYPE_CHECKING
+ 
+ import numpy as np
+@@ -32,6 +33,9 @@ if TYPE_CHECKING:
+ 
+ logger = logging.getLogger(__name__)
+ 
++"""Matches the environment index in a cloned prim path, for shared-mesh cache lookups."""
++_ENV_PATH_RE = re.compile(r"(/World/envs/)env_\d+(/)")
++
+ 
+ def _matrix_from_quat_xyzw(quat: np.ndarray) -> np.ndarray:
+     """Return a rotation matrix from an ``(x, y, z, w)`` quaternion."""
+@@ -317,6 +321,17 @@ class BaseMultiMeshRayCaster(BaseRayCaster):
+         if prim_key in BaseMultiMeshRayCaster.meshes:
+             return BaseMultiMeshRayCaster.meshes[prim_key].id
+ 
++        # An ``is_shared`` target is the same geometry in every environment. Mesh vertices are built
++        # relative to ``reference_prim`` below and the per-env world pose lives in the mesh pose table,
++        # so a single upload can back every environment's table row. Collapse the environment index in
++        # the cache key to alias them onto one warp mesh instead of re-parsing per environment.
++        shared_key = None
++        if target_cfg.is_shared and self.cfg.reference_meshes:
++            shared_key = (_ENV_PATH_RE.sub(r"\1env_0\2", prim_key[0]), prim_key[1])
++            if shared_key in BaseMultiMeshRayCaster.meshes:
++                BaseMultiMeshRayCaster.meshes[prim_key] = BaseMultiMeshRayCaster.meshes[shared_key]
++                return BaseMultiMeshRayCaster.meshes[shared_key].id
++
+         mesh_prims = sim_utils.get_all_matching_child_prims(
+             target_prim.GetPath(), lambda prim: prim.GetTypeName() in PRIMITIVE_MESH_TYPES + ["Mesh"]
+         )
+@@ -356,6 +371,8 @@ class BaseMultiMeshRayCaster(BaseRayCaster):
+ 
+         wp_mesh = convert_to_warp_mesh(trimesh_mesh.vertices, trimesh_mesh.faces, device=self._device)
+         BaseMultiMeshRayCaster.meshes[prim_key] = wp_mesh
++        if shared_key is not None:
++            BaseMultiMeshRayCaster.meshes[shared_key] = wp_mesh
+         logger.info(
+             f"Read '{len(mesh_prims)}' mesh prims under path '{target_prim.GetPath()}' with"
+             f" {len(trimesh_mesh.vertices)} vertices and {len(trimesh_mesh.faces)} faces."
+diff --git a/source/isaaclab_physx/isaaclab_physx/sensors/ray_caster/ray_caster.py b/source/isaaclab_physx/isaaclab_physx/sensors/ray_caster/ray_caster.py
+index d21aa9199b..2ee4285a73 100644
+--- a/source/isaaclab_physx/isaaclab_physx/sensors/ray_caster/ray_caster.py
++++ b/source/isaaclab_physx/isaaclab_physx/sensors/ray_caster/ray_caster.py
+@@ -124,14 +124,15 @@ class _PhysXRayCasterMixin:
+         """Create a PhysX rigid-body view for dynamic multi-mesh targets."""
+         if isinstance(target_prim_paths, str):
+             target_prim_paths = [target_prim_paths]
+-        body_paths = []
++        bodies_per_expr: list[list[str]] = []
+         for target_prim_path in target_prim_paths:
+             prims = sim_utils.find_matching_prims(target_prim_path)
+             if len(prims) == 0:
+                 # ClonePlan-backed targets may not have destination mesh prims.
+                 # In that case BaseMultiMeshRayCaster passes the destination owner-body expression.
+-                body_paths.append(target_prim_path)
++                bodies_per_expr.append([target_prim_path])
+                 continue
++            expr_bodies: list[str] = []
+             for prim in prims:
+                 body = sim_utils.get_first_matching_ancestor_prim(prim.GetPath(), predicate=_has_rigid_body_api)
+                 if body is None:
+@@ -139,7 +140,16 @@ class _PhysXRayCasterMixin:
+                         f"Cannot track non-physics ray-cast target '{target_prim_path}' with PhysX. "
+                         "Set track_mesh_transforms=False for static targets, or apply RigidBodyAPI to dynamic targets."
+                     )
+-                body_paths.append(body.GetPath().pathString)
++                expr_bodies.append(body.GetPath().pathString)
++            bodies_per_expr.append(expr_bodies)
++
++        # Each expression carries the env wildcard, so it resolves to one body per environment in env
++        # order. The mesh table is indexed [env, mesh], so interleave the per-expression matches;
++        # concatenating them would hand the pose kernel a mesh-major (transposed) view.
++        if len(bodies_per_expr) > 1 and len({len(bodies) for bodies in bodies_per_expr}) == 1:
++            body_paths = [path for env_bodies in zip(*bodies_per_expr) for path in env_bodies]
++        else:
++            body_paths = [path for bodies in bodies_per_expr for path in bodies]
+ 
+         if len(body_paths) == 0:
+             raise RuntimeError(f"No tracked target bodies resolved from: {target_prim_paths}")
