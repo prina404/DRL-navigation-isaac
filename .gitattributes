@@ -1,0 +1,2 @@
+ckpts/unitree_go2_locomotion/policy_finetune*.pt filter=lfs diff=lfs merge=lfs -text
+ckpts/unitree_go2_nav/single_env_policies/*.pt filter=lfs diff=lfs merge=lfs -text

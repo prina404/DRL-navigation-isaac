@@ -27,6 +27,7 @@ dependencies = [
     "ipykernel",
     "ipywidgets",
     "ipympl",
+    "dotenv",
 ]
 
 [tool.setuptools]

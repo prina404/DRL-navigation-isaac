@@ -1,4 +1,7 @@
-sudo apt install python3.12-dev libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev
+sudo apt install libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev git-lfs
+
+git lfs install
+git lfs pull
 
 uv venv --python 3.12 --seed env_isaaclab
 source env_isaaclab/bin/activate
