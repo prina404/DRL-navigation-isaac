@@ -8,6 +8,7 @@ ASSET_DIR = ROOT_DIR / "asset"
 CHECKPOINT_DIR = ROOT_DIR / "ckpts"
 CFG_DIR = ROOT_DIR / "src/cfg"
 NAVPOINTS_FILE = ROOT_DIR/"src/tasks/nav_points.yaml"
+DISTILLATION_DIR = ROOT_DIR / "distillation"
 
 VINT_MODEL_WEIGHTS = CHECKPOINT_DIR / "vint_model_weights/vint.pth"
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"

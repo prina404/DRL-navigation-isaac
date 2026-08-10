@@ -51,6 +51,16 @@ parser.add_argument(
 )
 parser.add_argument("--task", type=str, default="go2_lidar_full", help="Name of the task configuration to use for training.")
 
+parser.add_argument("--distillation", action="store_true", default=False, help="Store to disk the observations, actions, and policy mean+std for distillation.")
+parser.add_argument(
+    "--stochastic",
+    action="store_true",
+    default=False,
+    help="Execute actions sampled from the policy distribution instead of its deterministic mean. Independent of "
+    "--distillation: the mean and std are logged either way.",
+)
+
+
 
 AppLauncher.add_app_launcher_args(parser)
 
@@ -80,6 +90,7 @@ from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
 import mdp.rewards.helper_functions as rewards
+from distillation.recorder import DistillationRecorder
 from policy.NavPolicyv2 import load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
 
@@ -161,10 +172,20 @@ def run_simulator(cfg: DictConfig):
     successes: list[float] = []  # one entry per recorded episode
     collisions: list[int] = []  # collision events per recorded episode
 
+    recorder = (
+        DistillationRecorder(policy.obs_groups, 10.0, run_info) if args_cli.distillation else None
+    )
+
     with tqdm.tqdm(total=env.num_envs * max_ep, desc="Evaluating policy") as pbar:
         while not bool((episodes_done >= max_ep).all()):
             with torch.no_grad():
-                action = policy(obs)
+                # The stochastic call is the only one that populates the distribution, hence the only one exposing
+                # mean/std. It costs nothing extra: for a Gaussian the deterministic output *is* the mean, so both
+                # candidate actions come out of this single forward pass and --stochastic only picks between them.
+                sampled_action = policy(obs, stochastic_output=True)
+                action = sampled_action if args_cli.stochastic else policy.output_mean
+                if recorder is not None:
+                    recorder.record(obs, action, policy.output_mean, policy.output_std)
             obs, _, dones, _ = env.step(action)
             dones = dones.bool()
 
@@ -190,6 +211,15 @@ def run_simulator(cfg: DictConfig):
                 episodes_done[done_ids] += 1
                 episode_events[done_ids] = 0
                 prev_in_contact[done_ids] = False
+
+            if recorder is not None and recorder.is_full:
+                logger.warning(
+                    f"Distillation data reached the {recorder.max_bytes / (1024**3):.2f} GB limit, stopping the evaluation early."
+                )
+                break
+
+    if recorder is not None:
+        recorder.save()
 
     env.close()
 
