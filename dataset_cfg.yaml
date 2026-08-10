@@ -1,9 +1,28 @@
-current_env: kujiale_0003
+current_env: kujiale_0067
 dataset_folder: ../InteriorAgent
 eval_envs:
-- kujiale_0026
-- kujiale_0031
+- kujiale_0033
+- kujiale_0037
+- kujiale_0065
+- kujiale_0066
+- kujiale_0067
 training_envs:
 - kujiale_0003
 - kujiale_0004
+- kujiale_0008
+- kujiale_0009
+- kujiale_0020
+- kujiale_0021
+- kujiale_0024
+- kujiale_0025
+- kujiale_0026
+- kujiale_0030
+- kujiale_0031
+- kujiale_0032
+- kujiale_0034
+- kujiale_0035
+- kujiale_0036
+- kujiale_0038
 - kujiale_0040
+- kujiale_0042
+- kujiale_0043
