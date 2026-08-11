@@ -7,7 +7,7 @@ import torch
 import warp as wp
 from isaaclab.assets import RigidObjectCollection
 from loguru import logger
-from pxr import Gf, PhysicsSchemaTools, Usd, UsdGeom, UsdLux, UsdPhysics
+from pxr import Gf, PhysicsSchemaTools, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 from omni.physx import get_physx_scene_query_interface
 from scipy.spatial import ConvexHull
 
@@ -184,6 +184,18 @@ def _pose_matrix(pose: np.ndarray) -> Gf.Matrix4d:
     return matrix
 
 
+def _encode_query_path(path: Sdf.Path) -> tuple[int, int]:
+    """The two path handles of a prim, in the form the physx scene query takes them.
+
+    ``encodeSdfPath`` fills two ``unsigned int`` out parameters, but hands them to Python through a
+    signed conversion, while the query binding reads them back as unsigned. A handle packs its pool
+    index above an 8 bit region id, so once the stage holds enough path nodes for the index to reach
+    bit 31 the value arrives negative and pybind rejects the call outright. Masking restores the bit
+    pattern the C++ side wrote, and is a no-op for the handles that already fit.
+    """
+    return tuple(int(word) & 0xFFFFFFFF for word in PhysicsSchemaTools.encodeSdfPath(path))
+
+
 def _collision_points_in_actor_frame(body_prim: Usd.Prim, pose: np.ndarray) -> np.ndarray:
     """Every collision mesh vertex of a chair, expressed in its PhysX actor frame.
 
@@ -258,7 +270,7 @@ def _setup_chair_randomization(env: NavEnv) -> None:
         world_vertices = vertices @ np.asarray(_pose_matrix(env._chair_home[row]), dtype=np.float64)[:3, :3]
         env._chair_proxies[name] = (
             mesh.GetPrim().GetAttribute("xformOp:transform"),
-            PhysicsSchemaTools.encodeSdfPath(mesh.GetPath()),
+            _encode_query_path(mesh.GetPath()),
             float(np.linalg.norm(world_vertices[:, :2], axis=1).max()),
         )
 
@@ -266,6 +278,14 @@ def _setup_chair_randomization(env: NavEnv) -> None:
     # (candidates are kept clear of where it actually is with a distance check instead)
     robot_name = re.escape(env.scene["robot"].cfg.prim_path.rstrip("/").rsplit("/", 1)[-1])
     env._chair_ignored_re = re.compile(rf"^/World/ground|/floor_\d+(/|$)|^/World/envs/env_\d+/{robot_name}/")
+
+    # a chair at its authored pose rests on the floor, so a query that finds nothing there is reading
+    # an empty scene, and every later candidate would be accepted, the ones inside a wall included
+    (_, probe_name), probe_row = next(iter(sorted(env._chair_rows.items())))
+    xform_attr, encoded_path, _ = env._chair_proxies[probe_name]
+    xform_attr.Set(_pose_matrix(env._chair_home[probe_row]))
+    if get_physx_scene_query_interface().overlap_mesh(*encoded_path, lambda hit: False, True) == 0:
+        raise RuntimeError("the scene query reports no geometry at a chair's authored pose")
 
     logger.info(f"Chair randomization: {len(env._chair_proxies)} chairs over {view.count} rigid bodies")
 

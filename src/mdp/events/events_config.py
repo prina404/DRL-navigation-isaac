@@ -22,7 +22,7 @@ class BaseEventsCfg:
         },
     )
 
-    replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
+    replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(1.9, 2.1))
 
     update_counters = EventTermCfg(func=events.update_episode_counters, mode="reset")
 

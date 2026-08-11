@@ -1,12 +1,13 @@
 from pathlib import Path
 
 import cv2
-import kornia.contrib as kornia
 import numpy as np
-import scipy.ndimage as sp
 import torch
 import yaml
 from isaaclab.sensors import RayCasterData
+
+#: Narrowest gap (in meters) the planner is allowed to route through.
+MIN_TRAVERSABLE_GAP = 0.10
 
 
 class MapManager:
@@ -22,16 +23,12 @@ class MapManager:
         if self._map_img is None:
             raise FileNotFoundError(f"Failed to read map image: {map_png_path}")
 
-        self._map_tensor = (
-            torch.from_numpy(self._map_img).unsqueeze(0).unsqueeze(0).repeat(num_envs, 1, 1, 1).to(device)
-        )  # (num_envs, 1, H, W)
-        self._costmap_backup = self._create_inflated_costmap_gpu(self._map_tensor, torch.arange(num_envs), inflation_scale=2)
+        # Static occupancy of the scene, shared by every environment. The per-environment lidar
+        # hits are merged onto it on demand, in `obstacle_masks`.
+        self._occupied = self._map_img == 0  # (H, W), True where occupied
 
         # Remember: in costmaps 0 = free space, inf = occupied
-        self._global_costmap = self._costmap_backup.clone()  # (num_envs, 1, H, W)
-        self.local_costmaps = torch.zeros_like(self._global_costmap)
-
-        self._local_costmap_updated = False
+        self.local_costmaps = torch.zeros((num_envs, 1, *self._map_img.shape), dtype=torch.float32, device=device)
 
     @property
     def resolution(self) -> float:
@@ -61,47 +58,51 @@ class MapManager:
     def map_img(self) -> np.ndarray:
         return self._map_img.copy()
 
+    def obstacle_masks(self, env_ids: torch.Tensor) -> np.ndarray:
+        """Returns a (len(env_ids), H, W) bool array with the occupied cells seen by each environment.
+
+        This is the only costmap data that has to leave the device: the inflation itself runs on the
+        host, next to the A* that consumes it (see `PathManager._inflate_and_plan`).
+        """
+        lidar_hits = self.local_costmaps[env_ids, 0] != 0.0  # (len(env_ids), H, W)
+        return self._occupied | lidar_hits.cpu().numpy()
+
     @property
-    def global_costmap(self) -> torch.Tensor:
-        """Returns a tensor of shape (num_envs, 1, H, W) with the updated global costmap"""
-        if self._local_costmap_updated:
-            ## Lazy update of global costmap because it is an expensive and low-frequency operation
-            self._local_costmap_updated = False
-
-            local_gridmap = (self.local_costmaps == 0.0).to(torch.int)  # 0 = occupied, 1 = free
-            obstacle_map = torch.min(self._map_tensor, local_gridmap)  # keep all obstacles
-            self._global_costmap = self._create_inflated_costmap_gpu(obstacle_map, torch.arange(self.num_envs), inflation_scale=2)
-
-        return self._global_costmap
+    def clearance_px(self) -> float:
+        """Distance the planner keeps from every obstacle, in cells."""
+        return 0.5 * MIN_TRAVERSABLE_GAP / self.resolution
 
     @staticmethod
-    def _create_inflated_costmap_cpu(map_img: np.ndarray, inflation_scale: int) -> torch.Tensor:
-        binary_img = map_img == 0  # occupied=True
-        dist_transform = sp.distance_transform_edt(~binary_img)
-        costmap = np.clip(np.max(dist_transform) - (dist_transform * inflation_scale), 0, 255).astype(np.float32)
-        max_value = costmap.max()
-        costmap[costmap >= max_value] = float("inf")
-        return costmap + 1.0  # min_cost = 1.0 for A*
+    def create_inflated_costmap(
+        occupied: np.ndarray, clearance_px: float, free_cells: tuple = (), inflation_scale: int = 2
+    ) -> np.ndarray:
+        """Inflated A* costmap for a single environment.
 
-    @staticmethod
-    def _create_inflated_costmap_gpu(map_tensor: torch.Tensor, env_ids: torch.Tensor, inflation_scale: int) -> torch.Tensor:
-        binary_img = map_tensor[env_ids] == 0
-        dist_transform = kornia.distance_transform((binary_img).float(), h=0.5)
-        costmap = torch.clamp(torch.max(dist_transform) - (dist_transform * inflation_scale), min=0, max=255)
-        max_value = costmap.max()
-        costmap[costmap >= max_value - 1] = float("inf")  # use max_value - n to introduce and solid "inflation" around obstacles
+        Cells closer than `clearance_px` to an obstacle are inflated
+
+        The clearance is lifted in a `clearance_px` window around each of `free_cells` (the robot and
+        its goal), so that an endpoint which ended up inside the band does not become unplannable.
+        """
+        dist_transform = cv2.distanceTransform((~occupied).astype(np.uint8), cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+        costmap = np.clip(dist_transform.max() - (dist_transform * inflation_scale), 0, 255).astype(np.float32)
+
+        blocked = dist_transform < clearance_px
+        radius = int(np.ceil(clearance_px))
+        for row, col in free_cells:
+            if not blocked[row, col]:
+                continue
+            window = (slice(max(row - radius, 0), row + radius + 1), slice(max(col - radius, 0), col + radius + 1))
+            blocked[window] = occupied[window]  # only the obstacles themselves are left in the way
+
+        costmap[blocked] = np.inf
         return costmap + 1.0  # min_cost = 1.0 for A*
 
     def reset_costmaps(self, env_ids: torch.Tensor):
         # self.debug_vis()
-        # self.debug_vis_global()
-        self._global_costmap[env_ids] = self._costmap_backup[env_ids]
         self.local_costmaps[env_ids] = 0.0
-        self._local_costmap_updated = True
 
     def update_local_costmap(self, lidar_scan: RayCasterData, env_origins: torch.Tensor):
         ## update the local costmap according to the full lidar scan
-        self._local_costmap_updated = True
 
         # filter points further than thresh
         thresh = 3.0

@@ -2,6 +2,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 from isaaclab.utils.math import quat_from_euler_xyz
@@ -62,7 +63,7 @@ class PathManager:
         self.duration_history = torch.zeros((num_envs, 20), dtype=torch.float32, device=device)
 
         # A* threads
-        self._executor = ThreadPoolExecutor(max_workers=16)
+        self._executor = ThreadPoolExecutor(max_workers=64)
 
     def map_to_local_coords(self, map_coords: torch.Tensor) -> torch.Tensor:
         return self.map_manager.map_to_local_coords(map_coords)
@@ -153,28 +154,30 @@ class PathManager:
         robot_pos_local = robot_pos_w - env_origins
         robot_map_coords = self.local_to_map_coords(robot_pos_local)
 
-        costmap_cpu = self.map_manager.global_costmap[env_ids].squeeze(1).cpu().numpy()  # (num_envs, H, W)
+
+        obstacles_cpu = self.map_manager.obstacle_masks(env_ids)  # (num_envs, H, W)
+        start_coords = robot_map_coords.int().cpu().numpy()  # (num_envs, 2)
+        goal_coords = self.goal_pos_map[env_ids].int().cpu().numpy()  # (num_envs, 2)
+
+        clearance_px = self.map_manager.clearance_px
 
         paths = []
-        for idx, env_id in enumerate(env_ids):
-            r1, c1 = robot_map_coords[idx].int().cpu().numpy()
-            r2, c2 = self.goal_pos_map[env_id].int().cpu().numpy()
+        for idx in range(len(env_ids)):
             paths.append(
                 self._executor.submit(
-                    pyastar2d.astar_path,
-                    costmap_cpu[idx],
-                    (r1, c1),
-                    (r2, c2),
-                    allow_diagonal=True,
+                    self._inflate_and_plan,
+                    obstacles_cpu[idx],
+                    start_coords[idx],
+                    goal_coords[idx],
+                    clearance_px,
                 )
             )
 
         for idx, env_id in enumerate(env_ids):
-            path = paths[idx].result()
-            r, c = robot_map_coords[idx].int()
+            path, start_is_free = paths[idx].result()
             if path is None or len(path) == 0:
                 # if I am in a valid cell, but no path is found, I just stand still
-                if self._valid_map_coords((r, c), env_id):
+                if start_is_free:
                     # logger.info(f"No path found for robot {env_id}! (likely due to dynamic obstacle)")
                     self.path_tensors[env_id] = None
                 # if previous path exists keep it (this will happen when robot pos is mapped onto an occupied cell)
@@ -203,9 +206,12 @@ class PathManager:
             if path_len_m > self.initial_path_length[env_id]:
                 self.initial_path_length[env_id] = path_len_m
 
-    def _valid_map_coords(self, map_coords: tuple, env_id: int) -> bool:
-        r, c = map_coords
-        return self.map_manager.global_costmap[env_id, 0, r, c] < torch.inf
+    @staticmethod
+    def _inflate_and_plan(obstacles: np.ndarray, start: np.ndarray, goal: np.ndarray, clearance_px: float) -> tuple:
+        ''' Thread function that creates inflated global costmaps and computes A* paths. '''
+        costmap = MapManager.create_inflated_costmap(obstacles, clearance_px, free_cells=(start, goal))
+        path = pyastar2d.astar_path(costmap, tuple(start), tuple(goal), allow_diagonal=True)
+        return path, bool(np.isfinite(costmap[start[0], start[1]]))
 
     def compute_robot_teleport_state(
         self,
