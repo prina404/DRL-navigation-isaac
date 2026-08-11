@@ -11,23 +11,23 @@ class CurriculumCfg:
         params={
             "weight_step_size": 0.05,
             "max_weight": 1.5,
-            "episode_start": 20,  # start curriculum at 50 episodes
+            "episode_start": 20,  # start curriculum at 20 episodes
         },
     )
 
     collision_thresh = CurriculumTermCfg(
         func=curriculum.collision_termination_threshold,
         params={
-            "episode_start": 150,  # start increasing threshold at 300 episodes
-            "episode_end": 480,  # end increasing threshold at 800 episodes
+            "episode_start": 100,  # start increasing threshold at 100 episodes
+            "episode_end": 300,  # end increasing threshold at 300 episodes
         },
     )
 
     nominal_weight = CurriculumTermCfg(
         func=curriculum.nominal_policy_weight,
         params={
-            "episode_start": 50,  # start decaying at 50 episodes
-            "episode_end": 300,  # end decaying at 400 episodes
+            "episode_start": 25,  # start decaying at 25 episodes
+            "episode_end": 125,  # end decaying at 125 episodes
         },
     )
 
