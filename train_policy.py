@@ -150,9 +150,9 @@ def run_simulator(cfg: DictConfig):
     store_final_policy(ppo_runner, CHECKPOINT_DIR)
 
 def store_final_policy(ppo_runner: OnPolicyRunner, ckpt_dir: Path) -> None:
-    # final path should be ckpts/unitree_go2_nav/single_env_policies/{map_name}_policy.pt
+    # final path should be ckpts/unitree_go2_nav/{map_name}_policy.pt
     policy_name = get_map_name() + "_policy.pt"
-    policy_save_path = ckpt_dir / "unitree_go2_nav" / "single_env_policies" / policy_name
+    policy_save_path = ckpt_dir / "unitree_go2_nav" / policy_name
     policy_save_path.parent.mkdir(parents=True, exist_ok=True)
     if policy_save_path.exists():
         
