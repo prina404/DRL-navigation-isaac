@@ -21,6 +21,9 @@ class DistillationRecorder:
     and the dataset ships a per-episode collision flag next to it. Together they let a training script drop the
     rollouts that bumped into something without having to re-run the evaluation. See ``README.md``.
 
+    The std is written once as a ``(3,)`` vector rather than per row, because the Gaussian policy's std is a
+    learned parameter that does not depend on the observation.
+
     Whether the recorded actions were sampled from the policy distribution or are its mean is part of the file name
     and of the saved dict, so stochastic and deterministic datasets of the same map never overwrite each other.
     """
@@ -36,11 +39,12 @@ class DistillationRecorder:
         self.run_info = run_info
         self.num_envs = num_envs
         self.stochastic = stochastic
-        self.out_dir = DISTILLATION_DIR / get_map_name()
+        self.out_dir = DISTILLATION_DIR / "raw_data" / get_map_name()  # where train_test_split.py picks it up
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         self.buffers: dict[str, list[torch.Tensor]] = {}
         self.num_bytes = 0
+        self._action_std: torch.Tensor | None = None  # identical on every row, so it is recorded once
 
         self._env_ids = torch.arange(num_envs, dtype=torch.int64)
         self._run_counter = torch.zeros(num_envs, dtype=torch.int64)
@@ -63,12 +67,14 @@ class DistillationRecorder:
         step = {group: obs[group] for group in self.obs_groups}
         step["action"] = action
         step["action_mean"] = mean
-        step["action_std"] = std
 
         for key, tensor in step.items():
             tensor = tensor.detach().to(device="cpu", dtype=torch.float32)
             self.buffers.setdefault(key, []).append(tensor)
             self.num_bytes += tensor.numel() * 4
+
+        if self._action_std is None:
+            self._action_std = std[0].detach().to(device="cpu", dtype=torch.float32).clone()
 
         # appended last so it stays row-aligned with the buffers above once everything is concatenated
         self._episode_ids.append(self._current_episode_ids.clone())
@@ -102,6 +108,7 @@ class DistillationRecorder:
         index = sorted(self._episode_collided)
 
         data: dict[str, torch.Tensor] = {key: torch.cat(tensors) for key, tensors in self.buffers.items()}
+        data["action_std"] = self._action_std
         data["episode_id"] = torch.cat(self._episode_ids)
         data["episode_index"] = torch.tensor(index, dtype=torch.int64)
         data["episode_collided"] = torch.tensor([self._episode_collided[key] for key in index], dtype=torch.bool)

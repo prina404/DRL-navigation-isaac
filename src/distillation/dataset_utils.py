@@ -1,0 +1,218 @@
+"""Datasets and dataloaders over the recorded rollouts in ``distillation_data/``.
+
+``PolicyDataset`` streams a single map's file; ``MixedPolicyDataset`` interleaves one of those per map so a student
+policy can be distilled from the whole collection at once, and ``get_distillation_dataloader`` returns one of those
+per split. See ``README.md`` for the layout of the files themselves.
+
+``train_test_split.py`` is the one-shot migration that produces the ``train/`` and ``val/`` halves these read.
+"""
+
+from __future__ import annotations
+
+import random
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import torch
+from torch.utils.data import DataLoader, IterableDataset
+
+from cfg.CFG import DISTILLATION_DIR
+
+
+class PolicyDataset(IterableDataset):
+    '''
+    Each iteration yields ``rows_per_yield`` rows at once extracted at random from the map's data file
+    '''
+
+    def __init__(
+        self,
+        data_path: Path,
+        drop_collided: bool = True,
+        rows_per_yield: int = 64,
+    ):
+        # one map's half of one split; picking which map and which policy mode is `_split_files`' job
+        self.data_path = data_path
+        self.max_chunks = 4
+        self.chunk_size = 8192
+        self.max_len = self.chunk_size * self.max_chunks  # rows per queue
+        self.drop_collided = drop_collided
+        self.rows_per_yield = rows_per_yield
+
+        self.obs_keys = ('lidar', 'global_plan', 'velocity_buffer', 'action_buffer')
+        self.data_keys = self.obs_keys + ('action_mean',) + (('episode_id',) if drop_collided else ())
+
+        # with mmap load only metadata for init
+        data = torch.load(self.data_path, map_location='cpu', mmap=True)
+        self.num_rows = data['lidar'].size(0)
+
+        std = data['action_std']
+        self.action_std = (std[0] if std.ndim == 2 else std).clone()
+
+        # `episode_collided` is aligned with `episode_index` by position, and the ids are sparse, so it cannot be
+        # indexed by id directly.
+        index = data['episode_index']
+        self.collided = torch.zeros(int(index.max()) + 1, dtype=torch.bool)
+        self.collided[index] = data['episode_collided']
+
+    def _load_chunk(self, data, start: int) -> dict[str, torch.Tensor]:
+        queue = {key: data[key][start : start + self.max_len].clone() for key in self.data_keys}
+
+        if self.drop_collided:  # order is a subset of rows that have not collided
+            # `self.collided` is keyed by episode id, so the ids index it directly
+            order = (~self.collided[queue.pop('episode_id')]).nonzero(as_tuple=True)[0]
+            order = order[torch.randperm(order.numel())]
+        else:
+            order = torch.randperm(queue['action_mean'].size(0))
+        return {key: value[order] for key, value in queue.items()}
+
+    def __iter__(self):
+        # mmap must be true to avoid OOM
+        data_mmap = torch.load(self.data_path, map_location='cpu', mmap=True)
+
+        # no sharding support = no multi-workers
+        worker = torch.utils.data.get_worker_info()
+        if worker is not None and worker.num_workers > 1:
+            raise NotImplementedError("Multi-worker support is not supported by PolicyDataset ")
+
+        # breaking out of the loop closes the generator, which exits this block and shuts the pool down
+        with ThreadPoolExecutor(1, thread_name_prefix='refill') as pool:
+            cursor = 0
+            pending = pool.submit(self._load_chunk, data_mmap, cursor)  # the only read the consumer ever waits for
+            while pending is not None:
+                data = pending.result()
+                cursor += self.max_len
+                pending = pool.submit(self._load_chunk, data_mmap, cursor) if cursor < self.num_rows else None
+
+                # the tail shorter than a full block is dropped: at most 63 rows of the ~25.6k a chunk keeps
+                n_rows = self.rows_per_yield
+                for i in range(0, data['action_mean'].size(0) - n_rows + 1, n_rows):
+                    yield ({key: data[key][i: i + n_rows] for key in self.obs_keys},
+                           {'action_mean': data['action_mean'][i: i + n_rows]})
+
+
+def _split_files(split_dir: Path, use_deterministic: bool) -> list[Path]:
+    """The files of one split that hold the requested policy mode, one per map, sorted by map name."""
+    mode = "deterministic" if use_deterministic else "stochastic"
+    files = sorted(split_dir.glob(f"*_{mode}.pt"))
+    if not files:
+        raise FileNotFoundError(f"No *_{mode}.pt recording found under {split_dir}")
+    return files
+
+
+class MixedPolicyDataset(IterableDataset):
+    """
+    This is basically a round-robin of ``PolicyDataset``: pick one random PolicyDataset and yield a block of rows
+    """
+
+    def __init__(
+        self,
+        data_dir: Path = DISTILLATION_DIR,
+        split: str = "train",
+        use_deterministic: bool = True,
+        drop_collided: bool = True,
+        rows_per_epoch: int | None = None,
+        restart_exhausted: bool = True,
+        with_std: bool = False,
+        seed: int | None = None,
+        files: list[Path] | None = None,
+        rows_per_yield: int = 64,
+    ):
+        # `data_dir` is the root of the collection, `split` the half of it to read; `files` lets a caller hand
+        # over an explicit subset instead
+        self.files = files if files is not None else _split_files(data_dir / split, use_deterministic)
+        self.rows_per_yield = rows_per_yield
+        self.child_kwargs = dict(drop_collided=drop_collided, rows_per_yield=rows_per_yield)
+        self.rows_per_epoch = rows_per_epoch
+        self.restart_exhausted = restart_exhausted
+        self.with_std = with_std
+        self.seed = seed
+
+    @property
+    def map_names(self) -> list[str]:
+        return [path.stem.rsplit("_", 1)[0] for path in self.files]  # drop the trailing policy mode
+
+    def __iter__(self):
+        worker = torch.utils.data.get_worker_info()
+        if worker is not None and worker.num_workers > 1:
+            raise NotImplementedError(
+                "MixedPolicyDataset inherits PolicyDataset's single-worker limit. To use more than one process, "
+                "build several loaders over disjoint maps instead: get_distillation_dataloader(..., num_loaders=K)."
+            )
+
+        randrange = random.Random(self.seed).randrange
+        datasets = [PolicyDataset(path, **self.child_kwargs) for path in self.files]
+        streams = [iter(dataset) for dataset in datasets]
+        live = list(range(len(datasets)))  # maps still producing rows
+        limit, emitted, n_rows = self.rows_per_epoch, 0, self.rows_per_yield
+        # the std is per map and constant, so one broadcast view per map covers every block it ever yields
+        stds = [dataset.action_std.expand(n_rows, 3) for dataset in datasets]
+
+        while live and (limit is None or emitted < limit):
+            pick = randrange(len(live))
+            index = live[pick]
+            try:
+                obs, target = next(streams[index])
+            except StopIteration:
+                if self.restart_exhausted:
+                    streams[index] = iter(datasets[index])
+                else:
+                    live.pop(pick)
+                continue
+            emitted += n_rows
+            yield obs, ({**target, "action_std": stds[index]} if self.with_std else target)
+
+
+def _concat_blocks(blocks):
+    """Collate blocks of rows into one flat batch.
+    Each iteration over MixedPolicyDataset yields a block of rows from one map. This func ensures that
+    all blocks are concatenated into a single batch
+    """
+    observations, targets = zip(*blocks)
+    return (
+        {key: torch.cat([block[key] for block in observations]) for key in observations[0]},
+        {key: torch.cat([block[key] for block in targets]) for key in targets[0]},
+    )
+
+
+def get_distillation_dataloader(
+    batch_size: int,
+    data_dir: Path = DISTILLATION_DIR,
+    use_deterministic: bool = True,
+    drop_collided: bool = True,
+    steps_per_epoch: int | None = None,
+    with_std: bool = False,
+    seed: int | None = None,
+    rows_per_yield: int = 64,
+) -> tuple[DataLoader, DataLoader]:
+    """A loader over ``data_dir/train`` and one over ``data_dir/val``, both mixing every map into every batch.
+
+    Only the training stream is bounded, by ``steps_per_epoch``; the validation one restarts like any other, and
+    how much of it to read per check is the caller's call (lightning's ``limit_val_batches``).
+    """
+    if rows_per_yield < 1:
+        raise ValueError(f"rows_per_yield must be at least 1, got {rows_per_yield}")
+    if batch_size % rows_per_yield:
+        raise ValueError(f"batch_size={batch_size} must be a multiple of rows_per_yield={rows_per_yield}")
+
+    def build(split: str, rows_per_epoch: int | None) -> DataLoader:
+        dataset = MixedPolicyDataset(
+            data_dir=data_dir,
+            split=split,
+            use_deterministic=use_deterministic,
+            drop_collided=drop_collided,
+            rows_per_epoch=rows_per_epoch,
+            with_std=with_std,
+            seed=seed,
+            rows_per_yield=rows_per_yield,
+        )
+        return DataLoader(
+            dataset,
+            batch_size=batch_size // rows_per_yield,
+            collate_fn=_concat_blocks,
+            num_workers=0,  # keep at 0 because PolicyDataset is single-worker only
+            drop_last=True,
+        )
+
+    rows_per_epoch = None if steps_per_epoch is None else steps_per_epoch * batch_size
+    return build("train", rows_per_epoch), build("val", None)
+

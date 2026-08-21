@@ -71,6 +71,8 @@ class NavEnv(ManagerBasedRLEnv):
         theta = (new_yaw - self._old_yaw) / getattr(self.sim, "dt", 0.005) * getattr(self.sim, "decimation", 16)
         self._velocity_buffer[:, 0, 2] = theta
         self._old_yaw = new_yaw
+        #TODO: replace with this:
+        #self._velocity_buffer[:, 0, 2] = robot.data.root_com_ang_vel_w.torch[:, 2].to(self.device)
 
         self.update_follow_camera()
         self._update_lidar_buffer()

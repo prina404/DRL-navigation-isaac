@@ -220,4 +220,4 @@ ros_ws/install/
 ros_ws/log/
 .vscode/
 ros_ws/outputs
-distillation/kujiale_*/
+distillation_data/
