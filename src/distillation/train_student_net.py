@@ -1,26 +1,9 @@
-"""Offline distillation of the per-map navigation teachers into a single student actor.
 
-The student is the teacher's actor -- :class:`policy.NavPolicyv2.MLPModelWithEncoders` built from
-``go2_policy_cfg["actor"]`` -- without the critic, and with a heteroscedastic distribution head, so it predicts both
-the 3-D action mean and a per-observation std. It is fitted by minimizing the forward KL between the recorded
-teacher distribution and the student one, ``KL(N(mu_t, sigma_t) || N(mu_s(o), sigma_s(o)))``, which is the cross
-entropy of the two minus the constant teacher entropy. Early stopping on the validation loss is the only regularizer.
 
-.. note::
-    The recorded ``sigma_t`` is state-independent and constant per map (0.25 to 1.11 across the collection), so the
-    std head has no within-map heteroscedasticity to fit: what it can learn is which map the observation came from.
-    ``{train,val}/std_error`` is the metric that says whether it does.
-
-Usage::
-
-    env_isaaclab/bin/python src/distillation/train_student_net.py --batch_size=4096 --init_std=0.5 --wandb
-"""
 
 from __future__ import annotations
 
 import argparse
-import copy
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -35,17 +18,17 @@ from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
 from cfg.CFG import CHECKPOINT_DIR, DISTILLATION_DIR, ROOT_DIR
-from distillation.dataset_utils import get_distillation_dataloader
-from policy.NavPolicyv2 import ACTOR_OBS_SET, MLPModelWithEncoders, go2_policy_cfg
+from distillation.dataset_utils import get_distillation_dataloader, parse_map_ids
+from distillation.student_cfg import make_student_actor_cfg
+from policy.NavPolicyv2 import ACTOR_OBS_SET, MLPModelWithEncoders
 
 # Observation groups of the student, the order MUST match the one in``go2_lidar_full`` task.
 STUDENT_OBS_GROUPS = ["velocity_buffer", "action_buffer", "global_plan", "lidar"]
 
 
-
 class MeanTanhHead(nn.Module):
     """
-    Output activation of a heteroscedastic head: ``tanh`` on the mean slice, a clamp on the log-std slice.
+    Output activation of a heteroscedastic head
     """
 
     def __init__(self, min_log_std: float = -3.0, max_log_std: float = 1.0) -> None:
@@ -78,15 +61,7 @@ class StudentActorModule(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["sample_obs"])
 
-        # the teacher config, with a state-dependent std: the head emits (B, 2, 3), the mean and the log std
-        actor_cfg = copy.deepcopy(go2_policy_cfg["actor"])
-        actor_cfg.pop("class_name", None)
-        actor_cfg["distribution_cfg"] = {
-            "class_name": "HeteroscedasticGaussianDistribution",
-            "init_std": init_std,
-            "std_type": "log",
-        }
-        actor_cfg["last_activation"] = None  # applied per slice below instead, see MeanTanhHead
+        actor_cfg = make_student_actor_cfg(init_std)
         self.actor = MLPModelWithEncoders(
             obs=sample_obs,
             obs_groups={ACTOR_OBS_SET: STUDENT_OBS_GROUPS},
@@ -97,12 +72,10 @@ class StudentActorModule(L.LightningModule):
         self.actor.mlp.add_module(str(len(self.actor.mlp)), MeanTanhHead())
 
     def forward(self, obs: dict[str, torch.Tensor]) -> torch.Tensor:
-        """Predict the action mean for a batch of observation groups."""
         groups = {group: obs[group] for group in STUDENT_OBS_GROUPS}
         return self.actor(TensorDict(groups, batch_size=obs["lidar"].shape[:1]))
 
     def predict_distribution(self, obs: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return the predicted ``(mean, std)``; ``forward`` gives the mean alone, as inference only needs that."""
         groups = {group: obs[group] for group in STUDENT_OBS_GROUPS}
         latent = self.actor.get_latent(TensorDict(groups, batch_size=obs["lidar"].shape[:1]))
         self.actor.distribution.update(self.actor.mlp(latent))
@@ -139,14 +112,6 @@ class StudentActorModule(L.LightningModule):
 
 
 def export_actor_checkpoint(module: StudentActorModule, path: Path, iteration: int = 0) -> None:
-    """Write the student weights in the ``actor_state_dict`` layout the rsl-rl runner loads.
-
-    The heteroscedastic distribution owns no parameters, so the actor state dict is the whole model. It does **not**
-    load into a runner built from the stock :data:`policy.NavPolicyv2.go2_policy_cfg`: that config declares a
-    state-independent ``GaussianDistribution`` (different head shape) and a ``last_activation`` of ``"tanh"``, which
-    on a heteroscedastic head would squash the log std too. Reproduce the ``infos`` entries below on the actor
-    config first, and load with ``load_cfg={"critic": False}``, as no critic is distilled.
-    """
     state_dict = {key: value.detach().cpu().clone() for key, value in module.actor.state_dict().items()}
     torch.save(
         {
@@ -167,6 +132,32 @@ def export_actor_checkpoint(module: StudentActorModule, path: Path, iteration: i
     logger.info(f"Exported student actor to {path}")
 
 
+class PeriodicActorExport(L.Callback):
+    """Export the actor every ``every_n_epochs`` epochs, so the whole distillation run can be replayed offline.
+
+    """
+
+    def __init__(self, out_dir: Path, every_n_epochs: int) -> None:
+        self.out_dir = out_dir
+        self.every_n_epochs = every_n_epochs
+        self.last_epoch: int | None = None
+        self.exported: set[int] = set()
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    def on_train_epoch_end(self, trainer: L.Trainer, module: StudentActorModule) -> None:
+        self.last_epoch = trainer.current_epoch
+        if self.every_n_epochs and self.last_epoch % self.every_n_epochs == 0:
+            self._export(trainer, module, self.last_epoch)
+
+    def on_fit_end(self, trainer: L.Trainer, module: StudentActorModule) -> None:
+        if self.last_epoch is not None and self.last_epoch not in self.exported:
+            self._export(trainer, module, self.last_epoch)
+
+    def _export(self, trainer: L.Trainer, module: StudentActorModule, epoch: int) -> None:
+        export_actor_checkpoint(module, self.out_dir / f"ep{epoch:03d}_student.pt", iteration=trainer.global_step)
+        self.exported.add(epoch)
+
+
 def peek_sample_obs(loader: DataLoader) -> TensorDict:
     """Pull one batch off a loader and keep a single row of it, to size the network before training starts."""
     obs, _ = next(iter(loader))
@@ -185,6 +176,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--steps_per_epoch", type=int, default=1000, help="Training batches per epoch; the stream is infinite.")
     parser.add_argument("--val_batches", type=int, default=50, help="Batches per validation check.")
     parser.add_argument("--stochastic", action="store_true", help="Use the *_stochastic.pt recordings instead of the mean ones.")
+    parser.add_argument("--maps", type=str, default=None, help="Comma-separated map ids to distil from, e.g. 08,33. Defaults to every map.")
     parser.add_argument("--keep_collided", action="store_true", help="Keep the episodes that bumped into something.")
     # optimization
     parser.add_argument("--init_std", type=float, default=1.0, help="Std the head starts at, before it predicts its own.")
@@ -199,6 +191,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--accelerator", type=str, default="auto", help="Lightning accelerator, e.g. gpu or cpu.")
     parser.add_argument("--out_dir", type=Path, default=CHECKPOINT_DIR / "distillation", help="Checkpoint directory.")
     parser.add_argument("--run_name", type=str, default=None, help="Run name, defaults to student_<timestamp>.")
+    parser.add_argument("--ckpt_every", type=int, default=10, help="Export the actor to the log dir every N epochs, 0 disables it.")
     parser.add_argument("--wandb", action="store_true", help="Log to W&B (needs WANDB_PROJECT in .env).")
     return parser.parse_args(argv)
 
@@ -213,6 +206,7 @@ def main(argv: list[str] | None = None) -> float:
     run_name = args.run_name or f"student_{datetime.now().strftime('%m-%d_%H-%M')}"
     out_dir = args.out_dir / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = ROOT_DIR / "logs" / "distillation" / run_name
 
     train_loader, val_loader = get_distillation_dataloader(
         batch_size=args.batch_size,
@@ -223,7 +217,9 @@ def main(argv: list[str] | None = None) -> float:
         with_std=True,
         seed=args.seed,
         rows_per_yield=args.rows_per_yield,
+        maps=parse_map_ids(args.maps),
     )
+    logger.info(f"Distilling from {len(train_loader.dataset.files)} recordings: {train_loader.dataset.map_names}")
     sample_obs = peek_sample_obs(train_loader)
     module = StudentActorModule(sample_obs, args.init_std, args.lr, args.weight_decay)
     logger.info(f"Student actor with {sum(p.numel() for p in module.parameters()):,} parameters")
@@ -234,7 +230,7 @@ def main(argv: list[str] | None = None) -> float:
         # wandb cannot serialize the Path arguments
         train_logger.log_hyperparams({k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()})
     else:
-        train_logger = CSVLogger(save_dir=str(ROOT_DIR / "logs" / "distillation"), name=run_name)
+        train_logger = CSVLogger(save_dir=str(log_dir.parent), name=run_name)
 
     # `best_checkpoint` keeps the weights of the minimum val/loss, `early_stopping` holds that value in `best_score`
     best_checkpoint = ModelCheckpoint(
@@ -247,7 +243,7 @@ def main(argv: list[str] | None = None) -> float:
         accelerator=args.accelerator,
         devices=1,
         logger=train_logger,
-        callbacks=[best_checkpoint, early_stopping],
+        callbacks=[best_checkpoint, early_stopping, PeriodicActorExport(log_dir, args.ckpt_every)],
         # the loaders stream restarting iterable datasets, so the epoch ends have to be imposed from here as well
         limit_train_batches=args.steps_per_epoch,
         limit_val_batches=args.val_batches,

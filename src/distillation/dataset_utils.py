@@ -1,15 +1,8 @@
-"""Datasets and dataloaders over the recorded rollouts in ``distillation_data/``.
-
-``PolicyDataset`` streams a single map's file; ``MixedPolicyDataset`` interleaves one of those per map so a student
-policy can be distilled from the whole collection at once, and ``get_distillation_dataloader`` returns one of those
-per split. See ``README.md`` for the layout of the files themselves.
-
-``train_test_split.py`` is the one-shot migration that produces the ``train/`` and ``val/`` halves these read.
-"""
 
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -90,12 +83,39 @@ class PolicyDataset(IterableDataset):
                            {'action_mean': data['action_mean'][i: i + n_rows]})
 
 
-def _split_files(split_dir: Path, use_deterministic: bool) -> list[Path]:
-    """The files of one split that hold the requested policy mode, one per map, sorted by map name."""
+def parse_map_ids(spec: str | Sequence[str] | None) -> list[str] | None:
+    if spec is None:
+        return None
+    items = spec.split(",") if isinstance(spec, str) else list(spec)
+    ids = []
+    for item in items:
+        digits = str(item).strip().rsplit("_", 1)[-1]  # the trailing number of kujiale_0008, or the whole item
+        if not digits:
+            continue
+        if not digits.isdigit():
+            raise ValueError(f"'{item}' is not a map id; expected digits, e.g. 08 or 0008 or kujiale_0008")
+        ids.append(digits.zfill(4))
+    return ids or None
+
+
+def _map_id(path: Path) -> str:
+    """The zero-padded id of the map a split file holds, i.e. ``0008`` for ``kujiale_0008_deterministic.pt``."""
+    return path.stem.rsplit("_", 1)[0].rsplit("_", 1)[-1]  # drop the policy mode, then keep the trailing number
+
+
+def _split_files(split_dir: Path, use_deterministic: bool, maps: Sequence[str] | None = None) -> list[Path]:
     mode = "deterministic" if use_deterministic else "stochastic"
     files = sorted(split_dir.glob(f"*_{mode}.pt"))
     if not files:
         raise FileNotFoundError(f"No *_{mode}.pt recording found under {split_dir}")
+
+    if maps is not None:
+        wanted = set(maps)
+        available = {_map_id(path) for path in files}
+        missing = sorted(wanted - available)
+        if missing:
+            raise FileNotFoundError(f"{split_dir} holds no {mode} recording for map(s) {missing}, has {sorted(available)}")
+        files = [path for path in files if _map_id(path) in wanted]
     return files
 
 
@@ -116,10 +136,11 @@ class MixedPolicyDataset(IterableDataset):
         seed: int | None = None,
         files: list[Path] | None = None,
         rows_per_yield: int = 64,
+        maps: Sequence[str] | None = None,
     ):
-        # `data_dir` is the root of the collection, `split` the half of it to read; `files` lets a caller hand
-        # over an explicit subset instead
-        self.files = files if files is not None else _split_files(data_dir / split, use_deterministic)
+        # `data_dir` is the root of the collection, `split` the split of it to read and `maps` which of its maps;
+        # `files` lets a caller hand over an explicit subset instead
+        self.files = files if files is not None else _split_files(data_dir / split, use_deterministic, maps)
         self.rows_per_yield = rows_per_yield
         self.child_kwargs = dict(drop_collided=drop_collided, rows_per_yield=rows_per_yield)
         self.rows_per_epoch = rows_per_epoch
@@ -135,8 +156,7 @@ class MixedPolicyDataset(IterableDataset):
         worker = torch.utils.data.get_worker_info()
         if worker is not None and worker.num_workers > 1:
             raise NotImplementedError(
-                "MixedPolicyDataset inherits PolicyDataset's single-worker limit. To use more than one process, "
-                "build several loaders over disjoint maps instead: get_distillation_dataloader(..., num_loaders=K)."
+                "MixedPolicyDataset inherits PolicyDataset's single-worker limit. "
             )
 
         randrange = random.Random(self.seed).randrange
@@ -174,6 +194,46 @@ def _concat_blocks(blocks):
     )
 
 
+def build_split_dataloader(
+    split: str,
+    batch_size: int,
+    data_dir: Path = DISTILLATION_DIR,
+    use_deterministic: bool = True,
+    drop_collided: bool = True,
+    steps_per_epoch: int | None = None,
+    with_std: bool = False,
+    seed: int | None = None,
+    rows_per_yield: int = 64,
+    restart_exhausted: bool = True,
+    maps: Sequence[str] | None = None,
+) -> DataLoader:
+
+    if rows_per_yield < 1:
+        raise ValueError(f"rows_per_yield must be at least 1, got {rows_per_yield}")
+    if batch_size % rows_per_yield:
+        raise ValueError(f"batch_size={batch_size} must be a multiple of rows_per_yield={rows_per_yield}")
+
+    dataset = MixedPolicyDataset(
+        data_dir=data_dir,
+        split=split,
+        use_deterministic=use_deterministic,
+        drop_collided=drop_collided,
+        rows_per_epoch=None if steps_per_epoch is None else steps_per_epoch * batch_size,
+        restart_exhausted=restart_exhausted,
+        with_std=with_std,
+        seed=seed,
+        rows_per_yield=rows_per_yield,
+        maps=maps,
+    )
+    return DataLoader(
+        dataset,
+        batch_size=batch_size // rows_per_yield,
+        collate_fn=_concat_blocks,
+        num_workers=0,  # keep at 0 because PolicyDataset is single-worker only
+        drop_last=True,
+    )
+
+
 def get_distillation_dataloader(
     batch_size: int,
     data_dir: Path = DISTILLATION_DIR,
@@ -183,36 +243,18 @@ def get_distillation_dataloader(
     with_std: bool = False,
     seed: int | None = None,
     rows_per_yield: int = 64,
+    maps: Sequence[str] | None = None,
 ) -> tuple[DataLoader, DataLoader]:
-    """A loader over ``data_dir/train`` and one over ``data_dir/val``, both mixing every map into every batch.
-
-    Only the training stream is bounded, by ``steps_per_epoch``; the validation one restarts like any other, and
-    how much of it to read per check is the caller's call (lightning's ``limit_val_batches``).
-    """
-    if rows_per_yield < 1:
-        raise ValueError(f"rows_per_yield must be at least 1, got {rows_per_yield}")
-    if batch_size % rows_per_yield:
-        raise ValueError(f"batch_size={batch_size} must be a multiple of rows_per_yield={rows_per_yield}")
-
-    def build(split: str, rows_per_epoch: int | None) -> DataLoader:
-        dataset = MixedPolicyDataset(
-            data_dir=data_dir,
-            split=split,
-            use_deterministic=use_deterministic,
-            drop_collided=drop_collided,
-            rows_per_epoch=rows_per_epoch,
-            with_std=with_std,
-            seed=seed,
-            rows_per_yield=rows_per_yield,
-        )
-        return DataLoader(
-            dataset,
-            batch_size=batch_size // rows_per_yield,
-            collate_fn=_concat_blocks,
-            num_workers=0,  # keep at 0 because PolicyDataset is single-worker only
-            drop_last=True,
-        )
-
-    rows_per_epoch = None if steps_per_epoch is None else steps_per_epoch * batch_size
-    return build("train", rows_per_epoch), build("val", None)
-
+    shared = dict(
+        data_dir=data_dir,
+        use_deterministic=use_deterministic,
+        drop_collided=drop_collided,
+        with_std=with_std,
+        seed=seed,
+        rows_per_yield=rows_per_yield,
+        maps=maps,
+    )
+    return (
+        build_split_dataloader("train", batch_size, steps_per_epoch=steps_per_epoch, **shared),
+        build_split_dataloader("val", batch_size, **shared),
+    )

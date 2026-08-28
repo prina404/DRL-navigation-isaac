@@ -30,11 +30,45 @@ def get_dataset_dir() -> Path:
     return (ROOT_DIR / cfg["dataset_folder"]).resolve()
 
 
-def get_scene_usd_path() -> Path:
-    cfg = load_cfg()
-    env_name = cfg["current_env"]
-    return get_dataset_dir() / env_name / f"{env_name}_baked.usda"
+_MAP_OVERRIDE: str | None = None
+
+
+def available_maps() -> list[str]:
+    """Every preprocessed scene in the dataset folder, i.e. the ones that have a baked usd."""
+    return sorted(p.parent.name for p in get_dataset_dir().glob("*/*_baked.usda"))
+
+
+def resolve_map_name(name: str) -> str:
+    stem = str(name).strip()
+    if not stem:
+        raise ValueError("Empty map name")
+
+    prefix, _, digits = stem.rpartition("_")
+    if not digits.isdigit():  # a name with no trailing number, keep it as it was typed
+        map_name = stem
+    else:
+        map_name = f"{prefix or 'kujiale'}_{digits.zfill(4)}"
+
+    if not (get_dataset_dir() / map_name / f"{map_name}_baked.usda").is_file():
+        raise FileNotFoundError(
+            f"Map '{map_name}' has no baked scene under {get_dataset_dir()}. "
+            f"Preprocessed maps: {', '.join(available_maps()) or '<none>'}"
+        )
+    return map_name
+
+
+def set_map_name(name: str) -> str:
+    global _MAP_OVERRIDE
+    _MAP_OVERRIDE = resolve_map_name(name)
+    return _MAP_OVERRIDE
+
 
 def get_map_name() -> str:
-    cfg = load_cfg()
-    return cfg["current_env"]
+    if _MAP_OVERRIDE is not None:
+        return _MAP_OVERRIDE
+    return load_cfg()["current_env"]  # fallback for tooling with no --map, e.g. task_annotator.ipynb
+
+
+def get_scene_usd_path() -> Path:
+    env_name = get_map_name()
+    return get_dataset_dir() / env_name / f"{env_name}_baked.usda"
