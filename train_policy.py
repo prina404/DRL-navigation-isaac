@@ -5,6 +5,12 @@ from isaaclab.app import AppLauncher
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
+parser.add_argument(
+    "--map",
+    type=str,
+    required=True,
+    help="Map to run on, e.g. 40, 0040 or kujiale_0040. Overrides current_env in dataset_cfg.yaml.",
+)
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument(
     "--video_length",
@@ -72,9 +78,11 @@ from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
-from cfg.CFG import get_scene_usd_path, CHECKPOINT_DIR, get_map_name
+from cfg.CFG import CHECKPOINT_DIR, get_map_name, get_scene_usd_path, set_map_name
 from policy.NavPolicyv2 import go2_policy_cfg, load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
+
+set_map_name(args_cli.map)  # before anything reads the map back out of cfg.CFG
 
 
 @hydra.main(config_path=None)
@@ -155,7 +163,7 @@ def store_final_policy(ppo_runner: OnPolicyRunner, ckpt_dir: Path) -> None:
     policy_save_path = ckpt_dir / "unitree_go2_nav" / policy_name
     policy_save_path.parent.mkdir(parents=True, exist_ok=True)
     if policy_save_path.exists():
-        
+
         new_name = f"old_{get_map_name()}_policy_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pt"
         policy_save_path.rename(policy_save_path.parent / new_name)
 

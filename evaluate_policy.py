@@ -5,10 +5,16 @@ import torch
 import tqdm
 from isaaclab.app import AppLauncher
 
-from cfg.CFG import get_scene_usd_path, get_map_name
+from cfg.CFG import get_map_name, get_scene_usd_path, set_map_name
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
+parser.add_argument(
+    "--map",
+    type=str,
+    required=True,
+    help="Map to run on, e.g. 40, 0040 or kujiale_0040. Overrides current_env in dataset_cfg.yaml.",
+)
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument(
     "--video_length",
@@ -66,6 +72,7 @@ AppLauncher.add_app_launcher_args(parser)
 
 # # append AppLauncher cli args
 args_cli, hydra_argv = parser.parse_known_args()
+set_map_name(args_cli.map)  # before anything reads the map back out of cfg.CFG
 # Only the vision/depth tasks and video recording need cameras. Enabling them otherwise boots the RTX rendering Kit
 # experience, whose stage population cost scales with --num_envs.
 args_cli.enable_cameras = args_cli.video or "vision" in args_cli.task or "depth" in args_cli.task

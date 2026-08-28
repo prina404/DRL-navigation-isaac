@@ -5,6 +5,12 @@ from isaaclab.app import AppLauncher
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
+parser.add_argument(
+    "--map",
+    type=str,
+    required=True,
+    help="Map to run on, e.g. 40, 0040 or kujiale_0040. Overrides current_env in dataset_cfg.yaml.",
+)
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument(
     "--video_length",
@@ -68,10 +74,12 @@ from omegaconf import DictConfig
 
 import mdp.actions.go2_locomotion_policy as go2_control
 import mdp.rewards.helper_functions as rewards
-from cfg.CFG import ROOT_DIR, get_scene_usd_path
+from cfg.CFG import ROOT_DIR, get_scene_usd_path, set_map_name
 from tasks.task_utils import get_env_config
 from ros2.Nav2Manager import kill_nav2_lifecycle, wait_for_nav2_ready, MultiEnvNavigator
 from ros2.RosDataManager import RosDataManager
+
+set_map_name(args_cli.map)  # before anything reads the map back out of cfg.CFG
 
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
@@ -131,7 +139,7 @@ def run_simulator(cfg: DictConfig):
     __env = env.unwrapped
     _camera = __env.scene["camera"] if "camera" in __env.scene.__dict__ else None
     ros2_dm = RosDataManager(__env, __env.scene["lidar"], _camera, is_depth_camera="depth" in environment_cfg.obs_groups["policy"])
-    ros2_dm.pub_ros2_data(ros2_dm.zero_time) 
+    ros2_dm.pub_ros2_data(ros2_dm.zero_time)
 
     # Init NavStack
     kill_nav2_lifecycle()  # ensure no leftover nodes from previous runs
