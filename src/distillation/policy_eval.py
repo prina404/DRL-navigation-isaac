@@ -1,8 +1,10 @@
 """Rolling a navigation policy out in the simulator and scoring the episodes it produces.
 
-Shared by ``evaluate_student.py``, which scores one checkpoint, and ``eval_distil_process.py``, which sweeps a
-whole distillation run. Like every module under ``src/``, it may only be imported once ``AppLauncher`` has started
-``simulation_app``.
+Shared by ``evaluate_policy.py`` (the PPO teacher, optionally recording a distillation dataset),
+``evaluate_student.py``, which scores one checkpoint, and ``eval_distil_process.py``, which sweeps a whole
+distillation run. Keeping the three on one loop is what makes their metrics comparable, and it is what lets
+``seed`` put a teacher and a student on the same episodes. Like every module under ``src/``, it may only be
+imported once ``AppLauncher`` has started ``simulation_app``.
 """
 
 from __future__ import annotations
@@ -14,8 +16,6 @@ import tqdm
 from loguru import logger
 
 import mdp.rewards.helper_functions as rewards
-
-
 
 
 def mean_std(values: torch.Tensor, empty: float = float("nan")) -> tuple[float, float]:
@@ -33,10 +33,16 @@ def rollout_policy(
     max_episodes: int,
     collision_force_thresh: float = 3.0,
     stochastic: bool = False,
+    seed: int | None = None,
+    recorder: Any = None,
     desc: str = "Evaluating",
 ) -> dict[str, list]:
     """Run every env until it has finished ``max_episodes`` episodes, returning one record per episode.
+
     """
+    if seed is not None:
+        env.unwrapped.seed(seed)
+
     obs, _ = env.reset()
     base_env = env.unwrapped
     path_manager = base_env.path_manager
@@ -63,6 +69,8 @@ def rollout_policy(
             with torch.no_grad():
                 sampled_action = policy(obs, stochastic_output=True)
                 action = sampled_action if stochastic else policy.output_mean
+                if recorder is not None:
+                    recorder.record(obs, action, policy.output_mean, policy.output_std)
             obs, _, dones, _ = env.step(action)
             dones = dones.bool()
             episode_steps += 1
@@ -72,6 +80,8 @@ def rollout_policy(
             new_contact = in_contact & ~prev_in_contact
             episode_events += new_contact.long()
             prev_in_contact = in_contact
+            if recorder is not None:
+                recorder.mark_collisions(new_contact)
 
             done_ids = dones.nonzero(as_tuple=False).squeeze(-1)
             if len(done_ids) > 0:
@@ -88,6 +98,7 @@ def rollout_policy(
                 route = torch.where(arrived, plan_len_max, (plan_len_max - last_valid_plan_len).clamp(min=0.0))
                 elapsed = episode_steps.float() * base_env.step_dt
 
+                # cap per env so fast-terminating envs cannot dominate the sample
                 keep = done_ids[episodes_done[done_ids] < max_episodes]
                 if len(keep) > 0:
                     arrived_keep = arrived[keep].cpu().tolist()
@@ -106,11 +117,24 @@ def rollout_policy(
                 episode_events[done_ids] = 0
                 episode_steps[done_ids] = 0
                 prev_in_contact[done_ids] = False
+                if recorder is not None:
+                    recorder.end_episodes(done_ids)
 
+            # refresh the snapshot for the next step; envs that just reset restart from their fresh plan
             plan_len = path_manager.current_path_length.clone()
             plan_len_max = path_manager.initial_path_length.clone()
             last_valid_plan_len = torch.where(plan_len >= goal_thresh, plan_len, last_valid_plan_len)
             last_valid_plan_len[done_ids] = plan_len[done_ids]
+
+            if recorder is not None and recorder.is_full:
+                logger.warning(
+                    f"Distillation data reached the {recorder.max_bytes / (1024**3):.2f} GB limit, "
+                    "stopping the evaluation early."
+                )
+                break
+
+    if recorder is not None:
+        recorder.save()
 
     return {
         "success": successes,

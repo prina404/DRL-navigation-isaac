@@ -28,7 +28,14 @@ parser.add_argument(
 )
 parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to simulate.")
 
-parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
+parser.add_argument(
+    "--seed",
+    type=int,
+    default=42,
+    help="Seed used for the environment. Passing it explicitly also reseeds every random stream right before "
+    "the scored rollout, so two policies run at the same seed see the same episodes (with --num_envs=1 for the "
+    "whole rollout, above it only for the first episode of each env).",
+)
 parser.add_argument(
     "--checkpoint",
     type=str,
@@ -211,6 +218,7 @@ def run_simulator(cfg: DictConfig):
         args_cli.max_episodes,
         collision_force_thresh=args_cli.collision_force_thresh,
         stochastic=args_cli.stochastic,
+        seed=args_cli.seed,
         desc="Evaluating student",
     )
     env.close()
