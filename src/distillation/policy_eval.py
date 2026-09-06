@@ -36,9 +36,13 @@ def rollout_policy(
     seed: int | None = None,
     recorder: Any = None,
     desc: str = "Evaluating",
+    post_step: Any = None,
 ) -> dict[str, list]:
     """Run every env until it has finished ``max_episodes`` episodes, returning one record per episode.
 
+    ``post_step``, if given, is called with no arguments right after every ``env.step``. ``eval_ros2_planner.py``
+    uses it to push the simulator state out over ROS and to service the Nav2 stacks, so the planner baseline is
+    scored by exactly this loop rather than by a copy of it.
     """
     if seed is not None:
         env.unwrapped.seed(seed)
@@ -72,6 +76,8 @@ def rollout_policy(
                 if recorder is not None:
                     recorder.record(obs, action, policy.output_mean, policy.output_std)
             obs, _, dones, _ = env.step(action)
+            if post_step is not None:
+                post_step()
             dones = dones.bool()
             episode_steps += 1
 

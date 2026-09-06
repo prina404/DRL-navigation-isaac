@@ -37,15 +37,12 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
-    # One control cycle per simulator step. /clock only advances every dt * decimation
-    # (0.005 * 16 = 0.08 s), so anything above 12.5 Hz just re-plans on identical odom
-    # and scan data and floods the log with "Control loop missed its desired rate".
     controller_frequency: 12.5
     costmap_update_timeout: 0.30
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.01
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 0.3
+    failure_tolerance: 1.0
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"] # "precise_goal_checker"
     controller_plugins: ["FollowPath"]
@@ -56,8 +53,8 @@ controller_server:
     # Progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.25
+      movement_time_allowance: 5.0
     # Goal checker parameters
     #precise_goal_checker:
     #  plugin: "nav2_controller::SimpleGoalChecker"
@@ -68,17 +65,17 @@ controller_server:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      yaw_goal_tolerance: 3.15
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      min_vel_x: -0.1
+      min_vel_x: -0.3
       min_vel_y: -0.1
       max_vel_x: 0.5
-      max_vel_y: 0.25
+      max_vel_y: 0.1
       max_vel_theta: 1.
       min_speed_xy: -3.0
-      max_speed_xy: 3.0
+      max_speed_xy: 1.2
       min_speed_theta: -1.
       acc_lim_x: 3.0
       acc_lim_y: 3.0
@@ -86,30 +83,31 @@ controller_server:
       decel_lim_x: -3.0
       decel_lim_y: -3.0
       decel_lim_theta: -3.0
-      vx_samples: 30
-      vy_samples: 10
-      vtheta_samples: 30
-      sim_time: 1.5
+      vx_samples: 15
+      vy_samples: 3
+      vtheta_samples: 15
+      sim_time: 1.2
       linear_granularity: 0.05
-      angular_granularity: 0.025
-      xy_goal_tolerance: 0.5
+      angular_granularity: 0.1
+      xy_goal_tolerance: 0.25
       path_length_tolerance: 1.0
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
       limit_vel_cmd_in_traj: False
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "ObstacleFootprint", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
+      critics: ["Oscillation", "BaseObstacle", "ObstacleFootprint", "PreferForward", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.2
       ObstacleFootprint.scale: 1.0
       PathAlign.scale: 32.0
       GoalAlign.scale: 24.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.forward_point_distance: 0.1
+      PathAlign.forward_point_distance: 0.325
+      GoalAlign.forward_point_distance: 0.325
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      PreferForward.scale: 0.2
+      PreferForward.penalty: 50.0
+      PreferForward.theta_scale: 1.0
+      Oscillation.oscillation_reset_time: 5.0
 
       ####### END DWA ###########
 
@@ -223,27 +221,22 @@ local_costmap:
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.4
+        cost_scaling_factor: 8.0
+        inflation_radius: 0.5
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
-        publish_voxel_map: True
+        publish_voxel_map: False
         origin_z: 0.0
         z_resolution: 0.05
-        z_voxels: 16
-        max_obstacle_height: 0.5
+        z_voxels: 18
+        max_obstacle_height: 0.85
         mark_threshold: 0
         observation_sources: point_cloud
         point_cloud:
-          # A relative topic will be appended to the parent of the local_costmap namespace.
-          # For example:
-          #   * User chosen namespace is `tb4`.
-          #   * User chosen topic is `scan`.
-          #   * Topic will be remapped to `/tb4/scan` without `local_costmap`.
-          #   * Use global topic `/scan` if you do not wish the node namespace to apply
           topic: lidar
-          max_obstacle_height: 0.5
+          min_obstacle_height: 0.05
+          max_obstacle_height: 0.85
           clearing: True
           marking: True
           data_type: "PointCloud2"
@@ -265,27 +258,22 @@ global_costmap:
       robot_base_frame: base_link
       resolution: 0.05
       footprint: "[ [0.25, 0.18], [0.25, -0.18], [-0.25, -0.18], [-0.25, 0.18] ]"
-      track_unknown_space: true
+      track_unknown_space: false
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
         observation_sources: point_cloud
         point_cloud:
-          # A relative topic will be appended to the parent of the global_costmap namespace.
-          # For example:
-          #   * User chosen namespace is `tb4`.
-          #   * User chosen topic is `scan`.
-          #   * Topic will be remapped to `/tb4/scan` without `global_costmap`.
-          #   * Use global topic `/scan` if you do not wish the node namespace to apply
           topic: lidar
-          max_obstacle_height: 0.5
+          min_obstacle_height: 0.05
+          max_obstacle_height: 0.85
           clearing: True
           marking: True
           data_type: "PointCloud2"
-          raytrace_max_range: 3.0
+          raytrace_max_range: 3.5
           raytrace_min_range: 0.0
-          obstacle_max_range: 2.5
+          obstacle_max_range: 3.0
           obstacle_min_range: 0.0
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -293,15 +281,9 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.4
+        inflation_radius: 0.2
       always_send_full_costmap: True
 
-# The yaml_filename does not need to be specified since it going to be set by defaults in launch.
-# If you'd rather set it in the yaml, remove the default "map" value in the tb3_simulation_launch.py
-# file & provide full path to map below. If CLI map configuration or launch default is provided, that will be used.
-# map_server:
-#   ros__parameters:
-#     yaml_filename: ""
 
 planner_server:
   ros__parameters:
@@ -310,7 +292,7 @@ planner_server:
     costmap_update_timeout: 1.0
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.75
+      tolerance: 0.25
       use_astar: false
       allow_unknown: true
       # plugin: "nav2_smac_planner::SmacPlannerHybrid"
@@ -348,7 +330,7 @@ behavior_server:
     local_frame: odom
     global_frame: map
     robot_base_frame: base_link
-    transform_tolerance: 0.1
+    transform_tolerance: 0.5
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4

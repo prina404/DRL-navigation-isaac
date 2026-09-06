@@ -4,7 +4,8 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from nav2_common.launch import RewrittenYaml
@@ -15,6 +16,7 @@ def _create_robot_nav2_nodes(context):
     num_robots = int(LaunchConfiguration("num_robots").perform(context))
     use_sim_time_str = LaunchConfiguration("use_sim_time").perform(context)
     use_sim_time = use_sim_time_str.lower() in ("true", "1")
+    stagger = float(LaunchConfiguration("stagger").perform(context))
 
     actions = []
 
@@ -70,8 +72,7 @@ def _create_robot_nav2_nodes(context):
             # 'collision_monitor',
         ]
 
-        actions.extend(
-            [
+        robot_actions = [
                 # Node(
                 #     package="nav2_amcl",
                 #     executable="amcl",
@@ -183,8 +184,8 @@ def _create_robot_nav2_nodes(context):
                 #     # arguments=['--ros-args', '--log-level', "info"],
                 #     remappings=remappings,
                 # ),
-            ]
-        )
+        ]
+        actions.append(TimerAction(period=i * stagger, actions=robot_actions))
 
     return actions
 
@@ -196,6 +197,7 @@ def rviz_node():
         name="rviz2",
         output="screen",
         parameters=[{"use_sim_time": True}],
+        condition=IfCondition(LaunchConfiguration("use_rviz")),
     )
 
 
@@ -210,6 +212,8 @@ def generate_launch_description():
             DeclareLaunchArgument("robot_prefix", default_value="robot"),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("params_file", default_value=nav2_params),
+            DeclareLaunchArgument("use_rviz", default_value="true"),
+            DeclareLaunchArgument("stagger", default_value="2.0"),
             OpaqueFunction(function=_create_robot_nav2_nodes),
             rviz_node(),
         ]

@@ -2,23 +2,15 @@
 # https://github.com/Zhefan-Xu/isaac-go2-ros2
 
 
-import subprocess
-import time
-
 import numpy as np
-import omni
-import omni.graph.core as og
-import omni.replicator.core as rep
-import omni.syntheticdata._syntheticdata as sd
 import rclpy
 import torch
-import warp as wp
 from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
 from isaaclab.assets import ArticulationData
 from isaaclab.sensors import MultiMeshRayCaster, TiledCamera
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from nav_msgs.msg import OccupancyGrid, Odometry
-from std_msgs.msg import Header
+from rosgraph_msgs.msg import Clock
 from rclpy.node import Node
 from builtin_interfaces.msg import Time
 from rclpy.parameter import Parameter
@@ -46,12 +38,13 @@ class RosDataManager(Node):
         self.enable_camera = cameras is not None
         self.use_depth = is_depth_camera
 
-        self.create_ros_time_graph()
-
         self.env: NavEnv = env.unwrapped
         self.num_envs = self.env.scene.num_envs
         self.lidar = lidar_annotators
         self.cameras = cameras
+
+        self._sim_time = 0.0
+        self.clock_pub = self.create_publisher(Clock, "/clock", 10)
 
         # ROS2 Broadcaster
         self.broadcaster = TransformBroadcaster(self)
@@ -69,7 +62,7 @@ class RosDataManager(Node):
         for i in range(self.num_envs):
             pub = self.create_publisher(OccupancyGrid, f"{self.robot_ns(i)}/map", MAP_QOS)
             msg = self.create_map_msg(i)
-            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.stamp = self.get_time()
             self.map_pub.append(pub)
             pub.publish(msg)
 
@@ -103,6 +96,8 @@ class RosDataManager(Node):
             self.publish_camera_info(self.zero_time)
 
         self.base_vel_cmd_input = torch.zeros((self.num_envs, 3), dtype=torch.float32).cpu()
+        # steps since the last cmd_vel of each env, see `expire_stale_commands`
+        self._cmd_age = torch.zeros((self.num_envs,), dtype=torch.long).cpu()
 
     def robot_ns(self, env_idx: int) -> str:
         return robot_namespaces(self.num_envs)[env_idx]
@@ -146,30 +141,6 @@ class RosDataManager(Node):
     def env_origin(self, env_idx: int) -> Tensor:
         return self.env.scene.env_origins[env_idx]
 
-    def create_ros_time_graph(self):
-        og.Controller.edit(
-            {"graph_path": "/ActionGraph", "evaluator_name": "execution"},
-            {
-                og.Controller.Keys.CREATE_NODES: [
-                    ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-                    ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
-                    ("PublishClock", "isaacsim.ros2.bridge.ROS2PublishClock"),
-                    # ("OnPlayBack", "omni.graph.action.OnImpulseEvent"),
-                ],
-                og.Controller.Keys.CONNECT: [
-                    # Connecting execution of OnImpulseEvent node to PublishClock so it will only publish when an impulse event is triggered
-                    # ("OnPlayBack.outputs:tick", "PublishClock.inputs:execIn"),
-                    ("OnPlaybackTick.outputs:tick", "PublishClock.inputs:execIn"),
-                    # Connecting simulationTime data of ReadSimTime to the clock publisher node
-                    ("ReadSimTime.outputs:simulationTime", "PublishClock.inputs:timeStamp"),
-                ],
-                og.Controller.Keys.SET_VALUES: [
-                    # Assigning topic name to clock publisher
-                    ("PublishClock.inputs:topicName", "/clock"),
-                ],
-            },
-        )
-
     def create_map_msg(self, env_idx: int):
         msg = OccupancyGrid()
 
@@ -180,7 +151,7 @@ class RosDataManager(Node):
         msg.info.resolution = map_mgr.resolution
         msg.info.width = map_mgr.shape[1]
         msg.info.height = map_mgr.shape[0]
-        msg.info.origin.position.x = map_mgr.origin[0]
+        msg.info.origin.position.x = map_mgr.origin[0] + map_mgr.resolution
         msg.info.origin.position.y = map_mgr.origin[1]
         msg.info.origin.orientation.w = 1.0
 
@@ -275,7 +246,7 @@ class RosDataManager(Node):
         pose_msg.pose.orientation.w = base_rot[3].item()
         self.pose_pub[env_idx].publish(pose_msg)
 
-    def publish_lidar_data(self, timestamp: Time, points: Tensor, env_idx: int):
+    def publish_lidar_data(self, timestamp: Time, points: np.ndarray, env_idx: int):
         point_cloud = PointCloud2()
         point_cloud.header.frame_id = self.map_frame(
             env_idx
@@ -290,39 +261,60 @@ class RosDataManager(Node):
         point_cloud = point_cloud2.create_cloud(point_cloud.header, fields, points)
         self.lidar_pub[env_idx].publish(point_cloud)
 
-    def pub_ros2_data(self, timestamp: Time):
+    def pub_ros2_data(self, timestamp: Time | None = None):
+        """Publish one frame of simulator state and advance the ROS clock by one env step."""
+        if timestamp is None:
+            self._sim_time += self.env.step_dt
+            timestamp = self.get_time()
+        self.clock_pub.publish(Clock(clock=timestamp))
+        self._cmd_age += 1
+
         robot_data: ArticulationData = self.env.unwrapped.scene["robot"].data
+        root_state = robot_data.root_com_state_w.torch
+        lin_vel_b = robot_data.root_com_lin_vel_b.torch
+        ang_vel_b = robot_data.root_com_ang_vel_b.torch
 
         for i in range(self.num_envs):
-            base_pose_local = wp.to_torch(robot_data.root_com_state_w)[i, :3] - self.env_origin(
-                i
-            )  # convert to local coordinates
-            self.publish_odom(
-                timestamp,
-                base_pose_local,
-                wp.to_torch(robot_data.root_com_state_w)[i, 3:7],
-                wp.to_torch(robot_data.root_com_lin_vel_w)[i],
-                wp.to_torch(robot_data.root_com_ang_vel_w)[i],
-                i,
-            )
-            self.publish_pose(timestamp, base_pose_local, wp.to_torch(robot_data.root_com_state_w)[i, 3:7], i)
+            base_pose_local = root_state[i, :3] - self.env_origin(i)  # convert to local coordinates
+            self.publish_odom(timestamp, base_pose_local, root_state[i, 3:7], lin_vel_b[i], ang_vel_b[i], i)
+            self.publish_pose(timestamp, base_pose_local, root_state[i, 3:7], i)
 
-        scan_local = self.lidar.data.ray_hits_w - self.env.scene.env_origins.unsqueeze(1)  # convert to local coordinates
+        scan_local = (self.lidar.data.ray_hits_w.torch - self.env.scene.env_origins.unsqueeze(1)).cpu().numpy()
+        finite = np.isfinite(scan_local).all(axis=-1)  # rays that hit nothing come back as inf
         for i in range(self.num_envs):
-            self.publish_lidar_data(timestamp, scan_local[i], i)
+            self.publish_lidar_data(timestamp, np.ascontiguousarray(scan_local[i][finite[i]], dtype=np.float32), i)
 
         if self.enable_camera:
             self.pub_color_image(timestamp)
             if self.use_depth:
                 self.pub_depth_image(timestamp)
 
+    def expire_stale_commands(self, max_age_steps: int = 8) -> None:
+        """Zero the velocity of every env that has not had a cmd_vel for `max_age_steps` steps.
+
+        Without this the last command published before Nav2 aborted, cancelled or was respawned keeps
+        driving the robot for the rest of the episode.
+        """
+        stale = self._cmd_age > max_age_steps
+        if bool(stale.any()):
+            self.base_vel_cmd_input[stale] = 0.0
+
+    def reset_command(self, env_idx: int) -> None:
+        self.base_vel_cmd_input[env_idx] = 0.0
+        self._cmd_age[env_idx] = 0
+
     def cmd_vel_callback(self, msg: Twist, env_idx: int):
         action_scale = 1.0
         self.base_vel_cmd_input[env_idx][0] = msg.linear.x * action_scale
         self.base_vel_cmd_input[env_idx][1] = msg.linear.y * action_scale
         self.base_vel_cmd_input[env_idx][2] = msg.angular.z * action_scale
+        self._cmd_age[env_idx] = 0
 
     def pub_image_graph(self):
+        # OmniGraph lives in the isaacsim.ros2.bridge extension, which only the RTX camera publishers below
+        # need; importing it at module scope made the whole eval require `--enable isaacsim.ros2.bridge`.
+        import omni.graph.core as og
+
         for i in range(self.num_envs):
             keys = og.Controller.Keys
             og.Controller.edit(
@@ -387,6 +379,11 @@ class RosDataManager(Node):
             self.publish_image(depth, frame_id, "32FC1", self.depth_pub[i], timestamp)
 
     def pub_cam_depth_cloud(self, timestamp: Time):
+        import omni
+        import omni.graph.core as og
+        import omni.replicator.core as rep
+        import omni.syntheticdata._syntheticdata as sd
+
         for i in range(self.num_envs):
             # The following code will link the camera's render product and publish the data to the specified topic name.
             render_product = self.cameras.render_product_paths[i]
@@ -470,7 +467,10 @@ class RosDataManager(Node):
         publisher.publish(msg)
 
     def get_time(self) -> Time:
-        return self.get_clock().now().to_msg()
+        """Current simulated time. Read from our own counter, not from the node clock, which only picks up
+        `/clock` on the next spin and would therefore stamp this step's data with the previous one's time."""
+        sec = int(self._sim_time)
+        return Time(sec=sec, nanosec=min(int((self._sim_time - sec) * 1e9), 999999999))
 
     def shutdown(self) -> None:
         """Destroy the ROS node cleanly."""
