@@ -62,6 +62,8 @@ class MultiEnvNavigator():
             self._executor.add_node(nav)
 
         self.current_goal_poses = env.path_manager.goal_pos_local.clone().cpu()
+        # Episode boundaries, the actual trigger for re-issuing a goal. See `step`.
+        self._last_episode = env.episode_counter.clone()
         self.goal_queue = list(range(env.num_envs))
         self._goal_handles = [None] * env.num_envs
         self._goal_attempts = [0] * env.num_envs
@@ -205,11 +207,14 @@ class MultiEnvNavigator():
         if len(self.goal_queue) > 0:
             self._send_goals()
 
-        # check if any env goal has been updated, if so cancel previous goal and send new one
-        diff_goal = self.current_goal_poses != self.env.path_manager.goal_pos_local.cpu() # (N, 2)
-        diff_goal = diff_goal.any(dim=-1)  # (N, )
-        if diff_goal.any():
-            env_ids = torch.where(diff_goal)[0].tolist()
+        episode = self.env.episode_counter
+        new_episode = (episode != self._last_episode).cpu()  # (N, )
+        self._last_episode = episode.clone()
+
+        moved_goal = (self.current_goal_poses != self.env.path_manager.goal_pos_local.cpu()).any(dim=-1)  # (N, )
+        needs_goal = new_episode | moved_goal
+        if needs_goal.any():
+            env_ids = torch.where(needs_goal)[0].tolist()
             logger.debug(f"Updating goals for envs: {env_ids}")
             logger.debug(f"Current robot pose: {self.env.scene['robot'].data.root_com_pos_w}")
             for env_id in env_ids:

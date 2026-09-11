@@ -53,23 +53,30 @@ def rollout_policy(
     # same threshold the goal_reached term uses, so the "arrived" / "no feasible path" split reproduces it exactly
     goal_thresh = base_env.termination_manager.get_term_cfg("goal_reached").params.get("threshold_m", 0.2)
 
+    robot = base_env.scene["robot"]
+
     episodes_done = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
     episode_events = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
     episode_steps = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
     prev_in_contact = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    # running sum of the per-step speed, turned into the episode mean by dividing by `episode_steps`
+    speed_sum = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
 
+    # still needed to tell "arrived at the goal" from "no feasible path", both of which terminate on `goal_reached`
     plan_len = path_manager.current_path_length.clone()
-    plan_len_max = path_manager.initial_path_length.clone()
-    last_valid_plan_len = plan_len.clone()
 
     successes: list[float] = []  # one entry per recorded episode
     collisions: list[int] = []  # collision events per recorded episode
     outcomes: list[str] = []  # "goal" | "no_path" | "timeout" | "other"
-    durations: list[float] = []  # wall-clock episode duration (s)
-    path_lengths: list[float] = []  # metres of global plan actually covered
+    durations: list[float] = []  # simulated episode duration (s)
+    speeds: list[float] = []  # mean linear COM speed over the episode's steps (m/s)
 
     with tqdm.tqdm(total=env.num_envs * max_episodes, desc=desc) as pbar:
         while not bool((episodes_done >= max_episodes).all()):
+            # Ground speed the action is about to be taken at. Sampled before `env.step`, because a step that
+            # terminates an env resets it internally, and `teleport_robots` zeroes the root velocity -- reading
+            # afterwards would charge the next episode's standstill to the episode that just ended.
+            speed_sum += torch.linalg.norm(robot.data.root_com_lin_vel_w.torch[:, :2], dim=-1).to(env.device)
             with torch.no_grad():
                 sampled_action = policy(obs, stochastic_output=True)
                 action = sampled_action if stochastic else policy.output_mean
@@ -95,14 +102,11 @@ def rollout_policy(
                 reached = base_env.termination_manager.get_term("goal_reached")
                 timed_out = base_env.termination_manager.get_term("timeout")
 
-                # Both still count as a success; the split feeds the outcome breakdown and the route below.
+                # Both still count as a success; the split feeds the outcome breakdown.
                 no_path = reached & (plan_len < goal_thresh)
                 arrived = reached & ~no_path
-                # Length of the route the episode is measured against. An episode that made it to the goal walked
-                # the whole plan. Any other one only got through the part of it that A* had already crossed off,
-                # so it is scored on that shortened route instead of on the route it was originally given.
-                route = torch.where(arrived, plan_len_max, (plan_len_max - last_valid_plan_len).clamp(min=0.0))
                 elapsed = episode_steps.float() * base_env.step_dt
+                mean_speed = speed_sum / episode_steps.clamp(min=1).float()
 
                 # cap per env so fast-terminating envs cannot dominate the sample
                 keep = done_ids[episodes_done[done_ids] < max_episodes]
@@ -116,21 +120,19 @@ def rollout_policy(
                         for a, n, t in zip(arrived_keep, no_path_keep, timed_out[keep].cpu().tolist())
                     )
                     durations.extend(elapsed[keep].cpu().tolist())
-                    path_lengths.extend(route[keep].cpu().tolist())
+                    speeds.extend(mean_speed[keep].cpu().tolist())
                     pbar.update(len(keep))
 
                 episodes_done[done_ids] += 1
                 episode_events[done_ids] = 0
                 episode_steps[done_ids] = 0
+                speed_sum[done_ids] = 0.0
                 prev_in_contact[done_ids] = False
                 if recorder is not None:
                     recorder.end_episodes(done_ids)
 
             # refresh the snapshot for the next step; envs that just reset restart from their fresh plan
             plan_len = path_manager.current_path_length.clone()
-            plan_len_max = path_manager.initial_path_length.clone()
-            last_valid_plan_len = torch.where(plan_len >= goal_thresh, plan_len, last_valid_plan_len)
-            last_valid_plan_len[done_ids] = plan_len[done_ids]
 
             if recorder is not None and recorder.is_full:
                 logger.warning(
@@ -147,7 +149,7 @@ def rollout_policy(
         "collisions": collisions,
         "outcome": outcomes,
         "completion_time_s": durations,
-        "path_length_m": path_lengths,
+        "mean_speed_mps": speeds,
     }
 
 
@@ -159,13 +161,13 @@ def summarize(records: dict[str, list]) -> dict[str, Any]:
     col = torch.tensor(records["collisions"], dtype=torch.float32)
     collided = col[col > 0]
     dur = torch.tensor(records["completion_time_s"], dtype=torch.float32)
-    plen = torch.tensor(records["path_length_m"], dtype=torch.float32)
+    speed = torch.tensor(records["mean_speed_mps"], dtype=torch.float32)
 
-    # A timed-out episode never completed its route, so its duration says nothing about how fast the policy is:
-    # it is the episode length by construction. Timing stats are therefore reported over the rest, normalized by
-    # the route each of those episodes actually completed.
+    # A timed-out episode never completed its route, so its *duration* says nothing about how fast the policy is:
+    # it is the episode length by construction. Completion time is therefore reported over the rest. Mean speed
+    # carries no such bias -- it is an average over steps, equally well defined however the episode ended -- so
+    # it is reported over every episode, timeouts included.
     finished = torch.tensor([outcome != "timeout" for outcome in outcomes], dtype=torch.bool)
-    scorable = finished & (plen > 1e-3)  # a zero-length route cannot normalize a duration
 
     OUTCOMES = ("goal", "no_path", "timeout", "other")
     return {
@@ -177,9 +179,7 @@ def summarize(records: dict[str, list]) -> dict[str, Any]:
         "num_colliding_episodes": int(collided.numel()),
         "completion_time_s": list(mean_std(dur[finished])),
         "num_finished_episodes": int(finished.sum()),
-        "path_length_m": list(mean_std(plen[finished])),
-        "completion_time_per_metre": list(mean_std(dur[scorable] / plen[scorable])),
-        "num_scorable_episodes": int(scorable.sum()),
+        "mean_speed_mps": list(mean_std(speed)),
     }
 
 
@@ -202,12 +202,7 @@ def log_summary(summary: dict[str, Any]) -> None:
             *summary["completion_time_s"], summary["num_finished_episodes"]
         )
     )
-    logger.info("Path length covered, excluding timeouts: {:.2f} +/- {:.2f} m".format(*summary["path_length_m"]))
-    logger.info(
-        "Completion time per path metre: {:.3f} +/- {:.3f} s/m (n={})".format(
-            *summary["completion_time_per_metre"], summary["num_scorable_episodes"]
-        )
-    )
+    logger.info("Mean linear COM speed, all episodes: {:.3f} +/- {:.3f} m/s".format(*summary["mean_speed_mps"]))
 
 
 def read_student_infos(ckpt_path: str) -> dict[str, Any]:

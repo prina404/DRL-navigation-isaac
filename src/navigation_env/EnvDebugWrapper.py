@@ -5,13 +5,22 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import euler_xyz_from_quat, quat_from_angle_axis
 
 from mdp.observations.helper_functions import get_lidar
+from mdp.rewards.helper_functions import detect_collision
 from navigation_env.NavigationEnv import NavEnv
+
+COLLISION_FORCE_THRESH = 3.0  # N, same threshold used by the collision reward / termination terms
+COLLISION_MARKER_HOLD_S = 1.0  # how long the red square stays up after a contact
 
 
 class NavEnvDebugView(NavEnv):
     def __init__(self, cfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
         self.viz_marker = self._define_markers()
+
+        # prototype indices follow the order of the marker dict, which shifts if a prototype is (un)commented
+        self._collision_marker_idx = list(self.viz_marker.cfg.markers).index("collision")
+        self._collision_hold_steps = max(1, round(COLLISION_MARKER_HOLD_S / self.step_dt))
+        self._collision_timer = torch.zeros((self.num_envs,), dtype=torch.int32, device=self.device)
 
     def step(self, action):
         retVal = super().step(action)
@@ -23,6 +32,7 @@ class NavEnvDebugView(NavEnv):
             self._build_heading_markers(),
             self._build_goal_markers(),
             self._build_path_markers(),
+            self._build_collision_markers(),
             # self._build_lidar_markers(),
         ]
 
@@ -136,6 +146,34 @@ class NavEnvDebugView(NavEnv):
         path_indices = torch.full((path_locs.shape[0],), 2, device=self.device, dtype=torch.int64)
         return path_locs, path_rots, path_indices
 
+    def _build_collision_markers(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Flag a colliding robot with a red square that lingers for ``COLLISION_MARKER_HOLD_S``."""
+        collided = detect_collision(self) > COLLISION_FORCE_THRESH
+
+        # a fresh episode starts clean, so a contact from the previous run does not follow the teleported robot
+        self._collision_timer[self.episode_length_buf == 0] = 0
+        self._collision_timer = torch.where(
+            collided,
+            torch.full_like(self._collision_timer, self._collision_hold_steps),
+            (self._collision_timer - 1).clamp(min=0),
+        )
+
+        flagged = self._collision_timer > 0
+        if not flagged.any():
+            return self._empty_marker_data()
+
+        robot = self.scene["robot"]
+        collision_locs = robot.data.root_link_pos_w.torch[flagged] + torch.tensor([0.0, 0.0, 0.5], device=self.device)
+        collision_rots = torch.zeros((collision_locs.shape[0], 4), device=self.device)
+        collision_rots[:, 3] = 1.0  # identity quaternion, (x, y, z, w) since IsaacLab 3.0
+        collision_indices = torch.full(
+            (collision_locs.shape[0],),
+            self._collision_marker_idx,
+            device=self.device,
+            dtype=torch.int64,
+        )
+        return collision_locs, collision_rots, collision_indices
+
     def _build_lidar_markers(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         robot = self.scene["robot"]
 
@@ -209,6 +247,10 @@ class NavEnvDebugView(NavEnv):
                 #     scale=(0.03, 0.03, 0.03),
                 #     visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 1.0, 0.0)),
                 # ),
+                "collision": sim_utils.CuboidCfg(
+                    size=(0.1, 0.1, 0.02),
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.2, 0.0), opacity=0.5),
+                ),
             },
         )
         # setting aside useful variables for later

@@ -7,7 +7,7 @@ import yaml
 from isaaclab.sensors import RayCasterData
 
 #: Narrowest gap (in meters) the planner is allowed to route through.
-MIN_TRAVERSABLE_GAP = 0.10
+MIN_TRAVERSABLE_GAP = 0.20
 
 
 class MapManager:
