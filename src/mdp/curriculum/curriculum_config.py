@@ -9,24 +9,36 @@ class CurriculumCfg:
     obstacle_weight = CurriculumTermCfg(
         func=curriculum.update_collision_weight,
         params={
-            "weight_step_size": 0.1,
-            "max_weight": 5.0,
-            "episode_start": 100,  # start curriculum at 50 episodes
+            "weight_step_size": 0.05,
+            "max_weight": 1.5,
+            "episode_start": 20,  # start curriculum at 20 episodes
         },
     )
 
     collision_thresh = CurriculumTermCfg(
         func=curriculum.collision_termination_threshold,
         params={
-            "episode_start": 200,  # start increasing threshold at 50 episodes
-            "episode_end": 400,  # end increasing threshold at 250 episodes
+            "episode_start": 100,  # start increasing threshold at 100 episodes
+            "episode_end": 300,  # end increasing threshold at 300 episodes
         },
     )
 
     nominal_weight = CurriculumTermCfg(
         func=curriculum.nominal_policy_weight,
         params={
-            "episode_start": 100,  # start decaying at 50 episodes
-            "episode_end": 250,  # end decaying at 200 episodes
+            "episode_start": 25,  # start decaying at 25 episodes
+            "episode_end": 125,  # end decaying at 125 episodes
         },
     )
+
+# @configclass
+# class PathObstaclesCurriculumCfg(CurriculumCfg):
+#     """Curriculum config that adds path obstacles after a certain number of episodes"""
+
+#     add_obstacles = CurriculumTermCfg(
+#         func=curriculum.add_path_obstacles,
+#         params={
+#             "episode_start": 100,  # add obstacles after n episodes
+#             "episode_end": 600,  # full obstacle probability
+#         }
+#     )

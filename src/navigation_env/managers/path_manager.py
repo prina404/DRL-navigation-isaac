@@ -2,6 +2,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 from isaaclab.utils.math import quat_from_euler_xyz
@@ -9,6 +10,7 @@ from isaaclab.utils.math import quat_from_euler_xyz
 import pyastar2d
 from navigation_env.managers.map_manager import MapManager
 from preprocessing import voronoi
+from cfg.CFG import NAVPOINTS_FILE, get_map_name
 
 
 class PathManager:
@@ -20,10 +22,10 @@ class PathManager:
         self.map_manager = map_mgr
         self.point_dist = subgoal_dist
 
-        manual_task_file = Path(scene_path).parent / "navpoints.yaml"
-        if manual_task_file.exists():
-            with open(manual_task_file, "r") as f:
-                self.manual_tasks = yaml.safe_load(f)
+        if NAVPOINTS_FILE.exists():
+            with open(NAVPOINTS_FILE, "r") as f:
+                MAP_NAME = get_map_name()
+                self.manual_tasks = yaml.safe_load(f)[MAP_NAME]  # type: ignore
 
         self.graph, coords = voronoi.compute_voronoi_graph(
             map_path=map_mgr.map_img_path,
@@ -45,6 +47,14 @@ class PathManager:
 
         self.path_tensors: list[torch.Tensor | None] = [None] * num_envs  # each: (K,2) in local (x,y)
 
+        # Dense, goal-padded mirror of `path_tensors`, so path queries can be batched over envs
+        # instead of looping in python (a loop costs one host sync per env, per query).
+        # Padding with the goal reproduces the ragged semantics exactly: running off the end of a
+        # path yields the goal, which is what the consumers already fall back to.
+        self.max_path_points = 256
+        self.path_buf = torch.zeros((num_envs, self.max_path_points, 2), dtype=torch.float32, device=device)
+        self.path_len = torch.ones((num_envs,), dtype=torch.long, device=device)
+
         # on each reset store the initial path length for reward normalization
         self.initial_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
         self.current_path_length = torch.full((num_envs,), subgoal_dist, dtype=torch.float32, device=device)
@@ -53,7 +63,7 @@ class PathManager:
         self.duration_history = torch.zeros((num_envs, 20), dtype=torch.float32, device=device)
 
         # A* threads
-        self._executor = ThreadPoolExecutor(max_workers=16)
+        self._executor = ThreadPoolExecutor(max_workers=64)
 
     def map_to_local_coords(self, map_coords: torch.Tensor) -> torch.Tensor:
         return self.map_manager.map_to_local_coords(map_coords)
@@ -64,11 +74,11 @@ class PathManager:
     def sample_node_ids(self, num_samples: int) -> torch.Tensor:
         return torch.randint(0, self.nodes.shape[0], (num_samples,), device=self.device)
 
-    def sample_nav_task(self, env_ids: torch.Tensor, use_voronoi: bool = True) -> None:
+    def sample_nav_task(self, env_ids: torch.Tensor, sample_voronoi_prob: float = 0.25) -> None:
         # TODO: add distance_based sampling. For the time being,
         # just select a random node and navigate towards it
         for id in env_ids:
-            if use_voronoi:
+            if torch.rand(1) < sample_voronoi_prob:
                 start_coord_map, goal_coord_map = self.sample_voronoi_task(id)
             else:
                 start_coord_map, goal_coord_map = self.sample_manual_task(id)
@@ -118,6 +128,24 @@ class PathManager:
 
         return start_pos_map, goal_pos_map
 
+    def _write_path_buf(self, env_id: torch.Tensor | int, world_path: torch.Tensor) -> None:
+        """Mirror ``world_path`` into the dense buffer, padding the tail with the goal position."""
+        k = world_path.shape[0]
+        if k > self.path_buf.shape[1]:
+            self._grow_path_buf(k)
+        self.path_buf[env_id, :k] = world_path
+        self.path_buf[env_id, k:] = self.goal_pos_local[env_id]
+        self.path_len[env_id] = k
+
+    def _grow_path_buf(self, min_points: int) -> None:
+        old_k = self.path_buf.shape[1]
+        new_k = max(min_points, 2 * old_k)
+        grown = torch.zeros((self.path_buf.shape[0], new_k, 2), dtype=torch.float32, device=self.device)
+        grown[:, :old_k] = self.path_buf
+        grown[:, old_k:] = self.goal_pos_local.unsqueeze(1)
+        self.path_buf = grown
+        self.max_path_points = new_k
+
     def compute_global_plan(self, env_ids: torch.Tensor, robot_pos_w: torch.Tensor, env_origins: torch.Tensor) -> None:
         assert (
             robot_pos_w.shape[0] == env_ids.shape[0] == env_origins.shape[0]
@@ -126,34 +154,37 @@ class PathManager:
         robot_pos_local = robot_pos_w - env_origins
         robot_map_coords = self.local_to_map_coords(robot_pos_local)
 
-        costmap_cpu = self.map_manager.global_costmap[env_ids].squeeze(1).cpu().numpy()  # (num_envs, H, W)
+
+        obstacles_cpu = self.map_manager.obstacle_masks(env_ids)  # (num_envs, H, W)
+        start_coords = robot_map_coords.int().cpu().numpy()  # (num_envs, 2)
+        goal_coords = self.goal_pos_map[env_ids].int().cpu().numpy()  # (num_envs, 2)
+
+        clearance_px = self.map_manager.clearance_px
 
         paths = []
-        for idx, env_id in enumerate(env_ids):
-            r1, c1 = robot_map_coords[idx].int().cpu().numpy()
-            r2, c2 = self.goal_pos_map[env_id].int().cpu().numpy()
+        for idx in range(len(env_ids)):
             paths.append(
                 self._executor.submit(
-                    pyastar2d.astar_path,
-                    costmap_cpu[idx],
-                    (r1, c1),
-                    (r2, c2),
-                    allow_diagonal=True,
+                    self._inflate_and_plan,
+                    obstacles_cpu[idx],
+                    start_coords[idx],
+                    goal_coords[idx],
+                    clearance_px,
                 )
             )
 
         for idx, env_id in enumerate(env_ids):
-            path = paths[idx].result()
-            r, c = robot_map_coords[idx].int()
+            path, start_is_free = paths[idx].result()
             if path is None or len(path) == 0:
                 # if I am in a valid cell, but no path is found, I just stand still
-                if self._valid_map_coords((r, c), env_id):
+                if start_is_free:
                     # logger.info(f"No path found for robot {env_id}! (likely due to dynamic obstacle)")
                     self.path_tensors[env_id] = None
                 # if previous path exists keep it (this will happen when robot pos is mapped onto an occupied cell)
                 if self.path_tensors[env_id] is None:  # set to current location
                     robot_pos_local = self.map_to_local_coords(robot_map_coords[idx].unsqueeze(0))
                     self.path_tensors[env_id] = robot_pos_local
+                    self._write_path_buf(env_id, robot_pos_local)
                     self.current_path_length[env_id] = 0.0  # reset
                 continue
 
@@ -166,6 +197,7 @@ class PathManager:
 
             world_path = self.map_to_local_coords(path_tensor)  # (num_path_points, 2)
             self.path_tensors[env_id] = world_path
+            self._write_path_buf(env_id, world_path)
 
             # update path length buffer for reward normalization
             path_len_m = world_path.size(0) * self.point_dist
@@ -174,9 +206,12 @@ class PathManager:
             if path_len_m > self.initial_path_length[env_id]:
                 self.initial_path_length[env_id] = path_len_m
 
-    def _valid_map_coords(self, map_coords: tuple, env_id: int) -> bool:
-        r, c = map_coords
-        return self.map_manager.global_costmap[env_id, 0, r, c] < torch.inf
+    @staticmethod
+    def _inflate_and_plan(obstacles: np.ndarray, start: np.ndarray, goal: np.ndarray, clearance_px: float) -> tuple:
+        ''' Thread function that creates inflated global costmaps and computes A* paths. '''
+        costmap = MapManager.create_inflated_costmap(obstacles, clearance_px, free_cells=(start, goal))
+        path = pyastar2d.astar_path(costmap, tuple(start), tuple(goal), allow_diagonal=True)
+        return path, bool(np.isfinite(costmap[start[0], start[1]]))
 
     def compute_robot_teleport_state(
         self,

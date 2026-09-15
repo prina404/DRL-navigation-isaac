@@ -3,10 +3,14 @@ import sys
 
 from isaaclab.app import AppLauncher
 
-from cfg.CFG import get_scene_usd_path
-
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
+parser.add_argument(
+    "--map",
+    type=str,
+    required=True,
+    help="Map to run on, e.g. 40, 0040 or kujiale_0040. Overrides current_env in dataset_cfg.yaml.",
+)
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument(
     "--video_length",
@@ -52,7 +56,7 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_argv = parser.parse_known_args()
 # args_cli.enable_cameras = True  # always true for go2 cfg
 
-args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx"
+# args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx"
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -61,10 +65,12 @@ simulation_app = app_launcher.app
 import os
 import traceback
 from datetime import datetime
+from pathlib import Path
 
 import gymnasium as gym
 import hydra
 from dotenv import load_dotenv
+from hydra.utils import get_original_cwd
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -72,15 +78,17 @@ from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
-from policy.go2_nav_cfg import go2_policy_cfg
+from cfg.CFG import CHECKPOINT_DIR, get_map_name, get_scene_usd_path, set_map_name
+from policy.NavPolicyv2 import go2_policy_cfg, load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
 
+set_map_name(args_cli.map)  # before anything reads the map back out of cfg.CFG
 
-@hydra.main()
+
+@hydra.main(config_path=None)
 def run_simulator(cfg: DictConfig):
-
-    run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", "training"))
+    run_info = get_map_name() + datetime.now().strftime("_%m-%d_%H-%M")
+    log_root_path = os.path.abspath(os.path.join(get_original_cwd(), "logs", "rsl_rl", "training"))
     logger.info(f"Logging experiment in directory: {log_root_path}")
     logger.info(f"Exact experiment name requested from command line: {run_info}")
     log_dir = os.path.join(log_root_path, run_info)
@@ -99,7 +107,7 @@ def run_simulator(cfg: DictConfig):
         if not args_cli.debug_vis
         else "navigation_env.EnvDebugWrapper:NavEnvDebugView",
         disable_env_checker=True,
-        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": False},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": False, "debug_vis": args_cli.debug_vis, "sample_voronoi_probability": 0.25},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -123,8 +131,8 @@ def run_simulator(cfg: DictConfig):
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
     # Navigation Policy setup
-    policy_cfg = go2_policy_cfg
-    policy_cfg["obs_groups"] = environment_cfg.obs_groups  # needed for encoder initialization
+    # Note: OnPolicyRunner consumes its configuration destructively, so a fresh copy is built here
+    policy_cfg = make_go2_policy_cfg(environment_cfg.obs_groups)  # obs_groups needed for encoder initialization
     policy_cfg["num_envs"] = args_cli.num_envs if args_cli.num_envs is not None else cfg.num_envs
 
     if args_cli.wandb:
@@ -136,21 +144,32 @@ def run_simulator(cfg: DictConfig):
 
     if args_cli.checkpoint is True:
         ckpt_path = get_checkpoint_path(
-            log_path=os.path.abspath("ckpts"),
+            log_path=os.path.join(get_original_cwd(), "ckpts"),
             run_dir=policy_cfg["load_run"],
             checkpoint=policy_cfg["load_checkpoint"],
         )
-        ppo_runner.load(ckpt_path)
+        load_policy_checkpoint(ppo_runner, ckpt_path)
 
     ppo_runner.learn(
         num_learning_iterations=(
             go2_policy_cfg["max_iterations"] if args_cli.max_iterations is None else args_cli.max_iterations
         ),
     )
-    ppo_runner.save(os.path.join(log_dir, "final_policy.pt"))
-    logger.debug(f"Final episode count: {env.unwrapped.episode_counter.mean().item()}")
-    env.close()
+    store_final_policy(ppo_runner, CHECKPOINT_DIR)
 
+def store_final_policy(ppo_runner: OnPolicyRunner, ckpt_dir: Path) -> None:
+    # final path should be ckpts/unitree_go2_nav/{map_name}_policy.pt
+    policy_name = get_map_name() + "_policy.pt"
+    policy_save_path = ckpt_dir / "unitree_go2_nav" / policy_name
+    policy_save_path.parent.mkdir(parents=True, exist_ok=True)
+    if policy_save_path.exists():
+
+        new_name = f"old_{get_map_name()}_policy_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pt"
+        policy_save_path.rename(policy_save_path.parent / new_name)
+
+    ppo_runner.save(policy_save_path)
+    logger.debug(f"Final episode count: {ppo_runner.env.unwrapped.episode_counter.mean().item()}")
+    ppo_runner.env.close()
 
 if __name__ == "__main__":
     try:

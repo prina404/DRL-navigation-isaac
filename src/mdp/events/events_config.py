@@ -22,7 +22,7 @@ class BaseEventsCfg:
         },
     )
 
-    replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(2.0, 2.0))
+    replan = EventTermCfg(func=events.replan_global_plan, mode="interval", interval_range_s=(1.9, 2.1))
 
     update_counters = EventTermCfg(func=events.update_episode_counters, mode="reset")
 
@@ -36,20 +36,39 @@ class FullEventsCfg(BaseEventsCfg):
         mode="reset",
     )
 
-    randomize_indoor_lights = EventTermCfg(
-        func=events.randomize_lights_on_off,
+    # NOTE: These are needed for rbg-based policies, keeping them disabled for lidar
+    #
+    # randomize_indoor_lights = EventTermCfg(
+    #     func=events.randomize_lights_on_off,
+    #     mode="reset",
+    #     params={
+    #         "on_probability": 0.75,
+    #     },
+    # )
+
+    # randomize_dome_light = EventTermCfg(
+    #     func=events.randomize_distant_light,
+    #     mode="interval",
+    #     interval_range_s=(10.0, 15.0),
+    # )
+
+    # Declared after reset_pos so the chairs are kept clear of the robot's new spawn position.
+    randomize_chairs = EventTermCfg(
+        func=events.randomize_chair_positions,
         mode="reset",
         params={
-            "on_probability": 0.75,
+            "position_std": 0.25,
+            "max_retries": 25,
+            "robot_clearance": 0.15,
         },
     )
 
-    randomize_dome_light = EventTermCfg(
-        func=events.randomize_distant_light,
+
+@configclass
+class PathObstaclesEventsCfg(FullEventsCfg):
+    """Event config that adds path obstacles after a certain number of episodes"""
+    
+    randomize_obstacles = EventTermCfg(
+        func=events.move_obstacle_on_path,
         mode="reset",
     )
-
-    # randomize_obstacles = EventTermCfg(
-    #     func=events.move_obstacle_on_path,
-    #     mode="reset",
-    # )

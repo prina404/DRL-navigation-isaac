@@ -36,7 +36,7 @@ def update_collision_weight(
     else:
         env._running_mean_var = 0.8 * env._running_mean_var + 0.2 * average_variance
 
-    if average_variance < env._running_mean_var * 0.95:
+    if average_variance < env._running_mean_var * 0.90:
         term_cfg.weight += weight_step_size
 
     # Ensure the weight doesn't exceed the maximum allowed value
@@ -65,3 +65,7 @@ def nominal_policy_weight(env: NavEnv, env_ids: torch.Tensor, episode_start: int
     # linearly decay nominal policy weight from 1.0 to 0.0 over the ep interval
     env.nominal_weight = _progress_coeff(env, episode_start, episode_end)
     return env.nominal_weight
+
+def add_path_obstacles(env: NavEnv, env_ids: torch.Tensor, episode_start: int = 50, episode_end: int = 250) -> None:
+    env.obstacle_prob = 1 - _progress_coeff(env, episode_start, episode_end)
+    return env.obstacle_prob

@@ -44,6 +44,7 @@ class Go2BaseCfg(InteractiveSceneCfg):
     )
 
 
+
 @configclass
 class Go2EmptySceneCfg(Go2BaseCfg):
     """Empty plane with robot only"""
@@ -96,6 +97,11 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
                 track_mesh_transforms=True,
             ),
             MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/chair_.*/Meshes/chair_.*",
+                is_shared=False,  
+                track_mesh_transforms=True,
+            ),
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
                 prim_expr="{ENV_REGEX_NS}/environment/Meshes/static_objects",
                 is_shared=True,
                 track_mesh_transforms=False,
@@ -119,8 +125,8 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
 
 CAMERA_CFG = TiledCameraCfg(
     prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-    width=224,
-    height=224,
+    width=128,
+    height=128,
     offset=TiledCameraCfg.OffsetCfg(
         pos=(0.4, 0.0, 0.0),
         convention="world",
@@ -133,12 +139,12 @@ CAMERA_CFG = TiledCameraCfg(
 @configclass
 class Go2EmptyVisionCfg(Go2EmptySceneCfg):
     """Empty plane with robot only, robot has RGBD camera"""
-
+    #lidar = None
     camera = CAMERA_CFG
 
 
 @configclass
 class Go2FullVisionCfg(Go2FullSceneLidarCfg):
     """Full indoor scene, robot has RGBD camera"""
-
+    #lidar = None
     camera = CAMERA_CFG

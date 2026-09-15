@@ -2,7 +2,7 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils import configclass
 from loguru import logger
 
-import mdp.actions.actions_config as actions
+import mdp.actions.actions_config_v2 as actions
 import mdp.curriculum.curriculum_config as curriculum
 import mdp.events.events_config as events
 import mdp.observations.obs_config as obs
@@ -35,7 +35,8 @@ class Go2LidarFull(ManagerBasedRLEnvCfg):
         self.sim.device = PARAMS["device"]
         self.sim.use_fabric = PARAMS["use_fabric"]
         self.sim.render = PARAMS["render"]
-
+        self.sim.enable_scene_query_support = True
+        
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]
         self.sim.render_interval = self.decimation

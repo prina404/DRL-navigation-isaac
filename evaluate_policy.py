@@ -1,14 +1,18 @@
 import argparse
 import sys
 
-import torch
-import tqdm
 from isaaclab.app import AppLauncher
 
-from cfg.CFG import get_scene_usd_path
+from cfg.CFG import get_map_name, get_scene_usd_path, set_map_name
 
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
+parser.add_argument(
+    "--map",
+    type=str,
+    required=True,
+    help="Map to run on, e.g. 40, 0040 or kujiale_0040. Overrides current_env in dataset_cfg.yaml.",
+)
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument(
     "--video_length",
@@ -22,16 +26,34 @@ parser.add_argument(
     default=2000,
     help="Interval between video recordings (in steps).",
 )
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to simulate.")
 
-parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
+parser.add_argument(
+    "--seed",
+    type=int,
+    default=42,
+    help="Seed used for the environment. Passing it explicitly also reseeds every random stream right before "
+    "the scored rollout, so two policies run at the same seed see the same episodes (with --num_envs=1 for the "
+    "whole rollout, above it only for the first episode of each env).",
+)
 parser.add_argument(
     "--checkpoint",
     type=str,
     default=None,
     help="Name of the policy checkpoint file to evaluate.",
 )
-parser.add_argument("--max_iterations", type=int, default=100, help="RL Policy training iterations.")
+parser.add_argument(
+    "--max_episodes",
+    type=int,
+    default=20,
+    help="Number of episodes to record per environment.",
+)
+parser.add_argument(
+    "--collision_force_thresh",
+    type=float,
+    default=3.0,
+    help="Contact force (N) above which the robot is considered to be colliding.",
+)
 parser.add_argument(
     "--debug-vis",
     action="store_true",
@@ -40,25 +62,40 @@ parser.add_argument(
 )
 parser.add_argument("--task", type=str, default="go2_lidar_full", help="Name of the task configuration to use for training.")
 
+parser.add_argument("--distillation", action="store_true", default=False, help="Store to disk the observations, actions, and policy mean+std for distillation.")
+parser.add_argument(
+    "--stochastic",
+    action="store_true",
+    default=False,
+    help="Execute actions sampled from the policy distribution instead of its deterministic mean. Independent of "
+    "--distillation: the mean and std are logged either way.",
+)
+
+
 
 AppLauncher.add_app_launcher_args(parser)
 
 # # append AppLauncher cli args
 args_cli, hydra_argv = parser.parse_known_args()
-args_cli.enable_cameras = True  # always true for go2 cfg
+set_map_name(args_cli.map)  # before anything reads the map back out of cfg.CFG
+# Only the vision/depth tasks and video recording need cameras. Enabling them otherwise boots the RTX rendering Kit
+# experience, whose stage population cost scales with --num_envs.
+args_cli.enable_cameras = args_cli.video or "vision" in args_cli.task or "depth" in args_cli.task
 
-args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx"
+#args_cli.kit_args = (args_cli.kit_args or "") + " --enable isaacsim.sensors.rtx"
 sys.argv = [sys.argv[0]] + hydra_argv
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 
+import json
 import os
 import traceback
 from datetime import datetime
 
 import gymnasium as gym
 import hydra
+from hydra.utils import get_original_cwd
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -66,17 +103,18 @@ from loguru import logger
 from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
-from policy.go2_nav_cfg import go2_policy_cfg
+from distillation.policy_eval import log_summary, rollout_policy, summarize
+from distillation.recorder import DistillationRecorder
+from policy.NavPolicyv2 import load_policy_checkpoint, make_go2_policy_cfg
 from tasks.task_utils import get_env_config
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
 
 
-@hydra.main()
+@hydra.main(config_path=None)
 def run_simulator(cfg: DictConfig):
-
-    run_info = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", "validation"))
+    run_info = get_map_name() + datetime.now().strftime("_%m-%d_%H-%M")
+    log_root_path = os.path.abspath(os.path.join(get_original_cwd(), "logs", "rsl_rl", "validation"))
     logger.info(f"Logging experiment in directory: {log_root_path}")
     logger.info(f"Exact experiment name requested from command line: {run_info}")
     log_dir = os.path.join(log_root_path, run_info)
@@ -96,7 +134,7 @@ def run_simulator(cfg: DictConfig):
         if not args_cli.debug_vis
         else "navigation_env.EnvDebugWrapper:NavEnvDebugView",
         disable_env_checker=True,
-        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": True, "sample_voronoi": True},
+        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": False, "debug_vis": args_cli.debug_vis, "sample_voronoi_probability": 0.25},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -107,7 +145,7 @@ def run_simulator(cfg: DictConfig):
 
     if args_cli.video:
         video_kwargs = {
-            "video_folder": os.path.join(log_dir, "videos", "validation"),
+            "video_folder": os.path.join(log_dir, "videos"),
             "step_trigger": lambda step: step % args_cli.video_interval == 0,
             "video_length": args_cli.video_length,
             "disable_logger": True,
@@ -120,67 +158,54 @@ def run_simulator(cfg: DictConfig):
     logger.info("RslRlVecEnvWrapper applied to gym environment")
 
     # Navigation Policy setup
-    policy_cfg = go2_policy_cfg
-    policy_cfg["obs_groups"] = environment_cfg.obs_groups  # needed for encoder initialization
+    # Note: OnPolicyRunner consumes its configuration destructively, so a fresh copy is built here
+    policy_cfg = make_go2_policy_cfg(environment_cfg.obs_groups)  # obs_groups needed for encoder initialization
     policy_cfg["num_envs"] = args_cli.num_envs
 
     ppo_runner = OnPolicyRunner(env, policy_cfg, log_dir=log_dir, device=policy_cfg["device"])
 
-    if args_cli.checkpoint is True:
+    if args_cli.checkpoint is not None:
         ckpt_path = get_checkpoint_path(
-            log_path=os.path.abspath("ckpts"),
+            log_path=os.path.join(get_original_cwd(), "ckpts"),
             run_dir=policy_cfg["load_run"],
             checkpoint=args_cli.checkpoint,
         )
-        ppo_runner.load(ckpt_path)
+        load_policy_checkpoint(ppo_runner, ckpt_path)
 
     policy = ppo_runner.get_inference_policy(env.device)
 
-    obs, _ = env.reset()
+    recorder = (
+        DistillationRecorder(policy.obs_groups, 10.0, run_info, env.num_envs, args_cli.stochastic)
+        if args_cli.distillation
+        else None
+    )
+    num_envs = env.num_envs
 
-    episodes_done = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
-    episode_collisions = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
-    termination_flags = []
-    collisions = []  # per-completed-episode collision counts
-
-    avg_episodes = 0.0
-    with tqdm.tqdm(total=args_cli.max_iterations, desc="Evaluating policy") as pbar:
-        while avg_episodes < args_cli.max_iterations:
-            with torch.no_grad():
-                action = policy(obs)
-            obs, _, dones, info = env.step(action)
-
-            dones = dones.bool()
-            time_outs = info.get("time_outs", torch.zeros_like(dones)).bool()
-
-            # log collisions per env at each step
-            sensor = env.unwrapped.scene["body_collision_sensor"]
-            forces = sensor.data.net_forces_w  # (N, bodies, 3)
-            magnitude = torch.linalg.norm(forces, dim=-1).max(dim=-1).values
-            collision_tensor = magnitude > 1.0
-            episode_collisions += collision_tensor.float()
-
-            done_ids = dones.nonzero(as_tuple=False).squeeze(-1)
-            if len(done_ids) > 0:
-                # finalize metrics for each completed env-episode
-                collisions.extend(episode_collisions[done_ids].detach().cpu().tolist())
-                termination_flags.extend((~time_outs[done_ids]).float().detach().cpu().tolist())
-
-                episodes_done[done_ids] += 1
-                episode_collisions[done_ids] = 0.0
-
-            new_avg_episodes = episodes_done.float().mean().item()
-            new_avg_episodes_clamped = min(new_avg_episodes, float(args_cli.max_iterations))
-            pbar.update(new_avg_episodes_clamped - avg_episodes)
-            avg_episodes = new_avg_episodes_clamped
-
+    records = rollout_policy(
+        env,
+        policy,
+        args_cli.max_episodes,
+        collision_force_thresh=args_cli.collision_force_thresh,
+        stochastic=args_cli.stochastic,
+        seed=args_cli.seed,
+        recorder=recorder,
+        desc="Evaluating policy",
+    )
     env.close()
 
-    avg_termination_rate = sum(termination_flags) / len(termination_flags) if termination_flags else 0.0
-    avg_collisions = sum(collisions) / len(collisions) if collisions else 0.0
+    summary = summarize(records)
+    logger.info(f"{num_envs} envs x {args_cli.max_episodes} episodes")
+    log_summary(summary)
 
-    logger.info(f"Average termination rate over {args_cli.max_iterations} avg episodes/env: {avg_termination_rate:.3f}")
-    logger.info(f"Average collisions per completed episode: {avg_collisions:.3f}")
+    metrics_path = os.path.join(log_dir, "eval_metrics.json")
+    if args_cli.distillation:
+        policy_mode = "stochastic" if args_cli.stochastic else "deterministic"
+        metrics_path = recorder.out_dir / f"eval_metrics_{policy_mode}.json"
+
+    os.makedirs(log_dir, exist_ok=True)
+    with open(metrics_path, "w") as f:
+        json.dump({**records, "summary": summary}, f)
+    logger.info(f"Per-episode metrics written to {metrics_path}")
 
 
 if __name__ == "__main__":

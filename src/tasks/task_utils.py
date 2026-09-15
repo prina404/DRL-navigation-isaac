@@ -7,6 +7,7 @@ _TASK_DICT = {
     "go2_vision_empty": Go2VisionEmpty,
     "go2_vision_full": Go2VisionFull,
     "go2_depth_full": Go2DepthFull,
+    "go2_vision_depth_full": Go2VisionDepthFull,
 }
 
 

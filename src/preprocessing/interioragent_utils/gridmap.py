@@ -1,17 +1,19 @@
 import os
 from pathlib import Path
 
+import isaaclab.sim as sim_utils
 import numpy as np
 import omni
+import omni.physx
 import omni.usd
+import warp as wp
 import yaml
 from carb import Float2, Float3
+from isaaclab.sim import SimulationCfg, SimulationContext
 from isaacsim.asset.gen.omap.bindings import _omap
-from isaacsim.core.api import World
-from isaacsim.core.utils.stage import add_reference_to_stage
 from loguru import logger
 from PIL import Image
-from pxr import Usd, UsdGeom
+from pxr import Gf, Usd, UsdGeom, UsdPhysics
 
 
 def compute_scene_bbox(
@@ -75,7 +77,7 @@ def _get_omap_generator(
         raise ValueError("Lower bound of scan_height_range must be > 0 to ensure correct map generation.")
 
     physx = omni.physx.get_physx_interface()
-    stage_id = omni.usd.get_context().get_stage_id()
+    stage_id = sim_utils.get_current_stage_id()
 
     gen = _omap.Generator(physx, stage_id)
 
@@ -130,22 +132,81 @@ def compute_and_save_map(scene_prim: Usd.Prim, map_name: str, save_folder: str |
         yaml.dump(map_yaml, f)
 
 
+def _sync_simulated_poses_to_usd(sim: SimulationContext, root_path: str) -> int:
+    """Author the poses reached by the simulation back onto their prims.
+
+    IsaacLab steps physics through the tensor API, which keeps the resulting poses in the physics
+    views and never writes them to USD. The occupancy generator reads the stage, so without this the
+    map would be built with every door still closed at its authored pose.
+    """
+    view = sim.physics_manager.get_physics_sim_view()
+    xform_cache = UsdGeom.XformCache()
+
+    # read every pose before touching the stage, so no cached parent transform goes stale mid-way
+    poses = []
+    for prim in Usd.PrimRange(sim.stage.GetPrimAtPath(root_path)):
+        if not prim.HasAPI(UsdPhysics.RigidBodyAPI) or UsdPhysics.RigidBodyAPI(prim).GetKinematicEnabledAttr().Get():
+            continue  # static and kinematic bodies stay where they were authored
+
+        body = view.create_rigid_body_view(prim.GetPath().pathString)
+        if body is None or body.count == 0:
+            continue
+
+        transform = wp.to_torch(body.get_transforms()).detach().cpu().numpy()[0]  # (pos, quat as xyzw)
+        # the hierarchy bakes a unit conversion into the parent scale, which physics poses do not carry
+        scale = Gf.Transform(xform_cache.GetLocalToWorldTransform(prim)).GetScale()
+        parent_to_world = xform_cache.GetLocalToWorldTransform(prim.GetParent())
+
+        world = Gf.Transform()
+        world.SetScale(scale)
+        world.SetRotation(Gf.Rotation(Gf.Quatd(float(transform[6]), Gf.Vec3d(*transform[3:6].tolist()))))
+        world.SetTranslation(Gf.Vec3d(*transform[:3].tolist()))
+
+        poses.append((prim, world.GetMatrix() * parent_to_world.GetInverse()))
+
+    for prim, local in poses:
+        xformable = UsdGeom.Xformable(prim)
+        xformable.ClearXformOpOrder()
+        xformable.AddTransformOp().Set(local)
+
+    return len(poses)
+
+
 def create_map_from_file(filepath: str | Path, env_cfg: dict):
     usd_path = os.path.abspath(str(filepath))
 
-    my_world = World(stage_units_in_meters=1.0)
-    my_world.scene.add_default_ground_plane()
+    # start from a fresh stage: preprocessing swaps the stage of the usd context for every scene, so a
+    # simulation context left over from a previous scene would still point at the wrong one
+    SimulationContext.clear_instance()
+    sim_utils.create_new_stage()
+    # the generator probes the scene with physics queries, and fabric would only mirror the physics
+    # state for rendering, which this pass never does
+    sim = SimulationContext(SimulationCfg(use_fabric=False, enable_scene_query_support=True))
 
-    add_reference_to_stage(usd_path=usd_path, prim_path="/World/environment")
+    ground_cfg = sim_utils.GroundPlaneCfg()
+    ground_cfg.func("/World/groundPlane", ground_cfg)
 
-    my_world.reset()
-    my_world.step(render=True)  # step once to ensure all prims are loaded
+    scene_cfg = sim_utils.UsdFileCfg(usd_path=usd_path)
+    scene_cfg.func("/World/environment", scene_cfg)
+
+    sim.reset()
+    sim.step(render=True)  # step once to ensure all prims are loaded
     for _ in range(100):
-        my_world.step(render=False)  # step a few more times to ensure doors reach their final positions
+        sim.step(render=False)  # step a few more times to ensure doors reach their final positions
+
+    synced = _sync_simulated_poses_to_usd(sim, "/World/environment")
+    logger.debug(f"Wrote back the simulated poses of {synced} dynamic bodies before mapping.")
+
+    # the generator maps the collision scene physx loaded from usd, which only picks up the poses
+    # written above once it re-reads the stage
+    omni.physx.get_physx_interface().force_load_physics_from_usd()
 
     compute_and_save_map(
-        scene_prim=my_world.stage.GetPrimAtPath("/World/environment"),
+        scene_prim=sim.stage.GetPrimAtPath("/World/environment"),
         map_name=Path(usd_path).stem + "_map",
         save_folder=Path(usd_path).parent,
         env_cfg=env_cfg,
     )
+
+    # leave no simulation attached to the stage, the next scene reopens the usd context from scratch
+    SimulationContext.clear_instance()

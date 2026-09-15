@@ -373,7 +373,7 @@ def compute_voronoi_graph(
 
 
 if __name__ == "__main__":
-    img_path = sys.argv[1]
+    img_path = sys.argv[1] if len(sys.argv) > 1 else "src/preprocessing/test_map.png"
     graph, coordinates = compute_voronoi_graph(img_path, 20, 20, plot_graph=True, name="test", filepath="")
     print(graph.nodes)
     print(list(list(graph.neighbors(i)) for i in graph.nodes))
