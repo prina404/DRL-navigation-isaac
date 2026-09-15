@@ -23,7 +23,7 @@ student_policy_cfg: dict[str, Any] = {
     "actor": {
         "class_name": MLPModelWithEncoders,
         # "hidden_dims": [256, 128, 128],
-        "hidden_dims": [1024, 512, 512, 256, 128],
+        "hidden_dims": [2048, 1024, 512, 512, 512, 128],
         "activation": "elu",
         "obs_normalization": False,
         "last_activation": None,
