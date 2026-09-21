@@ -12,7 +12,7 @@
 
 ```bash
 $ ./setup.sh
-$ source .venv/bin/activate
+$ source env_isaaclab/bin/activate
 ```
 
 ### Dataset setup
