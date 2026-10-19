@@ -40,24 +40,29 @@ $ echo -e "WANDB_USERNAME=<user> \nWANDB_PROJECT=<project>" > .env
 
 
 # Usage
-Train a simple policy that navigates in empty environments
+Train a generalist policy on every apartment listed under `training_envs` in `dataset_cfg.yaml`
 
 ```bash
-$ python3 train_policy.py --map=40 --num_envs=128 --max_iterations=500 --task="go2_lidar_empty"
+$ python3 train_policy.py --num_envs=512 --max_iterations=500 --task="go2_lidar_full" --headless
 ```
 
-`--map` is mandatory and selects the scene to train on: `40`, `0040` and `kujiale_0040` all mean the same map, which
-must be one of the preprocessed ones under `dataset_folder`. It overrides `current_env` in `dataset_cfg.yaml`, which
-is now only a fallback for the annotation notebook.
+All the apartments are loaded at once, 30 m apart, and the robots are spread across them. Every robot has its own
+doors and chairs, randomized independently, and neither sees nor collides with the other robots.
+
+`--maps` restricts the run to some apartments: `40`, `0040` and `kujiale_0040` all mean the same map, which must be
+one of the preprocessed ones under `dataset_folder`. With a single map, the checkpoint is saved as
+`ckpts/unitree_go2_nav/<map>_policy.pt`, otherwise as `generalist_policy.pt`. `evaluate_policy.py` takes the same flag,
+and defaults to the `eval_envs` maps.
+
+```bash
+$ python3 train_policy.py --maps 40 --num_envs=128 --max_iterations=500 --task="go2_lidar_empty"
+```
 
 The available tasks are:
 
 ```bash
 - go2_lidar_full # (default)
 - go2_lidar_empty
-- go2_vision_empty # (experimental)
-- go2_vision_full # (experimental)
-- go2_depth_full # (experimental)
 ```
 
 where the `*_full` tasks build the entire scene, whereas `*_empty` ones are just an empty plane.

@@ -25,7 +25,7 @@ OBS_TERM_DIMS: tuple[tuple[str, int], ...] = (
 )
 
 GO2_SIM2REAL_CFG = {
-    "checkpoint": CHECKPOINT_DIR / "unitree_go2_locomotion" / "policy_finetune10.5.5.49.pt",
+    "checkpoint": CHECKPOINT_DIR / "unitree_go2_locomotion" / "policy_final_elliptic2.5ms.pt",
     "device": DEVICE,
     # ObservationGroupCfg.history_length of the training env
     "history_length": 8,

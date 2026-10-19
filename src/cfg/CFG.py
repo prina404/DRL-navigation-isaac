@@ -1,4 +1,6 @@
+import math
 from pathlib import Path
+from typing import Literal
 
 import torch
 import yaml
@@ -30,7 +32,10 @@ def get_dataset_dir() -> Path:
     return (ROOT_DIR / cfg["dataset_folder"]).resolve()
 
 
-_MAP_OVERRIDE: str | None = None
+_MAPS_OVERRIDE: list[str] | None = None
+
+#: Distance between the origins of neighbouring maps [m]. The largest map spans ~17 m, so neighbours never overlap.
+MAP_SPACING = 30.0
 
 
 def available_maps() -> list[str]:
@@ -49,7 +54,7 @@ def resolve_map_name(name: str) -> str:
     else:
         map_name = f"{prefix or 'kujiale'}_{digits.zfill(4)}"
 
-    if not (get_dataset_dir() / map_name / f"{map_name}_baked.usda").is_file():
+    if not get_scene_usd_path(map_name).is_file():
         raise FileNotFoundError(
             f"Map '{map_name}' has no baked scene under {get_dataset_dir()}. "
             f"Preprocessed maps: {', '.join(available_maps()) or '<none>'}"
@@ -57,18 +62,54 @@ def resolve_map_name(name: str) -> str:
     return map_name
 
 
+def set_map_names(names: list[str]) -> list[str]:
+    global _MAPS_OVERRIDE
+    _MAPS_OVERRIDE = list(dict.fromkeys(resolve_map_name(name) for name in names))  # drop duplicates, keep order
+    return _MAPS_OVERRIDE
+
+
+def get_map_names() -> list[str]:
+    if _MAPS_OVERRIDE is not None:
+        return _MAPS_OVERRIDE
+    return [load_cfg()["current_env"]]  # fallback for tooling with no --maps, e.g. task_annotator.ipynb
+
+
 def set_map_name(name: str) -> str:
-    global _MAP_OVERRIDE
-    _MAP_OVERRIDE = resolve_map_name(name)
-    return _MAP_OVERRIDE
+    """Single map version of `set_map_names`, for the tooling that only handles one map (ROS, distillation)."""
+    return set_map_names([name])[0]
 
 
 def get_map_name() -> str:
-    if _MAP_OVERRIDE is not None:
-        return _MAP_OVERRIDE
-    return load_cfg()["current_env"]  # fallback for tooling with no --map, e.g. task_annotator.ipynb
+    """The map of a single map run, for the tooling that only handles one map (ROS, distillation)."""
+    names = get_map_names()
+    if len(names) != 1:
+        raise ValueError(f"Expected a single map, but {len(names)} are loaded: {names}")
+    return names[0]
 
 
-def get_scene_usd_path() -> Path:
-    env_name = get_map_name()
-    return get_dataset_dir() / env_name / f"{env_name}_baked.usda"
+def get_run_name() -> str:
+    """Names logs and checkpoints after the map of a single map run, or "generalist" when there are several."""
+    names = get_map_names()
+    return names[0] if len(names) == 1 else "generalist"
+
+
+def get_map_origins() -> dict[str, tuple[float, float, float]]:
+    """World position of the frame of every loaded map. Maps are laid out on a square grid, MAP_SPACING apart."""
+    names = get_map_names()
+    num_cols = math.ceil(math.sqrt(len(names)))
+    return {name: (MAP_SPACING * (i // num_cols), MAP_SPACING * (i % num_cols), 0.0) for i, name in enumerate(names)}
+
+
+def get_scene_usd_path(map_name: str | None = None) -> Path:
+    map_name = map_name or get_map_name()  # tooling that handles a single map, e.g. task_annotator.ipynb
+    return get_dataset_dir() / map_name / f"{map_name}_baked.usda"
+
+
+def get_split_usd_path(map_name: str, part: Literal["static", "dynamic"]) -> Path:
+    """One half of the baked scene: its static geometry, or its doors and chairs (see `write_split_layers`)."""
+    path = get_dataset_dir() / map_name / f"{map_name}_{part}.usda"
+    if not path.is_file():  # maps baked before the scene was split in two
+        from preprocessing.interioragent_utils.layers import write_split_layers
+
+        write_split_layers(get_scene_usd_path(map_name))
+    return path

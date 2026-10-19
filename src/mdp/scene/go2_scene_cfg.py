@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from dataclasses import MISSING
+
 import isaaclab.sim as sim
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCollectionCfg
 from isaaclab.scene import InteractiveSceneCfg
@@ -7,12 +10,12 @@ from isaaclab.sensors import (
     RayCasterCfg,
     patterns,
 )
-from isaaclab.sensors.camera import TiledCameraCfg
-from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.utils import configclass
+from pxr import Usd
 
-from cfg.CFG import get_scene_usd_path
+from cfg.CFG import get_map_origins, get_split_usd_path
 from mdp.scene.moving_obstacles_cfg import get_obstacles_cfg
+from mdp.scene.multi_map_ray_caster import MultiMapRayCasterCfg
 from mdp.scene.robot_cfg import UNITREE_GO2_CFG
 
 
@@ -24,6 +27,11 @@ class Go2BaseCfg(InteractiveSceneCfg):
         prim_path="/World/ground",
         spawn=sim.GroundPlaneCfg(color=(0.1, 0.1, 0.1), size=(500.0, 500.0)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0, 0, -0.01)),
+    )
+
+    sky_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim.DomeLightCfg(color=(0.9, 0.9, 0.9), intensity=1000.0),
     )
 
     # Go2 Robot
@@ -43,19 +51,21 @@ class Go2BaseCfg(InteractiveSceneCfg):
         track_air_time=False,
     )
 
+    # the knee sphere is a collider of the thigh link, just above the calf joint (the calf's own collider is disabled)
+    knee_collision_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/.*_thigh",
+        history_length=1,
+        track_air_time=False,
+    )
 
 
 @configclass
 class Go2EmptySceneCfg(Go2BaseCfg):
     """Empty plane with robot only"""
 
-    sky_light = AssetBaseCfg(
-        prim_path="/World/DomeLight",
-        spawn=sim.DomeLightCfg(color=(0.9, 0.9, 0.9), intensity=1000.0),
-    )
-
     lidar = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
+        spawn=None,  # the radar link of the robot; a spawned frame would clash with the robot when cloning per map
         update_period=0.05,  # 20Hz
         offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
         ray_alignment="yaw",
@@ -72,12 +82,38 @@ class Go2EmptySceneCfg(Go2BaseCfg):
     )
 
 
+def spawn_map_objects(prim_path: str, cfg: "MapObjectsCfg", translation=None, orientation=None, **kwargs) -> Usd.Prim:
+    """Spawn the doors and chairs of a map at the map's origin, and tag them with the map's name.
+
+    Every robot has its environment origin at the world origin, so the offset that moves the objects into their map
+    must come from the spawner (the variants of a `MultiAssetSpawnerCfg` are all spawned with the same translation).
+    The tag survives cloning, and is how `NavEnv` finds out which map each robot was assigned to.
+    """
+    prim = sim.spawn_from_usd(prim_path, cfg, translation=cfg.map_origin, orientation=orientation, **kwargs)
+    prim.SetCustomDataByKey("map_name", cfg.map_name)
+    return prim
+
+
+@configclass
+class MapObjectsCfg(sim.UsdFileCfg):
+    """The dynamic objects of one map, spawned at the origin of that map"""
+
+    func: Callable = spawn_map_objects
+    map_name: str = MISSING
+    map_origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
 @configclass
 class Go2FullSceneLidarCfg(Go2BaseCfg):
-    """Full indoor scene, robot has lidar only"""
+    """Every loaded map, robot has lidar only.
 
-    lidar = MultiMeshRayCasterCfg(
+    The static geometry of each map is a global prim, shared by all the robots navigating it, while each robot has its
+    own copy of the doors and chairs of its map. Robots do not collide with, nor see, the other environments.
+    """
+
+    lidar = MultiMapRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
+        spawn=None,  # the radar link of the robot; a spawned frame would clash with the robot when cloning per map
         update_period=0.05,  # 20Hz
         offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),
         ray_alignment="yaw",
@@ -91,19 +127,15 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
         mesh_prim_paths=[
             "/World/ground",
             MultiMeshRayCasterCfg.RaycastTargetCfg(
-                # TODO check if we can simplify prim_expr
-                prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
-                is_shared=False,  # door prims have hinge joints, so we need to track their mesh transforms for accurate raycasting
+                prim_expr="{ENV_REGEX_NS}/dynamic_objects/other/door_.*/Meshes/door_.*/group_.*",
+                track_mesh_transforms=True,  # door prims have hinge joints, so we need to track their mesh transforms
+            ),
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/dynamic_objects/other/chair_.*/Meshes/chair_.*",
                 track_mesh_transforms=True,
             ),
             MultiMeshRayCasterCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/environment/Meshes/dynamic_objects/other/chair_.*/Meshes/chair_.*",
-                is_shared=False,  
-                track_mesh_transforms=True,
-            ),
-            MultiMeshRayCasterCfg.RaycastTargetCfg(
-                prim_expr="{ENV_REGEX_NS}/environment/Meshes/static_objects",
-                is_shared=True,
+                prim_expr="/World/maps",  # the static geometry of every map, merged into a single mesh
                 track_mesh_transforms=False,
             ),
         ],
@@ -114,37 +146,27 @@ class Go2FullSceneLidarCfg(Go2BaseCfg):
     # )
 
     def __post_init__(self):
-        # env config in post_init to ensure usd path is updated at runtime
-        self.environment = AssetBaseCfg(
-            prim_path="{ENV_REGEX_NS}/environment",
-            spawn=sim.UsdFileCfg(
-                usd_path=str(get_scene_usd_path()),
+        # maps are read in post init, once the entry script has picked them
+        map_origins = get_map_origins()
+        for map_name, map_origin in map_origins.items():
+            static_cfg = AssetBaseCfg(
+                prim_path=f"/World/maps/{map_name}",
+                spawn=sim.UsdFileCfg(usd_path=str(get_split_usd_path(map_name, "static"))),
+                init_state=AssetBaseCfg.InitialStateCfg(pos=map_origin),
+            )
+            setattr(self, f"{map_name}_static", static_cfg)
+
+        self.dynamic_objects = AssetBaseCfg(
+            prim_path="{ENV_REGEX_NS}/dynamic_objects",
+            spawn=sim.MultiAssetSpawnerCfg(
+                assets_cfg=[
+                    MapObjectsCfg(
+                        usd_path=str(get_split_usd_path(map_name, "dynamic")),
+                        map_name=map_name,
+                        map_origin=map_origin,
+                    )
+                    for map_name, map_origin in map_origins.items()
+                ],
+                random_choice=False,
             ),
         )
-
-
-CAMERA_CFG = TiledCameraCfg(
-    prim_path="{ENV_REGEX_NS}/Go2/base/front_cam",
-    width=128,
-    height=128,
-    offset=TiledCameraCfg.OffsetCfg(
-        pos=(0.4, 0.0, 0.0),
-        convention="world",
-    ),
-    data_types=["rgb", "depth"],
-    spawn=PinholeCameraCfg(focal_length=1.5, horizontal_aperture=4, clipping_range=(0.1, 100.0)),
-)
-
-
-@configclass
-class Go2EmptyVisionCfg(Go2EmptySceneCfg):
-    """Empty plane with robot only, robot has RGBD camera"""
-    #lidar = None
-    camera = CAMERA_CFG
-
-
-@configclass
-class Go2FullVisionCfg(Go2FullSceneLidarCfg):
-    """Full indoor scene, robot has RGBD camera"""
-    #lidar = None
-    camera = CAMERA_CFG

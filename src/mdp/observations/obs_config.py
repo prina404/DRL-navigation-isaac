@@ -1,35 +1,38 @@
+import isaaclab.envs.mdp as isaac_mdp
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.utils import configclass
+from isaaclab.utils.noise import GaussianNoiseCfg
 
 import mdp.observations.helper_functions as observations
+from tasks.task_common_params import PARAMS
 
 
 # ------------ GROUPS ------------
 @configclass
 class _ActionGroup(ObsGroup):
-    action_buffer = ObsTerm(func=observations.get_previous_actions)
+    # The last 5 raw policy actions, cleared on reset. Raw rather than the executed command: a speed cap at evaluation
+    # time would otherwise show up in the history, out of the distribution the policy was trained on.
+    action_buffer = ObsTerm(func=isaac_mdp.last_action, history_length=5)
 
 
 @configclass
 class _VelocityGroup(ObsGroup):
-    velocity_buffer = ObsTerm(func=observations.get_previous_velocities)
+    # The last 10 velocities, cleared on reset. Like a state estimate, each one is noisy, but its noise is drawn once,
+    # as it enters the history, and then stays the same.
+    velocity_buffer = ObsTerm(
+        func=observations.get_base_velocity,
+        history_length=10,
+        noise=GaussianNoiseCfg(std=PARAMS["velocity_noise_std"]),
+    )
 
-
-@configclass
-class _VisionGroup(ObsGroup):
-    vision = ObsTerm(func=observations.VisionEncoder(encoder="vit"))
-
-
-@configclass
-class _DepthGroup(ObsGroup):
-    # depth = ObsTerm(func=observations.DepthEncoder(encoder="resnet"))
-    depth = ObsTerm(func=observations.DepthEncoder(encoder="efficientnet"))
+    def __post_init__(self):
+        self.enable_corruption = True
 
 
 @configclass
 class _LidarGroup(ObsGroup):
-    lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 256})
+    lidar = ObsTerm(func=observations.get_lidar, params={"num_obstacles": 256, "noise_std": PARAMS["lidar_noise_std"]})
 
 
 @configclass
@@ -54,46 +57,4 @@ class LidarOnlyCfg:
     action_buffer = _ActionGroup()
     velocity_buffer = _VelocityGroup()
     lidar = _LidarGroup()
-    global_plan = _GlobalPlanGroup()
-
-
-@configclass
-class LidarVisionCfg:
-    action_buffer = _ActionGroup()
-    velocity_buffer = _VelocityGroup()
-    vision = _VisionGroup()
-    lidar = _LidarGroup()
-    global_plan = _GlobalPlanGroup()
-
-
-@configclass
-class LidarDepthCfg:
-    action_buffer = _ActionGroup()
-    velocity_buffer = _VelocityGroup()
-    depth = _DepthGroup()
-    lidar = _LidarGroup()
-    global_plan = _GlobalPlanGroup()
-
-
-@configclass
-class VisionOnlyCfg:
-    action_buffer = _ActionGroup()
-    velocity_buffer = _VelocityGroup()
-    vision = _VisionGroup()
-    global_plan = _GlobalPlanGroup()
-
-
-@configclass
-class DepthOnlyCfg:
-    action_buffer = _ActionGroup()
-    velocity_buffer = _VelocityGroup()
-    depth = _DepthGroup()
-    global_plan = _GlobalPlanGroup()
-
-@configclass
-class VisionDepthCfg:
-    action_buffer = _ActionGroup()
-    velocity_buffer = _VelocityGroup()
-    vision = _VisionGroup()
-    depth = _DepthGroup()
     global_plan = _GlobalPlanGroup()

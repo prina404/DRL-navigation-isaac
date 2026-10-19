@@ -1,5 +1,4 @@
 import math
-from typing import Literal
 
 import torch
 from isaaclab.envs import ManagerBasedRLEnv
@@ -11,108 +10,8 @@ from isaaclab.utils.math import (
 )
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
-from cfg.CFG import DEVICE
-#from defm.utils import preprocess_depth_batch
-from mdp.observations.vision_models import (
-    DepthResNetEncoder,
-#    ViNTVisionEncoder,
-    ViTEncoder,
-    DepthEfficientNetEncoder,
-)
 from navigation_env.NavigationEnv import NavEnv
 
-
-class VisionEncoder:
-    def __init__(self, encoder: Literal["vit", "vint"], device=DEVICE, normalize: bool = True):
-        if encoder == "vint":
-            raise NotImplementedError("ViNT encoder was not ported to this version")
-        elif encoder != "vit":
-            raise ValueError(f"Unknown encoder type: {encoder}")
-        # the weights are only loaded on the first call, so observation configs that do not
-        # use vision never pay for them (obs_config instantiates every term at import time)
-        self.encoder = None
-        self.device = device
-        self.normalize = normalize
-
-        self.history = None
-
-    def _ensure_encoder(self):
-        if self.encoder is None:
-            self.encoder = ViTEncoder().to(self.device)
-
-    def _append_to_history(self, obs: torch.Tensor):
-        if self.history is None:
-            # init history buffer with 10 copies of the first observation
-            self.history = obs.unsqueeze(1).repeat(1, 10, 1)
-        else:
-            # use circular buffer to store the last 10 observations
-            self.history = torch.roll(self.history, shifts=-1, dims=1)
-            self.history[:, -1, :] = obs
-    
-    def _get_history_flattened(self) -> torch.Tensor:
-        # flatten history into a single vector
-        return self.history.reshape(self.history.shape[0], -1) # (B, 10 * obs_dim)
-
-
-
-    @torch.no_grad()
-    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
-        self._ensure_encoder()
-        cam = env.scene["camera"]
-        rgb = cam.data.output["rgb"].torch  # (N, H, W, C)
-        rgb = rgb.permute(0, 3, 1, 2)  # Convert to N, C, H, W for ViT/ViNT
-        rgb = rgb.to(dtype=torch.float32) / 255.0
-        embedding = self.encoder(rgb)
-        if self.normalize:
-            embedding = torch.sigmoid(embedding)
-        
-        self._append_to_history(embedding)
-        return self._get_history_flattened()
-
-
-class DepthEncoder:
-    def __init__(self, encoder: Literal["resnet", "efficientnet"], device=DEVICE):
-        # TODO: support more models, right now, only resnets are supported
-        if encoder == "resnet":
-            raise NotImplementedError("DepthResNetEncoder was not ported to this version")
-            #self.model = DepthResNetEncoder(device=device)
-        elif encoder != "efficientnet":
-            raise ValueError(f"Unknown encoder type: {encoder}")
-        # see VisionEncoder: the model is only built on the first call
-        self.model = None
-        self.device = device
-
-        self.history = None
-
-    def _ensure_model(self):
-        if self.model is None:
-            self.model = DepthEfficientNetEncoder(device=self.device)
-
-    def _append_to_history(self, obs: torch.Tensor):
-        if self.history is None:
-            # init history buffer with 25 copies of the first observation
-            self.history = obs.unsqueeze(1).repeat(1, 25, 1)
-        else:
-            # use circular buffer to store the last 25 observations
-            self.history = torch.roll(self.history, shifts=-1, dims=1)
-            self.history[:, -1, :] = obs
-    
-    def _get_history_flattened(self) -> torch.Tensor:
-        # flatten history into a single vector
-        return self.history.reshape(self.history.shape[0], -1) # (B, 25 * obs_dim)
-
-    @torch.no_grad()
-    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
-        self._ensure_model()
-        cam = env.scene["camera"]
-        depth = cam.data.output["depth"].torch  # (B, H, W, 1)
-        depth = depth.permute(0, 3, 1, 2)  # (B, 1, H, W)
-
-        #normalized_depth = preprocess_depth_batch(depth, target_size=768, device=self.device)
-        embedding = self.model(depth)
-
-        self._append_to_history(embedding)
-        return self._get_history_flattened()
 
 def get_dummy_embedding(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 768), device=env.device, dtype=torch.float32)
@@ -122,11 +21,13 @@ def get_dummy_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 50), device=env.device, dtype=torch.float32)
 
 
-def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> torch.Tensor:
+def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True, noise_std: float = 0.0) -> torch.Tensor:
     """
     Returns (B, 2 * num_obstacles) where for each batch we concatenate the distance and yaw of the closest num_obstacles points:
         result[B, :num_obstacles] = distance
         result[B, num_obstacles:] = yaw (radians)
+
+    `noise_std` [m] is the std of a zero mean gaussian range noise, drawn independently for every ray.
     """
     lidar: MultiMeshRayCaster = env.scene["lidar"]
 
@@ -136,6 +37,12 @@ def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> tor
 
     scan_w: torch.Tensor = lidar.data.ray_hits_w.torch  # (B, N_rays, 3)
     scan = scan_w - robot_pos.unsqueeze(1)  # (B, N_rays, 3) relative vec in world frame
+
+    if noise_std > 0.0:
+        # each hit slides along its ray by its own sample: rays that hit nothing are infinitely long, and stay so
+        ray_length = torch.norm(scan, dim=-1, keepdim=True).clamp(min=1e-6)  # (B, N_rays, 1)
+        noise = noise_std * torch.randn_like(ray_length)
+        scan = scan * (1.0 + noise / ray_length).clamp(min=0.0)  # a hit cannot end up behind the sensor
 
     B, N_rays, _ = scan.shape
 
@@ -261,7 +168,7 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     # Overrunning the end of a path lands in the goal padding, which is the same fallback the
     # previous implementation got by pre-filling the result with goal_pos_local.
     env: NavEnv = env.unwrapped
-    local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.map_origins[:, :2]  # (B, 2)
     paths = env.path_manager.path_buf  # (B, K, 2), goal-padded
     closest = _closest_path_idx(env, local_robot_coords)  # (B,)
     offsets = torch.arange(num_points_forward + 1, device=paths.device)  # (P+1,)
@@ -279,7 +186,7 @@ def get_path_obs(
         return torch.zeros((env.num_envs, num_points_forward * 2), device=env.device)
 
     # returns a 1D tensor of size (B*num_points_forward*2) with distance and heading to each path point
-    local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.map_origins[:, :2]  # (B, 2)
 
     path_coords = _get_path_coords(env, num_points_forward)  # (B, num_points_forward, 2)
 
@@ -303,18 +210,10 @@ def get_path_obs(
     return torch.cat([path_distances, headings], dim=1)  # (B, num_points_forward * 2)
 
 
-def get_previous_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:
-    env: NavEnv = env.unwrapped
-    if not hasattr(env, "_action_buffer"):
-        return torch.zeros((env.num_envs, 5 * 3), device=env.device)
-    return env._action_buffer.reshape(env.num_envs, -1)
-
-
-def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
-    env: NavEnv = env.unwrapped
-    if not hasattr(env, "_velocity_buffer"):
-        return torch.zeros((env.num_envs, 10 * 3), device=env.device)
-    return env._velocity_buffer.reshape(env.num_envs, -1)
+def get_base_velocity(env: NavEnv) -> torch.Tensor:
+    """(v_x, v_y) [m/s] of the robot in the world frame, and its yaw rate w_z [rad/s]."""
+    robot = env.scene["robot"]
+    return torch.cat([robot.data.root_com_lin_vel_w.torch[:, :2], robot.data.root_com_ang_vel_w.torch[:, 2:3]], dim=-1)
 
 
 def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_points_forward: int) -> torch.Tensor:
@@ -326,7 +225,7 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_poin
         return torch.zeros((env.num_envs, 3), device=env.device)
 
     robot = env.scene["robot"]
-    robot_pos_local = robot.data.root_com_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
+    robot_pos_local = robot.data.root_com_pos_w.torch[:, :2] - env.map_origins[:, :2]  # (B, 2)
 
     paths = env.path_manager.path_buf  # (B, K, 2)
     lengths = env.path_manager.path_len  # (B,)
@@ -335,7 +234,7 @@ def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_poin
     idx = torch.minimum(closest + (local_goal_points_forward - 1), lengths - 1)  # (B,)
     goal_pos_local = paths.gather(1, idx.view(-1, 1, 1).expand(-1, 1, 2)).squeeze(1)  # (B, 2)
 
-    goal_pos_w = goal_pos_local + env.scene.env_origins[:, :2]  # (B, 2)
+    goal_pos_w = goal_pos_local + env.map_origins[:, :2]  # (B, 2)
     padded_goal = torch.cat([goal_pos_w, torch.zeros((env.num_envs, 1), device=env.device)], dim=-1)  # (B, 3)
 
     # Now goal positions are in robot frame

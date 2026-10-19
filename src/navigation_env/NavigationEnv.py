@@ -1,12 +1,11 @@
-from pathlib import Path
-
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.envs.common import VecEnvStepReturn
 from isaaclab.envs.ui import ViewportCameraController
-from isaaclab.utils.math import euler_xyz_from_quat
+from loguru import logger
 
+from cfg.CFG import get_map_names, get_map_origins
 from navigation_env.managers.camera_manager import CameraManager
 from navigation_env.managers.map_manager import MapManager
 from navigation_env.managers.path_manager import PathManager
@@ -16,24 +15,17 @@ class NavEnv(ManagerBasedRLEnv):
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        assert "scene_path" in kwargs, "Must provide scene_path as a keyword argument"
-        scene_path = Path(kwargs["scene_path"])
-        map_img_path = str(scene_path.parent / (scene_path.stem + "_map.png"))
-        map_yaml_path = str(scene_path.parent / (scene_path.stem + "_map.yaml"))
-        self._map_manager = MapManager(map_img_path, map_yaml_path, self.num_envs, device=self.device)
+        map_names = get_map_names()
+        env_map_ids = self._read_env_maps(map_names)
+        self.env_map_names = [map_names[map_id] for map_id in env_map_ids.tolist()]
 
-        self.path_manager = PathManager(
-            scene_path=scene_path, map_mgr=self._map_manager, num_envs=self.num_envs, device=self.device
-        )
+        # World position of the frame of the map each robot navigates. Robots share the environment origin of
+        # IsaacLab (the world origin), so this is the origin every local coordinate is relative to.
+        map_origins = get_map_origins()
+        self.map_origins = torch.tensor([map_origins[name] for name in map_names], device=self.device)[env_map_ids]
 
-        # Action buffer with the past 5 actions (Δx, Δy, Δtheta)
-        self._action_buffer = torch.zeros((self.num_envs, 5, 3), dtype=torch.float32, device=self.device)
-
-        # Store past 10 robot linear + angular velocity (x,y,theta)
-        self._velocity_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)
-        self._old_yaw = torch.zeros((self.num_envs), dtype=torch.float32, device=self.device)
-
-        self._lidar_buffer = None
+        self._map_manager = MapManager(map_names, env_map_ids, device=self.device)
+        self.path_manager = PathManager(map_mgr=self._map_manager, num_envs=self.num_envs, device=self.device)
 
         camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
         self.camera_manager = CameraManager(
@@ -50,30 +42,30 @@ class NavEnv(ManagerBasedRLEnv):
 
         self.episode_counter = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
+    def _read_env_maps(self, map_names: list[str]) -> torch.Tensor:
+        """Index in `map_names` of the map each robot navigates.
+
+        In the full scene every robot owns a copy of the doors and chairs of its map, which the scene spawner tags with
+        the map's name. Without them (e.g. in the empty scene) robots are dealt to the maps in turn.
+        """
+        if getattr(self.cfg.scene, "dynamic_objects", None) is None:
+            return torch.arange(self.num_envs, device=self.device) % len(map_names)
+
+        env_map_names = [
+            self.scene.stage.GetPrimAtPath(f"{prim_path}/dynamic_objects").GetCustomDataByKey("map_name")
+            for prim_path in self.scene.env_prim_paths
+        ]
+        robots_per_map = {name: env_map_names.count(name) for name in map_names}
+        logger.info(f"Robots per map: {robots_per_map}")
+        return torch.tensor([map_names.index(name) for name in env_map_names], device=self.device)
+
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         if "log" in self.extras:  # Fixes wrong logging of rewards and dones in the first step after reset
             self.extras.pop("log", None)
 
         retVal = super().step(action)
 
-        # Update action buffer
-        self._action_buffer = torch.roll(self._action_buffer, shifts=1, dims=1)
-        self._action_buffer[:, 0, :] = action.to(self.device)
-
-        ## Update linear velocity
-        robot: Articulation = self.scene["robot"]
-        self._velocity_buffer = torch.roll(self._velocity_buffer, shifts=1, dims=1)
-        # store only x, y linear velocity
-        self._velocity_buffer[:, 0, :2] = robot.data.root_com_lin_vel_w.torch[:, :2].to(self.device)
-
-        ## Angular velocity
-        _, _, new_yaw = euler_xyz_from_quat(robot.data.root_com_quat_w.torch)
-        theta = (new_yaw - self._old_yaw) / getattr(self.sim, "dt", 0.005) * getattr(self.sim, "decimation", 16)
-        self._velocity_buffer[:, 0, 2] = theta
-        self._old_yaw = new_yaw
-        #TODO: replace with this:
-        #self._velocity_buffer[:, 0, 2] = robot.data.root_com_ang_vel_w.torch[:, 2].to(self.device)
-
+        # the action and velocity histories are observation terms (see obs_config.py), cleared on reset
         self.update_follow_camera()
         self._update_lidar_buffer()
 
@@ -85,7 +77,7 @@ class NavEnv(ManagerBasedRLEnv):
         robot: Articulation = self.scene["robot"]
 
         state = self.path_manager.compute_robot_teleport_state(
-            env_ids, self.scene.env_origins, robot.data.default_root_state.torch[0, 2]
+            env_ids, self.map_origins, robot.data.default_root_state.torch[0, 2]
         )
 
         robot.write_root_com_state_to_sim(state, env_ids)
@@ -107,13 +99,13 @@ class NavEnv(ManagerBasedRLEnv):
     def manual_replan(self, env_ids: torch.Tensor) -> None:
         robot = self.scene["robot"]
         self.path_manager.compute_global_plan(
-            env_ids, robot.data.root_com_pos_w.torch[env_ids], self.scene.env_origins[env_ids]
+            env_ids, robot.data.root_com_pos_w.torch[env_ids], self.map_origins[env_ids]
         )
 
     def _update_lidar_buffer(self) -> None:
         if "lidar" in self.scene.sensors:
             lidar = self.scene.sensors["lidar"]
-            self._map_manager.update_local_costmap(lidar.data, self.scene.env_origins)
+            self._map_manager.update_local_costmap(lidar.data, self.map_origins)
 
     def update_follow_camera(self, smoothing: float = 0.3):
         if not self.debug_vis and not self.sim.has_gui and self.render_mode != "rgb_array":

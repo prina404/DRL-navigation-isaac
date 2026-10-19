@@ -53,7 +53,7 @@ class NavEnvDebugView(NavEnv):
         robot = self.scene["robot"]
 
         # robot position in local (env) frame for path math
-        robot_pos_local = robot.data.root_link_pos_w.torch[:, :2] - self.scene.env_origins[:, :2]  # (B, 2)
+        robot_pos_local = robot.data.root_link_pos_w.torch[:, :2] - self.map_origins[:, :2]  # (B, 2)
 
         # reward heading: 3rd point forward along path (closer to goal than robot)
         reward_yaw = torch.zeros((self.num_envs,), device=self.device)
@@ -79,8 +79,8 @@ class NavEnvDebugView(NavEnv):
         self.marker_locations = robot.data.root_pos_w.torch  # (B, 3)
         self.reward_marker_orientations = quat_from_angle_axis(reward_yaw, self.up_dir)
 
-        # command heading: from action (x, y) only
-        cmd_xy = self._action_buffer[:, 0, :2]  # (B, 2)
+        # command heading: from the (v_x, v_y) command only
+        cmd_xy = self.action_manager.get_term("mpc_cmd").processed_actions[:, :2]  # (B, 2)
         cmd_yaw = torch.atan2(cmd_xy[:, 1], cmd_xy[:, 0])
 
         # rotate command to world frame using robot yaw
@@ -104,7 +104,7 @@ class NavEnvDebugView(NavEnv):
     def _build_goal_markers(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         goal_locs = torch.cat(
             (
-                self.path_manager.goal_pos_local + self.scene.env_origins[:, :2],
+                self.path_manager.goal_pos_local + self.map_origins[:, :2],
                 torch.zeros((self.num_envs, 1), device=self.device),
             ),
             dim=-1,
@@ -132,7 +132,7 @@ class NavEnvDebugView(NavEnv):
 
             kept = torch.stack(kept, dim=0)  # (K, 2)
             # convert to world coords
-            kept_w = kept + self.scene.env_origins[i, :2]
+            kept_w = kept + self.map_origins[i, :2]
             z = torch.full((kept_w.shape[0], 1), 0.05, device=self.device)
             kept_w = torch.cat([kept_w, z], dim=-1)  # (K, 3)
             path_loc_list.append(kept_w)

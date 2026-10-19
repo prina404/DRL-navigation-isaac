@@ -23,7 +23,11 @@ from isaaclab.managers import ActionTerm, ActionTermCfg, SceneEntityCfg
 from isaaclab.utils import configclass
 from torch import Tensor
 
-from mdp.actions.go2_locomotion_policy_v2 import GO2_SIM2REAL_CFG, OBS_TERM_DIMS, get_locomotion_policy
+from mdp.actions.go2_locomotion_policy_v2 import (
+    GO2_SIM2REAL_CFG,
+    OBS_TERM_DIMS,
+    get_locomotion_policy,
+)
 from mdp.observations.helper_functions import get_goal_relative_position
 from navigation_env.NavigationEnv import NavEnv
 
@@ -68,17 +72,36 @@ class _Go2Sim2RealPolicyAction(ActionTerm):
 
     @property
     def processed_actions(self) -> Tensor:
-        """The base velocity command actually handed to the locomotion policy (nominal added, then clipped)."""
+        """The base velocity command actually handed to the locomotion policy (scaled, nominal added, then clipped)."""
         return self._velocity_command
 
     def process_actions(self, actions: Tensor):
         self._raw_actions = actions.clone()
         self._cached_nominal = self.nominal_action()
-        self._velocity_command = torch.clamp(
-            self._raw_actions + self._cached_nominal, -self._command_limits, self._command_limits
-        )
+        self._velocity_command = self._clip_command(self._raw_actions * self._command_limits + self._cached_nominal)
         # Re-align the tick schedule so the fresh command is consumed on the first sim step of this env step.
         self._sim_step_counter = 0
+
+    def _clip_command(self, command: Tensor) -> Tensor:
+        """Clip (v_x, v_y) to the command ellipse, keeping its direction, and w_z to its own range.
+
+        A box would let the robot move faster diagonally than straight ahead, the ellipse makes going forward the
+        fastest way to travel.
+
+        With `max_speed` set, the whole command is then scaled down until the (v_x, v_y) norm meets it. Scaling w_z by
+        the same factor keeps the turning radius of the command: the robot follows the path the policy steers, only
+        slower. Capping (v_x, v_y) alone makes it spin in place, sweeping its body into obstacles.
+        """
+        lin_vel, yaw_rate = command[:, :2], command[:, 2:]
+        ellipse_norm = torch.norm(lin_vel / self._command_limits[:2], dim=-1, keepdim=True)  # > 1 outside the ellipse
+        lin_vel = lin_vel / torch.clamp(ellipse_norm, min=1.0)
+        yaw_rate = torch.clamp(yaw_rate, -self._command_limits[2], self._command_limits[2])
+        command = torch.cat([lin_vel, yaw_rate], dim=-1)
+
+        if self.cfg.max_speed is not None:
+            speed = torch.norm(lin_vel, dim=-1, keepdim=True)
+            command = command * torch.clamp(self.cfg.max_speed / speed.clamp(min=1e-6), max=1.0)
+        return command
 
     def reset(self, env_ids: Tensor | None = None) -> None:
         if env_ids is None:
@@ -165,8 +188,13 @@ class Go2Sim2RealPolicyActionCfg(ActionTermCfg):
     control_dt: float = float(GO2_SIM2REAL_CFG["control_dt"])
     #: ``actions.joint_pos.scale`` of the training env, applied on top of the default joint positions.
     action_scale: float = float(GO2_SIM2REAL_CFG["action_scale"])
-    #: Clipping for (v_x, v_y, w_z); defaults to the command ranges the policy was trained on.
-    command_limits: tuple[float, float, float] = GO2_SIM2REAL_CFG["command_limits"]
+    #: Range of the commands: semi-axes of the (v_x, v_y) ellipse [m/s] and the w_z limit [rad/s]. The navigation policy
+    #: acts in [-1, 1] on each axis, scaled to these. The locomotion policy was trained up to (2.5, 2.5, 1.5), so yaw
+    #: rates above 1.5 rad/s are out of its training distribution.
+    command_limits: tuple[float, float, float] = (2.5, 1.0, 2.0)
+    #: Cap on the (v_x, v_y) speed [m/s] on top of the ellipse, e.g. to evaluate a policy at reduced speed. w_z is
+    #: scaled by the same factor, to keep the turning radius. ``None`` leaves the ellipse as the only limit.
+    max_speed: float | None = None
 
 
 @configclass

@@ -13,7 +13,7 @@ def dist_to_goal_xy(env: NavEnv) -> Tensor:
     robot: Articulation = env.scene["robot"]
     pos_w = robot.data.root_com_pos_w.torch
     goal_local = env.path_manager.goal_pos_local
-    goal_w = goal_local + env.scene.env_origins[:, :2]
+    goal_w = goal_local + env.map_origins[:, :2]
     delta_xy = goal_w[:, 0:2] - pos_w[:, 0:2]
     return torch.linalg.norm(delta_xy, dim=-1)
 
@@ -55,17 +55,16 @@ def penalty_still(env: NavEnv, speed_thresh: float = 0.05, penalty: float = -0.2
     )
 
 
+COLLISION_SENSORS = ("body_collision_sensor", "hip_collision_sensor", "knee_collision_sensor")
+
+
 def detect_collision(env: NavEnv) -> Tensor:
-    base_sensor = env.scene["body_collision_sensor"]
-    base_forces = base_sensor.data.net_forces_w.torch  # (N, bodies, 3)
-    base_magnitude = torch.linalg.norm(base_forces, dim=-1).max(dim=-1).values
-
-    hip_sensor = env.scene["hip_collision_sensor"]
-    hip_forces = hip_sensor.data.net_forces_w.torch  # (N, bodies, 3)
-    hip_magnitude = torch.linalg.norm(hip_forces, dim=-1).max(dim=-1).values
-
-    magnitude = torch.max(base_magnitude, hip_magnitude)
-    return magnitude
+    """Largest contact force (N) on the base, hips or knees of each robot. The feet are not included."""
+    magnitudes = []
+    for name in COLLISION_SENSORS:
+        forces = env.scene[name].data.net_forces_w.torch  # (N, bodies, 3)
+        magnitudes.append(torch.linalg.norm(forces, dim=-1).max(dim=-1).values)
+    return torch.stack(magnitudes).max(dim=0).values
 
 
 def penalty_collision(env: NavEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> Tensor:
@@ -105,7 +104,7 @@ def robot_heading_reward(env: NavEnv) -> Tensor:
 
 def action_smoothness_penalty(env: NavEnv) -> Tensor:
     # I assume that jerky motions are correlated to sudden changes in velocity.
-    delta = env._action_buffer[:, 0] - env._action_buffer[:, 1]  # (B, action_dim)
+    delta = env.action_manager.action - env.action_manager.prev_action  # (B, action_dim)
     return -torch.linalg.norm(delta, dim=-1)
 
 
@@ -120,6 +119,7 @@ def collision_after_threshold_reward(env: NavEnv, penalty: float = -20.0) -> Ten
         torch.full((env.num_envs,), penalty, device=env.device),
         torch.zeros((env.num_envs,), device=env.device),
     )
+
 
 def penalty_lateral_movement(env: NavEnv) -> Tensor:
     v_y = isaac_mdp.base_lin_vel(env, asset_cfg=SceneEntityCfg(name="robot"))[:, 1]  # lateral velocity

@@ -22,4 +22,7 @@ PARAMS = {
     ),
     "episode_length_s": 15.0,
     "decimation": 16,
+    # Observation noise, zero mean gaussians
+    "lidar_noise_std": 0.02,  # [m] range noise, drawn independently for every lidar ray at every step
+    "velocity_noise_std": 0.05,  # [m/s, rad/s] drawn once for each velocity entering the velocity history
 }

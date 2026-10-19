@@ -28,15 +28,15 @@ class Go2LidarFull(ManagerBasedRLEnvCfg):
     }
 
     def __post_init__(self) -> None:
-        # initialized in post init to ensure dataset cfg is loaded and we get the correct scene path
-        self.scene = scene.Go2FullSceneLidarCfg(num_envs=1, env_spacing=18.0)
+        # initialized in post init, once the entry script has picked the maps
+        self.scene = scene.Go2FullSceneLidarCfg(num_envs=1, env_spacing=0.0)
 
         self.sim.dt = PARAMS["dt"]
         self.sim.device = PARAMS["device"]
         self.sim.use_fabric = PARAMS["use_fabric"]
         self.sim.render = PARAMS["render"]
         self.sim.enable_scene_query_support = True
-        
+
         self.episode_length_s = PARAMS["episode_length_s"]
         self.decimation = PARAMS["decimation"]
         self.sim.render_interval = self.decimation
@@ -47,7 +47,7 @@ class Go2LidarFull(ManagerBasedRLEnvCfg):
 @configclass
 class Go2LidarEmpty(ManagerBasedRLEnvCfg):
 
-    scene = scene.Go2EmptySceneCfg(num_envs=1, env_spacing=18.0)
+    scene = scene.Go2EmptySceneCfg(num_envs=1, env_spacing=0.0)
 
     actions = actions.ActionsCfg()
     observations = obs.LidarOnlyCfg()

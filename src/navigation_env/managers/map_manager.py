@@ -1,62 +1,64 @@
-from pathlib import Path
-
 import cv2
 import numpy as np
 import torch
 import yaml
 from isaaclab.sensors import RayCasterData
 
+from cfg.CFG import get_scene_usd_path
+
 #: Narrowest gap (in meters) the planner is allowed to route through.
 MIN_TRAVERSABLE_GAP = 0.20
 
+#: Selects environments: a tensor of env ids, a single env id, or a slice (``slice(None)`` for all of them).
+EnvIndex = torch.Tensor | int | slice
+
 
 class MapManager:
-    def __init__(self, map_png_path: str | Path, map_yaml_path: str | Path, num_envs: int, device: torch.device):
-        with open(map_yaml_path, "r") as f:
-            self._img_meta = yaml.safe_load(f)
+    """Static occupancy grids of every loaded map, plus a lidar costmap per environment.
 
+    The maps are stacked into a single (num_maps, H, W) grid, padded with occupied cells up to the size of the largest
+    one, so that every per-env query stays batched. Each environment navigates the map `env_map_ids` assigns to it,
+    so the coordinate transforms take the env ids the coordinates belong to.
+    """
+
+    def __init__(self, map_names: list[str], env_map_ids: torch.Tensor, device: torch.device):
         self.device = device
-        self.num_envs = num_envs
+        self.map_names = map_names
+        self.env_map_ids = env_map_ids.to(device)  # (num_envs,), index into map_names
+        self.num_envs = len(env_map_ids)
+        self._env_map_ids_cpu = env_map_ids.cpu().numpy()
 
-        self.map_img_path = str(map_png_path)
-        self._map_img = cv2.imread(map_png_path, cv2.IMREAD_GRAYSCALE)
-        if self._map_img is None:
-            raise FileNotFoundError(f"Failed to read map image: {map_png_path}")
+        scene_usd_paths = [get_scene_usd_path(map_name) for map_name in map_names]
+        self.map_img_paths = [str(path.with_name(path.stem + "_map.png")) for path in scene_usd_paths]
 
-        # Static occupancy of the scene, shared by every environment. The per-environment lidar
-        # hits are merged onto it on demand, in `obstacle_masks`.
-        self._occupied = self._map_img == 0  # (H, W), True where occupied
+        map_imgs, map_metas = [], []
+        for scene_usd_path, map_img_path in zip(scene_usd_paths, self.map_img_paths):
+            map_img = cv2.imread(map_img_path, cv2.IMREAD_GRAYSCALE)
+            if map_img is None:
+                raise FileNotFoundError(f"Failed to read map image: {map_img_path}")
+            map_imgs.append(map_img)
+
+            with open(scene_usd_path.with_name(scene_usd_path.stem + "_map.yaml"), "r") as f:
+                map_metas.append(yaml.safe_load(f))
+
+        resolutions = {meta["resolution"] for meta in map_metas}
+        if len(resolutions) != 1:
+            raise ValueError(f"All maps must share the same resolution, got {resolutions}")
+        self.resolution: float = resolutions.pop()
+
+        # per-map frame, looked up for each coordinate in the transforms below
+        self._origins = torch.tensor([meta["origin"][:2] for meta in map_metas], dtype=torch.float32, device=device)
+        self._sizes = torch.tensor([img.shape for img in map_imgs], dtype=torch.int32, device=device)  # (H, W)
+
+        # Static occupancy of each map, padded with occupied cells. The per-environment lidar hits are merged onto
+        # it on demand, in `obstacle_masks`.
+        height, width = self._sizes.max(dim=0).values.tolist()
+        self._occupied = np.ones((len(map_names), height, width), dtype=bool)  # True where occupied
+        for map_id, map_img in enumerate(map_imgs):
+            self._occupied[map_id, : map_img.shape[0], : map_img.shape[1]] = map_img == 0
 
         # Remember: in costmaps 0 = free space, inf = occupied
-        self.local_costmaps = torch.zeros((num_envs, 1, *self._map_img.shape), dtype=torch.float32, device=device)
-
-    @property
-    def resolution(self) -> float:
-        return self._img_meta["resolution"]
-
-    @property
-    def origin(self) -> tuple[float, float]:
-        return self._img_meta["origin"][:2]
-
-    @property
-    def shape(self) -> tuple[int, int]:
-        return self._map_img.shape
-    
-    @property
-    def occupancy_gridmap(self) -> np.ndarray:
-        gray_pixels = (self._map_img > 1) & (self._map_img < 254)
-        white_pixels = self._map_img >= 254
-        black_pixels = self._map_img <= 1
-        # use -1, [0...100] to represent respectively unknown, free, occupied.
-        ogm = self._map_img.astype(np.int8, copy=True)
-        ogm[gray_pixels] = -1
-        ogm[white_pixels] = 0
-        ogm[black_pixels] = 100
-        return ogm
-
-    @property
-    def map_img(self) -> np.ndarray:
-        return self._map_img.copy()
+        self.local_costmaps = torch.zeros((self.num_envs, 1, height, width), dtype=torch.float32, device=device)
 
     def obstacle_masks(self, env_ids: torch.Tensor) -> np.ndarray:
         """Returns a (len(env_ids), H, W) bool array with the occupied cells seen by each environment.
@@ -65,7 +67,8 @@ class MapManager:
         host, next to the A* that consumes it (see `PathManager._inflate_and_plan`).
         """
         lidar_hits = self.local_costmaps[env_ids, 0] != 0.0  # (len(env_ids), H, W)
-        return self._occupied | lidar_hits.cpu().numpy()
+        static_occupancy = self._occupied[self._env_map_ids_cpu[env_ids.cpu().numpy()]]
+        return static_occupancy | lidar_hits.cpu().numpy()
 
     @property
     def clearance_px(self) -> float:
@@ -98,10 +101,9 @@ class MapManager:
         return costmap + 1.0  # min_cost = 1.0 for A*
 
     def reset_costmaps(self, env_ids: torch.Tensor):
-        # self.debug_vis()
         self.local_costmaps[env_ids] = 0.0
 
-    def update_local_costmap(self, lidar_scan: RayCasterData, env_origins: torch.Tensor):
+    def update_local_costmap(self, lidar_scan: RayCasterData, map_origins: torch.Tensor):
         ## update the local costmap according to the full lidar scan
 
         # filter points further than thresh
@@ -110,8 +112,8 @@ class MapManager:
         scan_dist = torch.norm(ray_hits_w - lidar_scan.pos_w.torch.unsqueeze(1), dim=-1)  # (B, N_rays)
         mask = scan_dist < thresh  # (B, N_rays)
 
-        scan_local = ray_hits_w - env_origins.unsqueeze(1)
-        scan_map_coords = self.local_to_map_coords(scan_local)  # (B, N_rays, 2)
+        scan_local = ray_hits_w - map_origins.unsqueeze(1)
+        scan_map_coords = self.local_to_map_coords(scan_local, slice(None))  # (B, N_rays, 2)
 
         row = scan_map_coords[..., 0]
         col = scan_map_coords[..., 1]
@@ -120,97 +122,33 @@ class MapManager:
         batches = torch.arange(self.num_envs, device=self.device)[:, None].expand(B, N)
         self.local_costmaps[batches[mask], 0, row[mask], col[mask]] = torch.inf
 
-    def map_to_local_coords(self, map_coords: torch.Tensor) -> torch.Tensor:
+    def _map_values(self, values: torch.Tensor, env_ids: EnvIndex, coords: torch.Tensor) -> torch.Tensor:
+        """Per-map `values` (num_maps, 2) of the envs in `env_ids`, broadcastable against `coords` (..., 2).
+
+        `env_ids` either spans the leading dimensions of `coords`, or is a single env shared by all of them.
+        """
+        env_values = values[self.env_map_ids[env_ids]]  # (*env_ids.shape, 2)
+        missing_dims = coords.dim() - env_values.dim()
+        return env_values.view(*env_values.shape[:-1], *([1] * missing_dims), 2)
+
+    def map_to_local_coords(self, map_coords: torch.Tensor, env_ids: EnvIndex) -> torch.Tensor:
         assert len(map_coords.shape) == 2 and map_coords.shape[1] == 2, "Expected map_coords to have shape (N, 2)"
-        map_coords = map_coords.clone()
-        _, W = self.shape
-        map_coords[:, 1] = W - map_coords[:, 1]  # flip x axis
-        map_xy = map_coords[:, [1, 0]]  # swap from (row,col) to (x, y)
+        origin = self._map_values(self._origins, env_ids, map_coords)
+        width = self._map_values(self._sizes, env_ids, map_coords)[..., 1]
 
-        x, y = self.origin
+        x = (width - map_coords[:, 1]) * self.resolution  # flip x axis, and swap from (row, col) to (x, y)
+        y = map_coords[:, 0] * self.resolution
+        return torch.stack([x, y], dim=-1) + origin  # (N, 2)
 
-        origin = torch.tensor([x, y], device=self.device)
-
-        scaled = map_xy * self.resolution  # (N, 2)
-        return scaled + origin  # (N, 2)
-
-    def local_to_map_coords(self, local_coords: torch.Tensor) -> torch.Tensor:
+    def local_to_map_coords(self, local_coords: torch.Tensor, env_ids: EnvIndex) -> torch.Tensor:
         # data can be (B, N, 2|3) or (N, 2|3)
-        if local_coords.size(-1) > 2:
-            local_coords = local_coords[..., :2]  # only consider x, y
-
-        local_xy = local_coords.clone()
-
-        x, y = self.origin
-        origin = torch.tensor([x, y], device=self.device)
+        local_xy = local_coords[..., :2]  # only consider x, y
+        origin = self._map_values(self._origins, env_ids, local_xy)
+        size = self._map_values(self._sizes, env_ids, local_xy)
 
         scaled = ((local_xy - origin) / self.resolution).to(torch.int)
+        row = scaled[..., 1]
+        col = size[..., 1] - scaled[..., 0]  # flip x axis
+        map_coords = torch.stack([row, col], dim=-1)  # swap to (row, col)
 
-        H, W = self.shape
-        scaled[..., 0] = W - scaled[..., 0]  # flip x axis
-        map_coords = scaled[..., [1, 0]]  # swap to (row, col)
-
-        map_coords[..., 0] = torch.clamp(map_coords[..., 0], 0, H - 1)  # row
-        map_coords[..., 1] = torch.clamp(map_coords[..., 1], 0, W - 1)  # col
-        return map_coords
-
-    # def debug_vis(self):
-    #     import matplotlib.pyplot as plt
-
-    #     # check costmaps from two separate batches
-    #     local_costmap_1 = self.local_costmaps[0, 0].cpu().numpy()
-    #     local_costmap_2 = self.local_costmaps[1, 0].cpu().numpy()
-    #     plt.figure(figsize=(12, 6))
-    #     plt.subplot(1, 2, 1)
-    #     plt.imshow(local_costmap_1, cmap="gray")
-    #     plt.title("Local Costmap with Lidar Updates (Batch 0)")
-    #     plt.subplot(1, 2, 2)
-    #     plt.imshow(local_costmap_2, cmap="gray")
-    #     plt.title("Local Costmap with Lidar Updates (Batch 1)")
-    #     plt.show()
-
-
-#     def debug_vis_global(self):
-#         import matplotlib.pyplot as plt
-
-#         # check costmaps from two separate batches
-#         global_costmap_1 = self._costmap_backup[0, 0].cpu().numpy()
-#         global_costmap_2 = self._global_costmap[0, 0].cpu().numpy()
-#         plt.figure(figsize=(12, 6))
-#         plt.subplot(1, 2, 1)
-#         plt.imshow(global_costmap_1, cmap="gray")
-#         plt.title("Base Global Costmap (Batch 0)")
-#         plt.subplot(1, 2, 2)
-#         plt.imshow(global_costmap_2, cmap="gray")
-#         plt.title("Updated Global Costmap (Batch 0)")
-#         plt.show()
-
-#     def print_debug(self):
-#         t0 = time.time()
-#         for _ in range(128):
-#             cpu_impl = self._create_inflated_costmap_cpu(self.map_img, inflation_scale=2)
-#         print(f"CPU costmap inflation took {time.time() - t0:.4f} seconds")
-#         for _ in range(5):
-#             gpu_impl = self._create_inflated_costmap_gpu(self._map_tensor, torch.arange(0, self.num_envs), inflation_scale=2)[
-#                 0, 0
-#             ].cpu()
-#         print(f"GPU costmap inflation took {(time.time() - t0)/5:.4f} seconds")
-#         import matplotlib.pyplot as plt
-
-#         plt.figure(figsize=(12, 6))
-#         plt.subplot(1, 2, 1)
-#         plt.title("CPU Inflated Costmap")
-#         plt.imshow(cpu_impl, cmap="gray")
-#         plt.subplot(1, 2, 2)
-#         plt.title("GPU Inflated Costmap")
-#         plt.imshow(gpu_impl, cmap="gray")
-#         plt.show()
-
-
-# if __name__ == "__main__":
-#     from cfg.CFG import DEVICE, SCENE_USD_PATH
-
-#     map_png = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.png"
-#     map_yaml = str(SCENE_USD_PATH.parent / SCENE_USD_PATH.stem) + "_map.yaml"
-#     costmap_manager = MapManager(map_png, map_yaml, num_envs=128, device=DEVICE)
-#     costmap_manager.print_debug()
+        return torch.minimum(torch.clamp(map_coords, min=0), size - 1)  # stay inside the env's own map

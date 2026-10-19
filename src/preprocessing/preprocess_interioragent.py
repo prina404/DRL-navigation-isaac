@@ -25,6 +25,7 @@ import cfg.CFG as CFG
 import preprocessing.interioragent_utils.collisions as collisions
 import preprocessing.interioragent_utils.doors as doors
 import preprocessing.interioragent_utils.gridmap as gridmap
+import preprocessing.interioragent_utils.layers as layers
 import preprocessing.interioragent_utils.physics as physics
 import preprocessing.interioragent_utils.chairs as chairs
 
@@ -157,6 +158,7 @@ def preprocess_interioragent_scene(scene_dir: str, usd_path: str):
     del stage  # this should call the destructor
 
     gridmap.create_map_from_file(dst_path, env_cfg)  # create occupancy map for the preprocessed USD
+    layers.write_split_layers(dst_path)  # static geometry and doors/chairs, spawned separately at training time
     logger.info(
         f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors, {len(dynamic_chairs)} dynamic chairs")
     logger.info(

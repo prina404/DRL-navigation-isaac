@@ -395,8 +395,6 @@ ENCODERS_HIDDEN_DIMS: dict[str, list[int]] = {
     "velocity_buffer": [128, 128],
     "action_buffer": [128, 128],
     "global_plan": [128, 128],
-    "depth": [1024, 1024, 512],
-    "vision": [1024, 1024, 512],
 }
 
 go2_policy_cfg: dict[str, Any] = {
@@ -447,7 +445,7 @@ go2_policy_cfg: dict[str, Any] = {
         "desired_kl": 0.01,
         "max_grad_norm": 1.0,
     },
-    "load_run": "unitree_go2_nav",
+    "load_run": "unitree_go2_nav$",  # a regex: unanchored, it also matches ckpts/unitree_go2_nav_jit
     "load_checkpoint": "last_ckpt_vis.pt",
 }
 
