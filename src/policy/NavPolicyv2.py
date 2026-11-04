@@ -21,14 +21,13 @@ What changed between the two rsl-rl versions:ĸ
 
 Both the ``tanh`` output activation of the actor head and the ``sigmoid`` output activation of the encoders are kept,
 but note that ``rsl_rl.models.MLPModel`` builds a *linear* head, so ``last_activation`` must be set explicitly in the
-configuration (:data:`go2_policy_cfg` below does so). Checkpoints of the old class can be converted with
+configuration (:data:`policy.go2_nav_cfg.go2_policy_cfg` does so). Checkpoints of the old class can be converted with
 :func:`convert_legacy_checkpoint`.
 """
 
 from __future__ import annotations
 
 import copy
-import math
 from typing import Any
 
 import torch
@@ -171,13 +170,6 @@ class MLPModelWithEncoders(MLPModel):
         """Return a version of the model compatible with Torch JIT export."""
         return _TorchMLPModelWithEncoders(self)
 
-    def as_onnx(self, verbose: bool = False) -> nn.Module:
-        """Return a version of the model compatible with ONNX export."""
-        return _OnnxMLPModelWithEncoders(self, verbose)
-
-    """
-    Helper functions
-    """
 
     def _get_obs_dim(self, obs: TensorDict, obs_groups: dict[str, list[str]], obs_set: str) -> tuple[list[str], int]:
         """Select the active observation groups and compute the dimension of the encoded latent.
@@ -244,49 +236,6 @@ class _TorchMLPModelWithEncoders(nn.Module):
         pass
 
 
-class _OnnxMLPModelWithEncoders(nn.Module):
-    """Exportable model for ONNX."""
-
-    is_recurrent: bool = False
-
-    def __init__(self, model: MLPModelWithEncoders, verbose: bool) -> None:
-        """Create an ONNX-export wrapper around a MLPModelWithEncoders."""
-        super().__init__()
-        self.verbose = verbose
-        # Convert ModuleDict to ModuleList for ordered iteration
-        self.encoders = nn.ModuleList([copy.deepcopy(model.encoders[group]) for group in model.obs_groups])
-        self.obs_normalizer = copy.deepcopy(model.obs_normalizer)
-        self.mlp = copy.deepcopy(model.mlp)
-        if model.distribution is not None:
-            self.deterministic_output = model.distribution.as_deterministic_output_module()
-        else:
-            self.deterministic_output = nn.Identity()
-
-        self.obs_group_names = list(model.obs_groups)
-        self.obs_input_dims = [model.encoder_input_dims[group] for group in model.obs_groups]
-
-    def forward(self, *obs: torch.Tensor) -> torch.Tensor:
-        """Run deterministic inference for ONNX export."""
-        latent_list = []
-        for i, encoder in enumerate(self.encoders):
-            latent_list.append(encoder(obs[i]))
-        latent = self.obs_normalizer(torch.cat(latent_list, dim=-1))
-        return self.deterministic_output(self.mlp(latent))
-
-    def get_dummy_inputs(self) -> tuple[torch.Tensor, ...]:
-        """Return representative dummy inputs for ONNX tracing."""
-        return tuple(torch.zeros(1, dim) for dim in self.obs_input_dims)
-
-    @property
-    def input_names(self) -> list[str]:
-        """Return ONNX input tensor names."""
-        return list(self.obs_group_names)
-
-    @property
-    def output_names(self) -> list[str]:
-        """Return ONNX output tensor names."""
-        return ["actions"]
-
 
 """
 Checkpoint conversion
@@ -309,10 +258,7 @@ def convert_legacy_checkpoint(
     ``distribution.log_std_param``, ...). The standard deviation parameterization is taken from the legacy key name,
     which is ``"std"`` for ``noise_std_type="scalar"`` and ``"log_std"`` for ``noise_std_type="log"``.
 
-    Args:
-        legacy_checkpoint: Checkpoint dictionary saved by the legacy runner, or a path to it.
-        map_location: Device the checkpoint is loaded onto when a path is given.
-
+  
     Returns:
         A checkpoint dictionary that :meth:`rsl_rl.runners.OnPolicyRunner.load` accepts. The optimizer state is
         dropped, as the new runner uses one optimizer over two models with a different parameter ordering; loading it
@@ -383,87 +329,3 @@ def load_policy_checkpoint(
     if runner.alg.load(loaded_dict, load_cfg, strict):
         runner.current_learning_iteration = loaded_dict["iter"]
     return loaded_dict["infos"]
-
-
-"""
-Configuration
-"""
-
-# Encoder of every observation group that is compressed before being fed to the actor/critic head. The last entry of
-# each list is the encoder output dimension. Groups that are absent are forwarded to the head unencoded.
-ENCODERS_HIDDEN_DIMS: dict[str, list[int]] = {
-    "velocity_buffer": [128, 128],
-    "action_buffer": [128, 128],
-    "global_plan": [128, 128],
-}
-
-go2_policy_cfg: dict[str, Any] = {
-    # Training loop parameters
-    "num_steps_per_env": math.ceil((15 / (16 * 0.005))),  # 15 seconds per episode, converted to steps (with decimation)
-    "save_interval": 50,  # Save a checkpoint every 50 iterations
-    "max_iterations": 1000,
-    "device": "cuda:0",
-    # Observation routing
-    "obs_groups": None,  # must be assigned depending on task configuration
-    # Actor architecture
-    "actor": {
-        "class_name": MLPModelWithEncoders,
-        "hidden_dims": [256, 128, 128],
-        "activation": "elu",
-        "obs_normalization": False,
-        "last_activation": None,  # linear: the action term squashes the sampled action into the command ellipse
-        "encoders_hidden_dims": ENCODERS_HIDDEN_DIMS,
-        "distribution_cfg": {
-            "class_name": "GaussianDistribution",  # "HeteroscedasticGaussianDistribution" for a state-dependent std
-            "init_std": 1.0,
-            "std_type": "log",
-        },
-    },
-    # Critic architecture
-    "critic": {
-        "class_name": MLPModelWithEncoders,
-        "hidden_dims": [256, 128, 128],
-        "activation": "elu",
-        "obs_normalization": False,
-        "last_activation": None,  # the legacy critic head was linear
-        "encoders_hidden_dims": ENCODERS_HIDDEN_DIMS,
-        "distribution_cfg": None,  # deterministic value output
-    },
-    # PPO algorithm parameters
-    "algorithm": {
-        "class_name": "PPO",
-        "value_loss_coef": 1.0,
-        "use_clipped_value_loss": True,
-        "clip_param": 0.2,
-        "entropy_coef": 0.01,
-        "num_learning_epochs": 5,
-        "num_mini_batches": 4,
-        "learning_rate": 1.0e-3,
-        "schedule": "adaptive",
-        "gamma": 0.99,
-        "lam": 0.95,
-        "desired_kl": 0.01,
-        "max_grad_norm": 1.0,
-    },
-    "load_run": "unitree_go2_nav$",  # a regex: unanchored, it also matches ckpts/unitree_go2_nav_jit
-    "load_checkpoint": "last_ckpt_vis.pt",
-}
-
-
-def make_go2_policy_cfg(obs_groups: dict[str, list[str]], **overrides: Any) -> dict[str, Any]:
-    """Build a runner configuration for the given observation groups.
-
-    :class:`~rsl_rl.runners.OnPolicyRunner` consumes its configuration destructively (it pops ``"class_name"`` from
-    the model and algorithm sub-configs), so a deep copy of :data:`go2_policy_cfg` is returned on every call.
-
-    Args:
-        obs_groups: Observation groups of the task, either with the legacy ``"policy"`` set or the new ``"actor"`` one.
-        **overrides: Top-level entries to override, e.g. ``device="cuda:1"`` or ``max_iterations=500``.
-
-    Returns:
-        The runner configuration dictionary.
-    """
-    cfg = copy.deepcopy(go2_policy_cfg)
-    cfg["obs_groups"] = resolve_legacy_obs_groups(obs_groups)
-    cfg.update(overrides)
-    return cfg

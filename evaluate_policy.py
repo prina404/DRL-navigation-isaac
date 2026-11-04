@@ -119,7 +119,8 @@ from rsl_rl.runners import OnPolicyRunner
 
 from distillation.policy_eval import log_summary, rollout_policy, summarize
 from distillation.recorder import DistillationRecorder
-from policy.NavPolicyv2 import load_policy_checkpoint, make_go2_policy_cfg
+from policy.go2_nav_cfg import make_go2_policy_cfg
+from policy.NavPolicyv2 import load_policy_checkpoint
 from tasks.task_utils import get_env_config
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")

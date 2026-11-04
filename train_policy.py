@@ -80,11 +80,8 @@ from omegaconf import DictConfig
 from rsl_rl.runners import OnPolicyRunner
 
 from cfg.CFG import CHECKPOINT_DIR, get_run_name, load_cfg, set_map_names
-from policy.NavPolicyv2 import (
-    go2_policy_cfg,
-    load_policy_checkpoint,
-    make_go2_policy_cfg,
-)
+from policy.go2_nav_cfg import go2_policy_cfg, make_go2_policy_cfg
+from policy.NavPolicyv2 import load_policy_checkpoint
 from tasks.task_utils import get_env_config
 
 set_map_names(args_cli.maps or load_cfg()["training_envs"])  # before anything reads the maps back out of cfg.CFG
