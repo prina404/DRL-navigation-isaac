@@ -113,7 +113,7 @@ class MultiEnvNavigator():
         still_queued = []
 
         robot_pos_map = self.env.path_manager.start_pos_map
-        robot_pos_local = self.env._map_manager.map_to_local_coords(robot_pos_map).cpu()
+        robot_pos_local = self.env.path_manager.map_to_local_coords(robot_pos_map, slice(None)).cpu()
 
         for env_id in self.goal_queue:
             nav = self.navigators[env_id]

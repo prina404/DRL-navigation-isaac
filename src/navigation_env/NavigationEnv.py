@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import torch
 from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, ViewerCfg
@@ -12,6 +14,10 @@ from navigation_env.managers.path_manager import PathManager
 
 
 class NavEnv(ManagerBasedRLEnv):
+    # Reward terms logged as their mean value per step, before the weight, instead of IsaacLab's episode sum over
+    # max_episode_length_s, which shrinks with the episode even when every step earns the full reward.
+    PER_STEP_LOGGED_REWARDS = ("heading",)
+
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
@@ -71,6 +77,25 @@ class NavEnv(ManagerBasedRLEnv):
 
         return retVal
 
+    def _reset_idx(self, env_ids: Sequence[int]) -> None:
+        # read before the reward manager clears the episode sums and the episode lengths are zeroed
+        rewards = self.reward_manager
+        per_step = {
+            name: self._mean_reward_per_step(name, env_ids)
+            for name in self.PER_STEP_LOGGED_REWARDS
+            if name in rewards.active_terms and rewards.get_term_cfg(name).weight != 0.0
+        }
+        super()._reset_idx(env_ids)
+        for name, value in per_step.items():
+            self.extras["log"][f"Episode_Reward/{name}"] = value
+
+    def _mean_reward_per_step(self, name: str, env_ids: Sequence[int]) -> torch.Tensor:
+        """Value of reward term `name` per step, before its weight, averaged over the episodes ending in `env_ids`."""
+        rewards = self.reward_manager
+        scale = rewards.get_term_cfg(name).weight * self.step_dt  # what the reward manager multiplies each step by
+        steps = self.episode_length_buf[env_ids].clamp(min=1)
+        return (rewards._episode_sums[name][env_ids] / (scale * steps)).mean()
+
     def teleport_robots(self, env_ids: torch.Tensor) -> None:
         ## set cartesian position, quaternion orientation in (x, y, z, w), and linear and angular velocity
         ## reset positions only for specified env indices
@@ -98,9 +123,7 @@ class NavEnv(ManagerBasedRLEnv):
 
     def manual_replan(self, env_ids: torch.Tensor) -> None:
         robot = self.scene["robot"]
-        self.path_manager.compute_global_plan(
-            env_ids, robot.data.root_com_pos_w.torch[env_ids], self.map_origins[env_ids]
-        )
+        self.path_manager.compute_global_plan(env_ids, robot.data.root_com_pos_w.torch[env_ids], self.map_origins[env_ids])
 
     def _update_lidar_buffer(self) -> None:
         if "lidar" in self.scene.sensors:

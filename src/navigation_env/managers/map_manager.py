@@ -49,6 +49,7 @@ class MapManager:
         # per-map frame, looked up for each coordinate in the transforms below
         self._origins = torch.tensor([meta["origin"][:2] for meta in map_metas], dtype=torch.float32, device=device)
         self._sizes = torch.tensor([img.shape for img in map_imgs], dtype=torch.int32, device=device)  # (H, W)
+        self._map_imgs = map_imgs  # kept for the ROS map messages, see `occupancy_gridmap`
 
         # Static occupancy of each map, padded with occupied cells. The per-environment lidar hits are merged onto
         # it on demand, in `obstacle_masks`.
@@ -69,6 +70,22 @@ class MapManager:
         lidar_hits = self.local_costmaps[env_ids, 0] != 0.0  # (len(env_ids), H, W)
         static_occupancy = self._occupied[self._env_map_ids_cpu[env_ids.cpu().numpy()]]
         return static_occupancy | lidar_hits.cpu().numpy()
+
+    def map_origin(self, map_id: int) -> tuple[float, float]:
+        """Origin of map `map_id` [m], as in its map yaml."""
+        return tuple(self._origins[map_id].tolist())
+
+    def map_shape(self, map_id: int) -> tuple[int, int]:
+        """(H, W) of map `map_id`, in cells."""
+        return tuple(self._sizes[map_id].tolist())
+
+    def occupancy_gridmap(self, map_id: int) -> np.ndarray:
+        """Map `map_id` in ROS OccupancyGrid values: -1 unknown, 0 free, 100 occupied."""
+        map_img = self._map_imgs[map_id]
+        ogm = np.zeros(map_img.shape, dtype=np.int8)  # white pixels (>= 254) are free
+        ogm[(map_img > 1) & (map_img < 254)] = -1
+        ogm[map_img <= 1] = 100
+        return ogm
 
     @property
     def clearance_px(self) -> float:

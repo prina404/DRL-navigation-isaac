@@ -139,23 +139,27 @@ class RosDataManager(Node):
         return f"{self.robot_ns(env_idx)}/cmd_vel"
 
     def env_origin(self, env_idx: int) -> Tensor:
-        return self.env.scene.env_origins[env_idx]
+        """World position of the frame of the map the robot navigates, which every ROS frame of the robot is relative to."""
+        return self.env.map_origins[env_idx]
 
     def create_map_msg(self, env_idx: int):
         msg = OccupancyGrid()
 
         msg.header.frame_id = self.map_frame(env_idx)
         map_mgr = self.env._map_manager
+        map_id = int(map_mgr.env_map_ids[env_idx])  # each robot gets the map it navigates
+        height, width = map_mgr.map_shape(map_id)
+        origin_x, origin_y = map_mgr.map_origin(map_id)
 
         # map metadata
         msg.info.resolution = map_mgr.resolution
-        msg.info.width = map_mgr.shape[1]
-        msg.info.height = map_mgr.shape[0]
-        msg.info.origin.position.x = map_mgr.origin[0] + map_mgr.resolution
-        msg.info.origin.position.y = map_mgr.origin[1]
+        msg.info.width = width
+        msg.info.height = height
+        msg.info.origin.position.x = origin_x + map_mgr.resolution
+        msg.info.origin.position.y = origin_y
         msg.info.origin.orientation.w = 1.0
 
-        ogm = np.fliplr(map_mgr.occupancy_gridmap)
+        ogm = np.fliplr(map_mgr.occupancy_gridmap(map_id))
         msg.data = ogm.flatten().tolist()
 
         return msg
@@ -279,7 +283,7 @@ class RosDataManager(Node):
             self.publish_odom(timestamp, base_pose_local, root_state[i, 3:7], lin_vel_b[i], ang_vel_b[i], i)
             self.publish_pose(timestamp, base_pose_local, root_state[i, 3:7], i)
 
-        scan_local = (self.lidar.data.ray_hits_w.torch - self.env.scene.env_origins.unsqueeze(1)).cpu().numpy()
+        scan_local = (self.lidar.data.ray_hits_w.torch - self.env.map_origins.unsqueeze(1)).cpu().numpy()
         finite = np.isfinite(scan_local).all(axis=-1)  # rays that hit nothing come back as inf
         for i in range(self.num_envs):
             self.publish_lidar_data(timestamp, np.ascontiguousarray(scan_local[i][finite[i]], dtype=np.float32), i)

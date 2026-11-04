@@ -71,6 +71,11 @@ class _Go2Sim2RealPolicyAction(ActionTerm):
         return self._raw_actions
 
     @property
+    def command_limits(self) -> Tensor:
+        """(v_x, v_y, w_z) [m/s, m/s, rad/s] that an action of 1 commands, see `process_actions`."""
+        return self._command_limits
+
+    @property
     def processed_actions(self) -> Tensor:
         """The base velocity command actually handed to the locomotion policy (scaled, nominal added, then clipped)."""
         return self._velocity_command

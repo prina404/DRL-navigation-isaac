@@ -3,13 +3,18 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+from cfg.CFG import get_run_name, load_cfg, set_map_names
+
 # # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on basic RL environment.")
 parser.add_argument(
+    "--maps",
     "--map",
     type=str,
-    required=True,
-    help="Map to run on, e.g. 40, 0040 or kujiale_0040. Overrides current_env in dataset_cfg.yaml.",
+    nargs="+",
+    default=None,
+    help="Maps to evaluate on, e.g. 40 0040 kujiale_0040. Defaults to eval_envs in dataset_cfg.yaml. Every robot "
+    "runs its own Nav2 stack on the map it was assigned to.",
 )
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument(
@@ -40,6 +45,12 @@ parser.add_argument(
     help="Number of episodes to record per environment.",
 )
 parser.add_argument(
+    "--max_episode_steps",
+    type=int,
+    default=None,
+    help="Episode length in policy steps, instead of the task's episode_length_s.",
+)
+parser.add_argument(
     "--collision_force_thresh",
     type=float,
     default=3.0,
@@ -51,6 +62,7 @@ AppLauncher.add_app_launcher_args(parser)
 
 # # append AppLauncher cli args
 args_cli, hydra_argv = parser.parse_known_args()
+set_map_names(args_cli.maps or load_cfg()["eval_envs"])  # before anything reads the maps back out of cfg.CFG
 args_cli.enable_cameras = args_cli.video or "vision" in args_cli.task or "depth" in args_cli.task
 
 sys.argv = [sys.argv[0]] + hydra_argv
@@ -77,13 +89,11 @@ from loguru import logger
 from omegaconf import DictConfig
 from rclpy.executors import SingleThreadedExecutor
 
-from cfg.CFG import ROOT_DIR, get_map_name, get_scene_usd_path, set_map_name
+from cfg.CFG import ROOT_DIR
 from distillation.policy_eval import log_summary, rollout_policy, summarize
 from tasks.task_utils import get_env_config
 from ros2.Nav2Manager import kill_nav2_lifecycle, pump_ros_data, wait_for_nav2_ready, MultiEnvNavigator
 from ros2.RosDataManager import RosDataManager
-
-set_map_name(args_cli.map)  # before anything reads the map back out of cfg.CFG
 
 
 FILE_PATH = os.path.join(os.path.dirname(__file__), "src/cfg")
@@ -95,7 +105,7 @@ NAV2_BRINGUP_ATTEMPTS = 5
 @hydra.main(config_path=None)
 def run_simulator(cfg: DictConfig):
 
-    run_info = get_map_name() + datetime.now().strftime("_%m-%d_%H-%M")
+    run_info = get_run_name() + datetime.now().strftime("_%m-%d_%H-%M")
     log_root_path = os.path.abspath(os.path.join(get_original_cwd(), "logs", "rsl_rl", "ros2_validation"))
     logger.info(f"Logging experiment in directory: {log_root_path}")
     logger.info(f"Exact experiment name requested from command line: {run_info}")
@@ -108,6 +118,8 @@ def run_simulator(cfg: DictConfig):
     environment_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
     environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
     environment_cfg.log_dir = log_dir
+    if args_cli.max_episode_steps is not None:
+        environment_cfg.episode_length_s = args_cli.max_episode_steps * environment_cfg.sim.dt * environment_cfg.decimation
 
     # Create the whole scene
     logger.info("Creating gym environment...")
@@ -115,7 +127,7 @@ def run_simulator(cfg: DictConfig):
         id="Isaac-indoor-navigation-go2-v0",
         entry_point="navigation_env.NavigationEnv:NavEnv",
         disable_env_checker=True,
-        kwargs={"scene_path": get_scene_usd_path(), "use_long_horizon": False, "sample_voronoi_probability": 0.25},
+        kwargs={"use_long_horizon": False, "sample_voronoi_probability": 0.25},
     )
     env = gym.make(
         "Isaac-indoor-navigation-go2-v0",
@@ -198,6 +210,9 @@ def run_simulator(cfg: DictConfig):
 
     # --- Eval loop ---
     drain_budget = 2 * env.num_envs + 4
+    # The action term scales the policy's [-1, 1] actions by its command limits; Nav2 commands in m/s and rad/s.
+    # The legacy 48-D action term takes the command as is.
+    command_limits = getattr(env.unwrapped.action_manager.get_term("mpc_cmd"), "command_limits", 1.0)
 
     class Nav2Policy:
         """Adapter presenting the latest cmd_vel of every env with the interface `rollout_policy` expects."""
@@ -210,13 +225,21 @@ def run_simulator(cfg: DictConfig):
 
         @property
         def output_mean(self) -> torch.Tensor:
-            return ros2_dm.base_vel_cmd_input.to(env.device)
+            return ros2_dm.base_vel_cmd_input.to(env.device) / command_limits
+
+    last_step = [time.monotonic()]
 
     def post_step() -> None:
         # Publish TF/odom/scan before anything that can stall: the simulator is the only source of `/clock` and
         # of odom -> base_link, and Nav2 cannot activate, plan or control without them.
         ros2_dm.pub_ros2_data()
         multi_nav.step()
+        # The controller server paces its loop on wall time: a simulation running ahead of real time would get
+        # fewer commands per simulated second than Nav2 is tuned for, so never step faster than real time.
+        wait = env.unwrapped.step_dt - (time.monotonic() - last_step[0])
+        if wait > 0:
+            time.sleep(wait)
+        last_step[0] = time.monotonic()
 
     records = rollout_policy(
         env,
