@@ -411,7 +411,7 @@ go2_policy_cfg: dict[str, Any] = {
         "hidden_dims": [256, 128, 128],
         "activation": "elu",
         "obs_normalization": False,
-        "last_activation": "tanh",  # the legacy actor head ended with a tanh
+        "last_activation": None,  # linear: the action term squashes the sampled action into the command ellipse
         "encoders_hidden_dims": ENCODERS_HIDDEN_DIMS,
         "distribution_cfg": {
             "class_name": "GaussianDistribution",  # "HeteroscedasticGaussianDistribution" for a state-dependent std

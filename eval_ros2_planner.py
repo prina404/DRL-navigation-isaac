@@ -115,6 +115,7 @@ def run_simulator(cfg: DictConfig):
     # Go2 Env setup
     environment_cfg = get_env_config(args_cli.task)
     environment_cfg.curriculum = None
+    environment_cfg.actions.mpc_cmd.squash_actions = False  # Nav2's cmd_vel is the command itself, in m/s and rad/s
     environment_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
     environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
     environment_cfg.log_dir = log_dir
@@ -210,9 +211,6 @@ def run_simulator(cfg: DictConfig):
 
     # --- Eval loop ---
     drain_budget = 2 * env.num_envs + 4
-    # The action term scales the policy's [-1, 1] actions by its command limits; Nav2 commands in m/s and rad/s.
-    # The legacy 48-D action term takes the command as is.
-    command_limits = getattr(env.unwrapped.action_manager.get_term("mpc_cmd"), "command_limits", 1.0)
 
     class Nav2Policy:
         """Adapter presenting the latest cmd_vel of every env with the interface `rollout_policy` expects."""
@@ -225,7 +223,7 @@ def run_simulator(cfg: DictConfig):
 
         @property
         def output_mean(self) -> torch.Tensor:
-            return ros2_dm.base_vel_cmd_input.to(env.device) / command_limits
+            return ros2_dm.base_vel_cmd_input.to(env.device)
 
     last_step = [time.monotonic()]
 
