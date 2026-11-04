@@ -26,6 +26,9 @@ class BaseEventsCfg:
 
     update_counters = EventTermCfg(func=events.update_episode_counters, mode="reset")
 
+    # uniform per episode; evaluation removes it to run at the action term's fixed `max_speed`
+    sample_max_speed = EventTermCfg(func=events.sample_max_speed, mode="reset", params={"speed_range": (0.25, 2.0)})
+
 
 @configclass
 class FullEventsCfg(BaseEventsCfg):

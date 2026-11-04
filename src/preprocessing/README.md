@@ -13,6 +13,7 @@ $ python3 preprocess_interioragent.py
 - Disable all unnecessary Rigid Bodies: everything becomes a static collider, apart from doors (or other objects in the future).
 - Simplify collisions with convex hulls and convex decomposition.
 - Preprocess doors according to the categories defined in the `src/cfg/interioragetn_preprocessing.yaml` configuration file.
+- Release the low static pieces (saddles, thresholds) that a dynamic door leaf is authored into: their colliders are removed, otherwise the contact pins the door shut (`kujiale_0031/door_0004` starts 1 mm inside a saddle). Only pieces within the footprint of the door frame are considered; taller ones are logged and left as is.
 - Compute the occupancy grid map image and .yaml which will be used during learning.
 
 ## Door properties in the original dataset

@@ -19,9 +19,9 @@ What changed between the two rsl-rl versions:ĸ
   flag selects sampling or the deterministic output; the runner's ``get_inference_policy()`` now returns the actor
   model itself, which stays call-compatible with ``policy(obs)``.
 
-Both the ``tanh`` output activation of the actor head and the ``sigmoid`` output activation of the encoders are kept,
-but note that ``rsl_rl.models.MLPModel`` builds a *linear* head, so ``last_activation`` must be set explicitly in the
-configuration (:data:`go2_policy_cfg` below does so). Checkpoints of the old class can be converted with
+The ``sigmoid`` output activation of the encoders is kept. The legacy actor head ended with a ``tanh``; the actor head
+is now linear (``last_activation=None`` in :data:`go2_policy_cfg` below), because the action term squashes the sampled
+action into the command range itself. Checkpoints of the old class can be converted with
 :func:`convert_legacy_checkpoint`.
 """
 
@@ -413,7 +413,7 @@ go2_policy_cfg: dict[str, Any] = {
         "hidden_dims": [256, 128, 128],
         "activation": "elu",
         "obs_normalization": False,
-        "last_activation": "tanh",  # the legacy actor head ended with a tanh
+        "last_activation": None,  # linear: the action term squashes the sampled action into the command ellipse
         "encoders_hidden_dims": ENCODERS_HIDDEN_DIMS,
         "distribution_cfg": {
             "class_name": "GaussianDistribution",  # "HeteroscedasticGaussianDistribution" for a state-dependent std
@@ -447,7 +447,7 @@ go2_policy_cfg: dict[str, Any] = {
         "desired_kl": 0.01,
         "max_grad_norm": 1.0,
     },
-    "load_run": "unitree_go2_nav",
+    "load_run": "unitree_go2_nav$",  # a regex: unanchored, it also matches ckpts/unitree_go2_nav_jit
     "load_checkpoint": "last_ckpt_vis.pt",
 }
 

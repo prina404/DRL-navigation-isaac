@@ -79,8 +79,8 @@ class NavEnvDebugView(NavEnv):
         self.marker_locations = robot.data.root_pos_w.torch  # (B, 3)
         self.reward_marker_orientations = quat_from_angle_axis(reward_yaw, self.up_dir)
 
-        # command heading: from action (x, y) only
-        cmd_xy = self._action_buffer[:, 0, :2]  # (B, 2)
+        # command heading: from the (v_x, v_y) command only
+        cmd_xy = self.action_manager.get_term("llc").processed_actions[:, :2]  # (B, 2)
         cmd_yaw = torch.atan2(cmd_xy[:, 1], cmd_xy[:, 0])
 
         # rotate command to world frame using robot yaw

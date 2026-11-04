@@ -2,7 +2,7 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.utils import configclass
 from loguru import logger
 
-import mdp.actions.actions_config as actions
+import mdp.actions.actions_config_v2 as actions
 import mdp.curriculum.curriculum_config as curriculum
 import mdp.events.events_config as events
 import mdp.observations.obs_config as obs
@@ -23,8 +23,8 @@ class Go2VisionFull(ManagerBasedRLEnvCfg):
     curriculum = curriculum.CurriculumCfg()
 
     obs_groups = {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "vision"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "vision"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "vision", "max_speed"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "vision", "max_speed"],
     }
 
     def __post_init__(self) -> None:
@@ -57,8 +57,8 @@ class Go2VisionEmpty(ManagerBasedRLEnvCfg):
     curriculum = curriculum.CurriculumCfg()
 
     obs_groups = {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "vision"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "vision"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "vision", "max_speed"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "vision", "max_speed"],
     }
 
     def __post_init__(self) -> None:
@@ -86,8 +86,8 @@ class Go2DepthFull(ManagerBasedRLEnvCfg):
     curriculum = curriculum.CurriculumCfg()
 
     obs_groups = {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "depth"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "depth"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "depth", "max_speed"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "depth", "max_speed"],
     }
 
     def __post_init__(self) -> None:
@@ -117,8 +117,8 @@ class Go2VisionDepthFull(ManagerBasedRLEnvCfg):
     curriculum = curriculum.CurriculumCfg()
 
     obs_groups = {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "vision", "depth"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "vision", "depth"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "vision", "depth", "max_speed"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "vision", "depth", "max_speed"],
     }
 
     def __post_init__(self) -> None:

@@ -12,6 +12,7 @@ from isaaclab.sim.spawners.sensors.sensors_cfg import PinholeCameraCfg
 from isaaclab.utils import configclass
 
 from cfg.CFG import get_scene_usd_path
+from mdp.scene.mirror_safe_ray_caster import MirrorSafeRayCasterCfg
 from mdp.scene.moving_obstacles_cfg import get_obstacles_cfg
 from mdp.scene.robot_cfg import UNITREE_GO2_CFG
 
@@ -43,6 +44,12 @@ class Go2BaseCfg(InteractiveSceneCfg):
         track_air_time=False,
     )
 
+    # the knee sphere is a collider of the thigh link, just above the calf joint (the calf's own collider is disabled)
+    knee_collision_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Go2/.*_thigh",
+        history_length=1,
+        track_air_time=False,
+    )
 
 
 @configclass
@@ -76,7 +83,8 @@ class Go2EmptySceneCfg(Go2BaseCfg):
 class Go2FullSceneLidarCfg(Go2BaseCfg):
     """Full indoor scene, robot has lidar only"""
 
-    lidar = MultiMeshRayCasterCfg(
+    # the upstream mesh loader misplaces the scenes' mirrored meshes, see MirrorSafeRayCaster
+    lidar = MirrorSafeRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Go2/radar",
         update_period=0.05,  # 20Hz
         offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 0.0)),

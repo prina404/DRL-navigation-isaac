@@ -67,15 +67,28 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 3.15
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
+      # DWB's alignment critics cannot tell facing forward from facing backward along a straight path, and turning
+      # around costs PathAlign more than backing up does, so DWB used to drive whole routes in reverse. The shim
+      # rotates in place towards the path whenever the heading is more than angular_dist_threshold off, then hands
+      # over to DWB. Tested on kujiale_0065 hard tasks (2026-10-22, 24 episodes): forward travel 75 % -> 89 %, sideways
+      # 15 % -> 2 %, collision-free 38 % -> 75 %, success unchanged at 75 %. Reweighting PathAlign/GoalAlign instead, or
+      # penalizing reverse through PreferForward, cut the success rate to 38-54 %.
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      angular_dist_threshold: 0.785
+      forward_sampling_distance: 0.5
+      rotate_to_heading_angular_vel: 1.0
+      max_angular_accel: 3.0
+      simulate_ahead_time: 1.0
+      rotate_to_goal_heading: false
       debug_trajectory_details: True
-      min_vel_x: -1.0
-      min_vel_y: -1.0
-      max_vel_x: 1.0
-      max_vel_y: 1.0
+      min_vel_x: -0.3 # backing up is slower than driving forward
+      min_vel_y: -0.5
+      max_vel_x: 0.5
+      max_vel_y: 0.5
       max_vel_theta: 1.
       min_speed_xy: -1.5
-      max_speed_xy: 1.5
+      max_speed_xy: 0.5 # also caps diagonals at 0.5 m/s, like max_speed of the policy's action term
       min_speed_theta: -1.
       acc_lim_x: 3.0
       acc_lim_y: 3.0
@@ -349,8 +362,8 @@ velocity_smoother:
     smoothing_frequency: 12.5
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [1.0, 1.0, 1.0]
-    min_velocity: [-1.0, -1.0, -1.0]
+    max_velocity: [0.5, 0.5, 1.0] # unused (not launched), kept in line with FollowPath
+    min_velocity: [-0.3, -0.5, -1.0]
     max_accel: [2.0, 2.0, 2.0]
     max_decel: [-2.0, -2.0, -2.0]
     odom_topic: "odom"

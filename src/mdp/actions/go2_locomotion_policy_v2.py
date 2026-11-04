@@ -25,7 +25,7 @@ OBS_TERM_DIMS: tuple[tuple[str, int], ...] = (
 )
 
 GO2_SIM2REAL_CFG = {
-    "checkpoint": CHECKPOINT_DIR / "unitree_go2_locomotion" / "policy_finetune10.5.5.49.pt",
+    "checkpoint": CHECKPOINT_DIR / "unitree_go2_locomotion" / "policy_final_elliptic2.5ms.pt",
     "device": DEVICE,
     # ObservationGroupCfg.history_length of the training env
     "history_length": 8,
@@ -36,8 +36,8 @@ GO2_SIM2REAL_CFG = {
     "action_scale": 0.25,
     # sim.dt (0.005) * decimation (4) of the locomotion training env
     "control_dt": 0.02,
-    # final stage of `velocity_command_curriculum` for (lin_vel_x, lin_vel_y) and the ang_vel_z command range
-    "command_limits": (2.5, 2.5, 1.5),
+    # semi-axes of the (v_x, v_y) command ellipse and the independent w_z range the policy was trained on
+    "command_limits": (2.5, 1.0, 2.0),
     "hidden_dims": [512, 512, 256],
     "activation": "elu",
 }
