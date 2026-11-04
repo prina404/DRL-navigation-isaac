@@ -1,5 +1,4 @@
 import argparse
-import re
 
 from isaaclab.app import AppLauncher
 
@@ -22,12 +21,12 @@ from pxr import Usd
 from tqdm import tqdm
 
 import cfg.CFG as CFG
+import preprocessing.interioragent_utils.chairs as chairs
 import preprocessing.interioragent_utils.collisions as collisions
 import preprocessing.interioragent_utils.doors as doors
 import preprocessing.interioragent_utils.gridmap as gridmap
 import preprocessing.interioragent_utils.layers as layers
 import preprocessing.interioragent_utils.physics as physics
-import preprocessing.interioragent_utils.chairs as chairs
 
 parser = argparse.ArgumentParser(description="Preprocess USD for InteriorAgent.")
 parser.add_argument(
@@ -70,11 +69,14 @@ def load_interioragent_cfg(env_name: str = None) -> dict:
     validate_yaml_cfg(cfg, env_name)
     return cfg
 
+
 def is_dynamic_door(prim: Usd.Prim, door_cfg: dict) -> bool:
     return prim.IsValid() and doors.is_door_root_xform(prim) and prim.GetName() in door_cfg["normal_doors"]
 
+
 def is_dynamic_chair(prim: Usd.Prim) -> bool:
     return prim.IsValid() and chairs.is_chair_xform(prim)
+
 
 def init_static_dynamic_folders(
     usd_path: str,
@@ -144,6 +146,9 @@ def preprocess_interioragent_scene(scene_dir: str, usd_path: str):
     dynamic_doors = doors.set_door_physics(root, env_cfg)
     dynamic_chairs = chairs.set_chair_physics(root)
 
+    ## Free the dynamic doors from the saddles their leaves are authored into, which would pin them shut
+    released_saddles = collisions.release_door_saddles(root, dynamic_doors)
+
     ## Drop collisions of static objects the quadruped can never reach, to speed up the simulation
     reach_height = env_cfg.get("collision_reach_height", collisions.QUADRUPED_REACH_HEIGHT)
     pruned_collisions = collisions.prune_unreachable_collisions(root, height=reach_height)
@@ -160,10 +165,9 @@ def preprocess_interioragent_scene(scene_dir: str, usd_path: str):
     gridmap.create_map_from_file(dst_path, env_cfg)  # create occupancy map for the preprocessed USD
     layers.write_split_layers(dst_path)  # static geometry and doors/chairs, spawned separately at training time
     logger.info(
-        f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors, {len(dynamic_chairs)} dynamic chairs")
-    logger.info(
-        f"{len(pruned_collisions)} colliders pruned from environment"
+        f"Preprocessed USD saved to {dst_path} with {len(dynamic_doors)} dynamic doors, {len(dynamic_chairs)} dynamic chairs"
     )
+    logger.info(f"{len(pruned_collisions)} colliders pruned from environment, {len(released_saddles)} door saddles released")
 
 
 def main(args_cli: argparse.Namespace):
