@@ -171,9 +171,9 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.map_origins[:, :2]  # (B, 2)
     paths = env.path_manager.path_buf  # (B, K, 2), goal-padded
     closest = _closest_path_idx(env, local_robot_coords)  # (B,)
-    offsets = torch.arange(num_points_forward + 1, device=paths.device)  # (P+1,)
-    idx = (closest.unsqueeze(1) + offsets.unsqueeze(0)).clamp_(max=paths.shape[1] - 1)  # (B, P+1)
-    return paths.gather(1, idx.unsqueeze(-1).expand(-1, -1, 2))  # (B, P+1, 2)
+    offsets = torch.arange(num_points_forward, device=paths.device)  # (P,)
+    idx = (closest.unsqueeze(1) + offsets.unsqueeze(0)).clamp_(max=paths.shape[1] - 1)  # (B, P)
+    return paths.gather(1, idx.unsqueeze(-1).expand(-1, -1, 2))  # (B, P, 2)
 
 
 def get_path_obs(

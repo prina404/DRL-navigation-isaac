@@ -92,8 +92,9 @@ def penalty_obstacle_proximity(env: NavEnv, max_penalty: float = -2.0) -> Tensor
 def robot_heading_reward(env: NavEnv) -> Tensor:
     # Returns 1 if robot is heading in the correct direction, 0 otherwise
     # We compute the alignment wrt to the direction of the last point of the path in hour horizon.
-    obs_tensor = get_path_obs(env, num_points_forward=10, normalize=True)  # (B, 20)
-    headings = obs_tensor[:, 10:]  # (B, 10)
+    num_points = 10
+    obs_tensor = get_path_obs(env, num_points_forward=num_points, normalize=True)  # (B, 2 * num_points)
+    headings = obs_tensor[:, num_points:]  # (B, num_points), point 0 is the one closest to the robot
     next_heading = headings[:, 3]  # I extract the heading of 3rd point forward (approx 90cm ahead)
     # if next_heading == 0.5 -> robot is facing the correct direction. Max reward.
     heading_delta = torch.abs(0.5 - next_heading)
