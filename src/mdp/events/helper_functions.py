@@ -32,6 +32,11 @@ def update_episode_counters(env: NavEnv, env_ids: torch.Tensor) -> None:
     env.episode_counter[env_ids] += 1
 
 
+def sample_max_speed(env: NavEnv, env_ids: torch.Tensor, speed_range: tuple[float, float]) -> None:
+    max_speed = env.action_manager.get_term("llc").max_speed
+    max_speed[env_ids] = torch.empty_like(max_speed[env_ids]).uniform_(*speed_range)
+
+
 def _collect_door_prims(stage: Usd.Stage, env_ns: str) -> list[Usd.Prim]:
     root_path = f"{env_ns}/environment/Meshes/dynamic_objects/other"
     root_prim = stage.GetPrimAtPath(root_path)

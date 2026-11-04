@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
@@ -5,7 +6,6 @@ from isaaclab.assets.articulation.articulation import Articulation
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.envs.common import VecEnvStepReturn
 from isaaclab.envs.ui import ViewportCameraController
-from isaaclab.utils.math import euler_xyz_from_quat
 
 from navigation_env.managers.camera_manager import CameraManager
 from navigation_env.managers.map_manager import MapManager
@@ -13,6 +13,10 @@ from navigation_env.managers.path_manager import PathManager
 
 
 class NavEnv(ManagerBasedRLEnv):
+    # Reward terms logged as their mean value per step, before the weight, instead of IsaacLab's episode sum over
+    # max_episode_length_s, which shrinks with the episode even when every step earns the full reward.
+    PER_STEP_LOGGED_REWARDS = ("heading",)
+
     def __init__(self, cfg: ManagerBasedRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
@@ -25,15 +29,6 @@ class NavEnv(ManagerBasedRLEnv):
         self.path_manager = PathManager(
             scene_path=scene_path, map_mgr=self._map_manager, num_envs=self.num_envs, device=self.device
         )
-
-        # Action buffer with the past 5 actions (Δx, Δy, Δtheta)
-        self._action_buffer = torch.zeros((self.num_envs, 5, 3), dtype=torch.float32, device=self.device)
-
-        # Store past 10 robot linear + angular velocity (x,y,theta)
-        self._velocity_buffer = torch.zeros((self.num_envs, 10, 3), dtype=torch.float32, device=self.device)
-        self._old_yaw = torch.zeros((self.num_envs), dtype=torch.float32, device=self.device)
-
-        self._lidar_buffer = None
 
         camera_controller = ViewportCameraController(self, cfg=ViewerCfg(origin_type="world"))
         self.camera_manager = CameraManager(
@@ -56,28 +51,30 @@ class NavEnv(ManagerBasedRLEnv):
 
         retVal = super().step(action)
 
-        # Update action buffer
-        self._action_buffer = torch.roll(self._action_buffer, shifts=1, dims=1)
-        self._action_buffer[:, 0, :] = action.to(self.device)
-
-        ## Update linear velocity
-        robot: Articulation = self.scene["robot"]
-        self._velocity_buffer = torch.roll(self._velocity_buffer, shifts=1, dims=1)
-        # store only x, y linear velocity
-        self._velocity_buffer[:, 0, :2] = robot.data.root_com_lin_vel_w.torch[:, :2].to(self.device)
-
-        ## Angular velocity
-        _, _, new_yaw = euler_xyz_from_quat(robot.data.root_com_quat_w.torch)
-        theta = (new_yaw - self._old_yaw) / getattr(self.sim, "dt", 0.005) * getattr(self.sim, "decimation", 16)
-        self._velocity_buffer[:, 0, 2] = theta
-        self._old_yaw = new_yaw
-        #TODO: replace with this:
-        #self._velocity_buffer[:, 0, 2] = robot.data.root_com_ang_vel_w.torch[:, 2].to(self.device)
-
+        # the action and velocity histories are observation terms (see obs_config.py), cleared on reset
         self.update_follow_camera()
         self._update_lidar_buffer()
 
         return retVal
+
+    def _reset_idx(self, env_ids: Sequence[int]) -> None:
+        # read before the reward manager clears the episode sums and the episode lengths are zeroed
+        rewards = self.reward_manager
+        per_step = {
+            name: self._mean_reward_per_step(name, env_ids)
+            for name in self.PER_STEP_LOGGED_REWARDS
+            if name in rewards.active_terms and rewards.get_term_cfg(name).weight != 0.0
+        }
+        super()._reset_idx(env_ids)
+        for name, value in per_step.items():
+            self.extras["log"][f"Episode_Reward/{name}"] = value
+
+    def _mean_reward_per_step(self, name: str, env_ids: Sequence[int]) -> torch.Tensor:
+        """Value of reward term `name` per step, before its weight, averaged over the episodes ending in `env_ids`."""
+        rewards = self.reward_manager
+        scale = rewards.get_term_cfg(name).weight * self.step_dt  # what the reward manager multiplies each step by
+        steps = self.episode_length_buf[env_ids].clamp(min=1)
+        return (rewards._episode_sums[name][env_ids] / (scale * steps)).mean()
 
     def teleport_robots(self, env_ids: torch.Tensor) -> None:
         ## set cartesian position, quaternion orientation in (x, y, z, w), and linear and angular velocity

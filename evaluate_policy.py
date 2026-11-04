@@ -49,6 +49,19 @@ parser.add_argument(
     help="Number of episodes to record per environment.",
 )
 parser.add_argument(
+    "--max_speed",
+    type=float,
+    default=None,
+    help="Cap on the (v_x, v_y) speed command [m/s], observed by the policy (trained on 0.25-2.0). "
+    "Defaults to the action term's max_speed, 2.0.",
+)
+parser.add_argument(
+    "--max_episode_steps",
+    type=int,
+    default=None,
+    help="Episode length in policy steps, instead of the task's episode_length_s.",
+)
+parser.add_argument(
     "--collision_force_thresh",
     type=float,
     default=3.0,
@@ -125,6 +138,11 @@ def run_simulator(cfg: DictConfig):
     environment_cfg.scene.num_envs = args_cli.num_envs
     environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
     environment_cfg.log_dir = log_dir
+    environment_cfg.events.sample_max_speed = None  # every robot runs at the same, fixed speed cap
+    if args_cli.max_speed is not None:
+        environment_cfg.actions.llc.max_speed = args_cli.max_speed
+    if args_cli.max_episode_steps is not None:
+        environment_cfg.episode_length_s = args_cli.max_episode_steps * environment_cfg.sim.dt * environment_cfg.decimation
 
     # Create the whole scene
     logger.info("Creating gym environment...")

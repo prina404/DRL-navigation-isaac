@@ -221,3 +221,5 @@ ros_ws/log/
 .vscode/
 ros_ws/outputs
 distillation_data/
+screenshots/
+workbench/

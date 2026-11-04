@@ -55,17 +55,16 @@ def penalty_still(env: NavEnv, speed_thresh: float = 0.05, penalty: float = -0.2
     )
 
 
+COLLISION_SENSORS = ("body_collision_sensor", "hip_collision_sensor", "knee_collision_sensor")
+
+
 def detect_collision(env: NavEnv) -> Tensor:
-    base_sensor = env.scene["body_collision_sensor"]
-    base_forces = base_sensor.data.net_forces_w.torch  # (N, bodies, 3)
-    base_magnitude = torch.linalg.norm(base_forces, dim=-1).max(dim=-1).values
-
-    hip_sensor = env.scene["hip_collision_sensor"]
-    hip_forces = hip_sensor.data.net_forces_w.torch  # (N, bodies, 3)
-    hip_magnitude = torch.linalg.norm(hip_forces, dim=-1).max(dim=-1).values
-
-    magnitude = torch.max(base_magnitude, hip_magnitude)
-    return magnitude
+    """Largest contact force (N) on the base, hips or knees of each robot. The feet are not included."""
+    magnitudes = []
+    for name in COLLISION_SENSORS:
+        forces = env.scene[name].data.net_forces_w.torch  # (N, bodies, 3)
+        magnitudes.append(torch.linalg.norm(forces, dim=-1).max(dim=-1).values)
+    return torch.stack(magnitudes).max(dim=0).values
 
 
 def penalty_collision(env: NavEnv, force_thresh: float = 3.0, penalty: float = -5.0) -> Tensor:
@@ -93,8 +92,9 @@ def penalty_obstacle_proximity(env: NavEnv, max_penalty: float = -2.0) -> Tensor
 def robot_heading_reward(env: NavEnv) -> Tensor:
     # Returns 1 if robot is heading in the correct direction, 0 otherwise
     # We compute the alignment wrt to the direction of the last point of the path in hour horizon.
-    obs_tensor = get_path_obs(env, num_points_forward=10, normalize=True)  # (B, 20)
-    headings = obs_tensor[:, 10:]  # (B, 10)
+    num_points = 10
+    obs_tensor = get_path_obs(env, num_points_forward=num_points, normalize=True)  # (B, 2 * num_points)
+    headings = obs_tensor[:, num_points:]  # (B, num_points), point 0 is the one closest to the robot
     next_heading = headings[:, 3]  # I extract the heading of 3rd point forward (approx 90cm ahead)
     # if next_heading == 0.5 -> robot is facing the correct direction. Max reward.
     heading_delta = torch.abs(0.5 - next_heading)
@@ -105,7 +105,7 @@ def robot_heading_reward(env: NavEnv) -> Tensor:
 
 def action_smoothness_penalty(env: NavEnv) -> Tensor:
     # I assume that jerky motions are correlated to sudden changes in velocity.
-    delta = env._action_buffer[:, 0] - env._action_buffer[:, 1]  # (B, action_dim)
+    delta = env.action_manager.action - env.action_manager.prev_action  # (B, action_dim)
     return -torch.linalg.norm(delta, dim=-1)
 
 

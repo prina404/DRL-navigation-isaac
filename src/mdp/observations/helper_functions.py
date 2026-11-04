@@ -122,11 +122,13 @@ def get_dummy_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 50), device=env.device, dtype=torch.float32)
 
 
-def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> torch.Tensor:
+def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True, noise_std: float = 0.0) -> torch.Tensor:
     """
     Returns (B, 2 * num_obstacles) where for each batch we concatenate the distance and yaw of the closest num_obstacles points:
         result[B, :num_obstacles] = distance
         result[B, num_obstacles:] = yaw (radians)
+
+    `noise_std` [m] is the std of a zero mean gaussian range noise, drawn independently for every ray.
     """
     lidar: MultiMeshRayCaster = env.scene["lidar"]
 
@@ -136,6 +138,12 @@ def get_lidar(env: ManagerBasedRLEnv, num_obstacles: int, normalize=True) -> tor
 
     scan_w: torch.Tensor = lidar.data.ray_hits_w.torch  # (B, N_rays, 3)
     scan = scan_w - robot_pos.unsqueeze(1)  # (B, N_rays, 3) relative vec in world frame
+
+    if noise_std > 0.0:
+        # each hit slides along its ray by its own sample: rays that hit nothing are infinitely long, and stay so
+        ray_length = torch.norm(scan, dim=-1, keepdim=True).clamp(min=1e-6)  # (B, N_rays, 1)
+        noise = noise_std * torch.randn_like(ray_length)
+        scan = scan * (1.0 + noise / ray_length).clamp(min=0.0)  # a hit cannot end up behind the sensor
 
     B, N_rays, _ = scan.shape
 
@@ -264,9 +272,9 @@ def _get_path_coords(env: RslRlVecEnvWrapper, num_points_forward: int) -> torch.
     local_robot_coords = env.scene["robot"].data.root_link_pos_w.torch[:, :2] - env.scene.env_origins[:, :2]  # (B, 2)
     paths = env.path_manager.path_buf  # (B, K, 2), goal-padded
     closest = _closest_path_idx(env, local_robot_coords)  # (B,)
-    offsets = torch.arange(num_points_forward + 1, device=paths.device)  # (P+1,)
-    idx = (closest.unsqueeze(1) + offsets.unsqueeze(0)).clamp_(max=paths.shape[1] - 1)  # (B, P+1)
-    return paths.gather(1, idx.unsqueeze(-1).expand(-1, -1, 2))  # (B, P+1, 2)
+    offsets = torch.arange(num_points_forward, device=paths.device)  # (P,)
+    idx = (closest.unsqueeze(1) + offsets.unsqueeze(0)).clamp_(max=paths.shape[1] - 1)  # (B, P)
+    return paths.gather(1, idx.unsqueeze(-1).expand(-1, -1, 2))  # (B, P, 2)
 
 
 def get_path_obs(
@@ -303,18 +311,21 @@ def get_path_obs(
     return torch.cat([path_distances, headings], dim=1)  # (B, num_points_forward * 2)
 
 
-def get_previous_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:
-    env: NavEnv = env.unwrapped
-    if not hasattr(env, "_action_buffer"):
-        return torch.zeros((env.num_envs, 5 * 3), device=env.device)
-    return env._action_buffer.reshape(env.num_envs, -1)
+def get_base_velocity(env: NavEnv) -> torch.Tensor:
+    """(v_x, v_y) [m/s] of the robot in the world frame, and its yaw rate w_z [rad/s]."""
+    robot = env.scene["robot"]
+    return torch.cat([robot.data.root_com_lin_vel_w.torch[:, :2], robot.data.root_com_ang_vel_w.torch[:, 2:3]], dim=-1)
 
 
-def get_previous_velocities(env: RslRlVecEnvWrapper) -> torch.Tensor:
-    env: NavEnv = env.unwrapped
-    if not hasattr(env, "_velocity_buffer"):
-        return torch.zeros((env.num_envs, 10 * 3), device=env.device)
-    return env._velocity_buffer.reshape(env.num_envs, -1)
+# Both read state of the action term, so they return copies: the observation manager clips and scales in place.
+def get_velocity_command(env: NavEnv) -> torch.Tensor:
+    """The (v_x, v_y, w_z) command the locomotion policy executed: squashed, blended with the nominal and capped."""
+    return env.action_manager.get_term("llc").processed_actions.clone()
+
+
+def get_max_speed(env: NavEnv) -> torch.Tensor:
+    """The (v_x, v_y) speed limit [m/s] of each robot, (B, 1)."""
+    return env.action_manager.get_term("llc").max_speed.clone()
 
 
 def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_points_forward: int) -> torch.Tensor:

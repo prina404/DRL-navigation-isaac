@@ -40,6 +40,12 @@ parser.add_argument(
     help="Number of episodes to record per environment.",
 )
 parser.add_argument(
+    "--max_episode_steps",
+    type=int,
+    default=None,
+    help="Episode length in policy steps, instead of the task's episode_length_s.",
+)
+parser.add_argument(
     "--collision_force_thresh",
     type=float,
     default=3.0,
@@ -105,9 +111,12 @@ def run_simulator(cfg: DictConfig):
     # Go2 Env setup
     environment_cfg = get_env_config(args_cli.task)
     environment_cfg.curriculum = None
+    environment_cfg.actions.llc.squash_actions = False  # Nav2's cmd_vel is the command itself, in m/s and rad/s
     environment_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
     environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
     environment_cfg.log_dir = log_dir
+    if args_cli.max_episode_steps is not None:
+        environment_cfg.episode_length_s = args_cli.max_episode_steps * environment_cfg.sim.dt * environment_cfg.decimation
 
     # Create the whole scene
     logger.info("Creating gym environment...")
@@ -212,11 +221,19 @@ def run_simulator(cfg: DictConfig):
         def output_mean(self) -> torch.Tensor:
             return ros2_dm.base_vel_cmd_input.to(env.device)
 
+    last_step = [time.monotonic()]
+
     def post_step() -> None:
         # Publish TF/odom/scan before anything that can stall: the simulator is the only source of `/clock` and
         # of odom -> base_link, and Nav2 cannot activate, plan or control without them.
         ros2_dm.pub_ros2_data()
         multi_nav.step()
+        # The controller server paces its loop on wall time: a simulation running ahead of real time would get
+        # fewer commands per simulated second than Nav2 is tuned for, so never step faster than real time.
+        wait = env.unwrapped.step_dt - (time.monotonic() - last_step[0])
+        if wait > 0:
+            time.sleep(wait)
+        last_step[0] = time.monotonic()
 
     records = rollout_policy(
         env,
