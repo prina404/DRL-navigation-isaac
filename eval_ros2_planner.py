@@ -115,7 +115,7 @@ def run_simulator(cfg: DictConfig):
     # Go2 Env setup
     environment_cfg = get_env_config(args_cli.task)
     environment_cfg.curriculum = None
-    environment_cfg.actions.mpc_cmd.squash_actions = False  # Nav2's cmd_vel is the command itself, in m/s and rad/s
+    environment_cfg.actions.llc.squash_actions = False  # Nav2's cmd_vel is the command itself, in m/s and rad/s
     environment_cfg.scene.num_envs = cfg.num_envs if args_cli.num_envs is None else args_cli.num_envs
     environment_cfg.seed = args_cli.seed if args_cli.seed is not None else 42
     environment_cfg.log_dir = log_dir

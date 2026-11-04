@@ -216,6 +216,17 @@ def get_base_velocity(env: NavEnv) -> torch.Tensor:
     return torch.cat([robot.data.root_com_lin_vel_w.torch[:, :2], robot.data.root_com_ang_vel_w.torch[:, 2:3]], dim=-1)
 
 
+# Both read state of the action term, so they return copies: the observation manager clips and scales in place.
+def get_velocity_command(env: NavEnv) -> torch.Tensor:
+    """The (v_x, v_y, w_z) command the locomotion policy executed: squashed, blended with the nominal and capped."""
+    return env.action_manager.get_term("llc").processed_actions.clone()
+
+
+def get_max_speed(env: NavEnv) -> torch.Tensor:
+    """The (v_x, v_y) speed limit [m/s] of each robot, (B, 1)."""
+    return env.action_manager.get_term("llc").max_speed.clone()
+
+
 def get_goal_relative_position(env: RslRlVecEnvWrapper | NavEnv, local_goal_points_forward: int) -> torch.Tensor:
     # same logic as in the nominal action computation
     if isinstance(env, RslRlVecEnvWrapper):

@@ -10,7 +10,7 @@ from mdp.observations.helper_functions import get_goal_relative_position
 from navigation_env.NavigationEnv import NavEnv
 
 
-class _Go2MPCPolicyAction(ActionTerm):
+class _Go2LLCPolicyAction(ActionTerm):
     def __init__(self, cfg, env: NavEnv):
         super().__init__(cfg, env)
         self._robot_cfg = SceneEntityCfg(name=cfg.asset_name)
@@ -73,9 +73,9 @@ class _Go2MPCPolicyAction(ActionTerm):
     def apply_actions(self):
         # Run low-level policy every sim step by default
         with torch.no_grad():
-            mpc_obs = self._build_low_level_obs()
-            mpc_obs = {"default": mpc_obs}  # Wrap in dict for ActorCritic
-            self._last_joint_action = self.controller(mpc_obs)
+            llc_obs = self._build_low_level_obs()
+            llc_obs = {"default": llc_obs}  # Wrap in dict for ActorCritic
+            self._last_joint_action = self.controller(llc_obs)
 
         robot: Articulation = self._env.scene[self.cfg.asset_name]
         q0 = robot.data.default_joint_pos.torch
@@ -93,7 +93,7 @@ class _Go2MPCPolicyAction(ActionTerm):
 
 @configclass
 class ActionsCfg:
-    mpc_cmd = ActionTermCfg(
-        class_type=_Go2MPCPolicyAction,
+    llc = ActionTermCfg(
+        class_type=_Go2LLCPolicyAction,
         asset_name="robot",
     )

@@ -23,8 +23,8 @@ class Go2LidarFull(ManagerBasedRLEnvCfg):
     curriculum = curriculum.CurriculumCfg()
 
     obs_groups = {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar", "max_speed"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar", "max_speed"],
     }
 
     def __post_init__(self) -> None:
@@ -57,8 +57,8 @@ class Go2LidarEmpty(ManagerBasedRLEnvCfg):
     curriculum = curriculum.CurriculumCfg()
 
     obs_groups = {
-        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
-        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar"],
+        "policy": ["velocity_buffer", "action_buffer", "global_plan", "lidar", "max_speed"],
+        "critic": ["velocity_buffer", "action_buffer", "global_plan", "lidar", "max_speed"],
     }
 
     def __post_init__(self) -> None:

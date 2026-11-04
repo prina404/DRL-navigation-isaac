@@ -41,6 +41,10 @@ def _term_major_index(history_length: int) -> Tensor:
     return torch.stack(rows)
 
 
+def _clip_to_circle(lin_vel: Tensor, radius: Tensor) -> Tensor:
+    return lin_vel / (torch.norm(lin_vel, dim=-1, keepdim=True) / radius).clamp(min=1.0)
+
+
 def _clip_to_ellipse(lin_vel: Tensor, semi_axes: Tensor) -> Tensor:
     ellipse_norm = torch.norm(lin_vel / semi_axes, dim=-1, keepdim=True)  # > 1 outside the ellipse
     return lin_vel / ellipse_norm.clamp(min=1.0)
@@ -55,6 +59,8 @@ class _Go2Sim2RealPolicyAction(ActionTerm):
         self._default_joint_pos = self._robot.data.default_joint_pos.torch
         self._default_joint_vel = self._robot.data.default_joint_vel.torch
         self._command_limits = torch.tensor(cfg.command_limits, device=self.device)
+        # resampled on reset by the `sample_max_speed` event during training, and observed by the policy
+        self.max_speed = torch.full((self.num_envs, 1), cfg.max_speed, device=self.device)
         self.controller = get_locomotion_policy(checkpoint=cfg.checkpoint, device=self.device)
 
         self._raw_actions = torch.zeros((self.num_envs, 3), device=self.device)
@@ -109,9 +115,9 @@ class _Go2Sim2RealPolicyAction(ActionTerm):
             nominal[:, :2] = _clip_to_ellipse(nominal[:, :2], self._command_limits[:2])
             command = (1.0 - nominal_weight) * command + nominal_weight * nominal
 
-        if self.cfg.max_speed is not None:
-            speed = torch.norm(command[:, :2], dim=-1, keepdim=True)
-            command = command * torch.clamp(self.cfg.max_speed / speed.clamp(min=1e-6), max=1.0)
+        # shrink (v_x, v_y) onto the speed limit, then into the ellipse, keeping its direction; w_z is left as is
+        lin_vel = _clip_to_circle(command[:, :2], self.max_speed)
+        command[:, :2] = _clip_to_ellipse(lin_vel, self._command_limits[:2])
         return command
 
     def apply_actions(self):
@@ -171,13 +177,13 @@ class Go2Sim2RealPolicyActionCfg(ActionTermCfg):
     #: ``False`` takes the actions as the command itself, in m/s and rad/s, with no squashing, nominal action or
     #: clipping. Used by the Nav2 baseline, whose cmd_vel is already within `command_limits`.
     squash_actions: bool = True
-    #: Cap on the (v_x, v_y) speed [m/s], e.g. to evaluate a policy at reduced speed. w_z is scaled by the same factor,
-    #: to keep the turning radius.
-    max_speed: float | None = None
+    #: Cap on the (v_x, v_y) speed [m/s], applied after the squash; w_z is not capped. The policy observes it. Training
+    #: resamples it per env on every reset (`sample_max_speed` event), so this value is only used without that event.
+    max_speed: float = 2.0
 
 
 @configclass
 class ActionsCfg:
     # Term name kept identical to `mdp.actions.actions_config.ActionsCfg`, so anything referencing the action term
     # by name (action-rate rewards, `last_action` observations) keeps working unchanged.
-    mpc_cmd = Go2Sim2RealPolicyActionCfg()
+    llc = Go2Sim2RealPolicyActionCfg()

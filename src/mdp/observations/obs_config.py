@@ -1,4 +1,3 @@
-import isaaclab.envs.mdp as isaac_mdp
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.utils import configclass
@@ -11,9 +10,15 @@ from tasks.task_common_params import PARAMS
 # ------------ GROUPS ------------
 @configclass
 class _ActionGroup(ObsGroup):
-    # The last 5 raw policy actions, cleared on reset. Raw rather than the executed command: a speed cap at evaluation
-    # time would otherwise show up in the history, out of the distribution the policy was trained on.
-    action_buffer = ObsTerm(func=isaac_mdp.last_action, history_length=5)
+    # The last 5 executed velocity commands (m/s, rad/s), after the squash, the nominal blend and the speed cap, not the
+    # raw policy actions. Cleared on reset.
+    action_buffer = ObsTerm(func=observations.get_velocity_command, history_length=5)
+
+
+@configclass
+class _MaxSpeedGroup(ObsGroup):
+    # the speed cap of the robot [m/s], fed to the policy head unencoded
+    max_speed = ObsTerm(func=observations.get_max_speed)
 
 
 @configclass
@@ -58,3 +63,4 @@ class LidarOnlyCfg:
     velocity_buffer = _VelocityGroup()
     lidar = _LidarGroup()
     global_plan = _GlobalPlanGroup()
+    max_speed = _MaxSpeedGroup()
